@@ -1,0 +1,385 @@
+@import "@xterm/xterm/css/xterm.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --st-ok: #10b981;
+  --st-warn: #f59e0b;
+  --st-crit: #ef4444;
+  --dh-accent: #64748b; /* 深色主题中性焦点色 */
+  --dh-bg: #070a0f;
+  --dh-bg-soft: #0b111a;
+  --dh-surface: #101722;
+  --dh-surface-2: #151f2e;
+  --dh-surface-hover: #1b283a;
+  --dh-border: #253448;
+  --dh-border-soft: #1d2a3a;
+  --dh-text: #e5edf7;
+  --dh-text-soft: #cbd5e1;
+  --dh-muted: #94a3b8;
+  --dh-muted-2: #64748b;
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+@supports (height: 100dvh) {
+  html, body, #root {
+    height: 100dvh;
+  }
+}
+body {
+  color: var(--dh-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    "PingFang SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--dh-bg);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: rgba(148, 163, 184, 0.16);
+}
+
+.dh-app-shell {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 100%;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--dh-bg);
+}
+@supports (height: 100dvh) {
+  .dh-app-shell {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+}
+.dh-app-header {
+  padding-top: env(safe-area-inset-top);
+  background: rgba(10, 15, 24, 0.96);
+}
+.dh-safe-bottom-pad {
+  padding-bottom: max(0.5rem, var(--dh-panel-safe-bottom, env(safe-area-inset-bottom)));
+}
+
+@media (pointer: coarse) {
+  .dh-terminal-selectable .xterm-viewport {
+    overflow-y: hidden !important;
+  }
+  .dh-terminal-selectable .xterm,
+  .dh-terminal-selectable .xterm-viewport,
+  .dh-terminal-selectable .xterm-screen,
+  .dh-terminal-selectable .xterm-rows,
+  .dh-terminal-selectable .xterm-rows * {
+    touch-action: none;
+    -webkit-touch-callout: default;
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+  .dh-terminal-selectable .xterm-rows ::selection {
+    background: rgba(45, 212, 191, 0.38);
+    color: #f8fafc;
+  }
+}
+
+/* Bosun 卡片：暗色实心面 + 细边 */
+.card {
+  background: var(--dh-surface);
+  border: 1px solid var(--dh-border-soft);
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+}
+
+/* 原生 select 统一成和其它输入一致的观感 */
+select {
+  background-color: var(--dh-bg-soft);
+  border: 1px solid var(--dh-border);
+  border-radius: 0.5rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.875rem;
+  color: var(--dh-text);
+  cursor: pointer;
+}
+/* 统一聚焦态: 青蓝描边 */
+select:focus,
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--dh-accent);
+}
+
+/* 对话面板 markdown：暗底浅字，长 token 换行不撑破 */
+.chat-md {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e5e7eb;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md p { margin: 0.4em 0; }
+.chat-md h1, .chat-md h2, .chat-md h3 { margin: 0.6em 0 0.3em; font-weight: 600; line-height: 1.3; }
+.chat-md h1 { font-size: 1.15em; }
+.chat-md h2 { font-size: 1.08em; }
+.chat-md h3 { font-size: 1em; }
+.chat-md a { color: #2dd4bf; text-decoration: underline; }
+.chat-md ul, .chat-md ol { margin: 0.4em 0; padding-left: 1.4em; }
+.chat-md li { margin: 0.15em 0; }
+.chat-md code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(148, 163, 184, 0.18);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.chat-md pre {
+  margin: 0.5em 0;
+  padding: 0.7em 0.85em;
+  background: #060910;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.chat-md pre code { background: none; padding: 0; font-size: 0.88em; }
+.chat-md blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid #334155;
+  color: #94a3b8;
+}
+.chat-md table { border-collapse: collapse; margin: 0.5em 0; display: block; overflow-x: auto; }
+.chat-md th, .chat-md td { border: 1px solid #334155; padding: 0.3em 0.6em; }
+.chat-md th { background: rgba(148, 163, 184, 0.1); }
+
+/* 表单小输入(问题来源表单等) */
+.in {
+  width: 100%;
+  background: var(--dh-bg-soft);
+  border: 1px solid var(--dh-border);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--dh-text);
+}
+
+input,
+textarea,
+select {
+  background-color: var(--dh-bg-soft);
+  border-color: var(--dh-border);
+  color: var(--dh-text);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--dh-muted-2);
+}
+
+/* ===== 移动端适配 ===== */
+/* iOS Safari: 输入控件字号 <16px 时聚焦会自动放大整页 → 小屏统一提到 16px(!important 压过工具类字号) */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+/* 触屏设备: 保证按钮最小可点高度(桌面鼠标不受影响) */
+@media (pointer: coarse) {
+  button {
+    min-height: 2.25rem;
+  }
+}
+
+/* 细滚动条 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 全局暗色覆盖：让现有 Tailwind 浅色工具类统一映射到 Bosun 黑色主题 */
+.bg-white,
+.bg-white\/70,
+.bg-white\/95 {
+  background-color: var(--dh-surface) !important;
+}
+.bg-slate-50,
+.bg-slate-50\/50,
+.bg-slate-50\/60,
+.bg-slate-50\/70 {
+  background-color: var(--dh-bg-soft) !important;
+}
+.bg-slate-100 {
+  background-color: var(--dh-surface-2) !important;
+}
+.bg-teal-50,
+.bg-teal-50\/50,
+.bg-teal-100 {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+}
+.bg-indigo-50,
+.bg-indigo-100,
+.bg-violet-50,
+.bg-violet-50\/30,
+.bg-violet-50\/50,
+.bg-violet-50\/60,
+.bg-violet-100,
+.bg-fuchsia-50,
+.bg-fuchsia-50\/60,
+.bg-fuchsia-100 {
+  background-color: rgba(139, 92, 246, 0.18) !important;
+}
+.bg-emerald-50,
+.bg-emerald-100 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+.bg-sky-50,
+.bg-sky-100 {
+  background-color: rgba(14, 165, 233, 0.13) !important;
+}
+.bg-teal-600 {
+  background-color: #0f766e !important;
+}
+.hover\:bg-teal-700:hover {
+  background-color: #115e59 !important;
+}
+.bg-amber-50,
+.bg-amber-50\/60,
+.bg-amber-100 {
+  background-color: rgba(245, 158, 11, 0.13) !important;
+}
+.bg-rose-50,
+.bg-rose-100 {
+  background-color: rgba(244, 63, 94, 0.13) !important;
+}
+
+.border-slate-100,
+.border-slate-200 {
+  border-color: var(--dh-border-soft) !important;
+}
+.border-amber-200,
+.border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+}
+.border-emerald-200 {
+  border-color: rgba(16, 185, 129, 0.4) !important;
+}
+.border-rose-200 {
+  border-color: rgba(244, 63, 94, 0.4) !important;
+}
+.border-teal-300 {
+  border-color: rgba(148, 163, 184, 0.46) !important;
+}
+.border-violet-200 {
+  border-color: rgba(139, 92, 246, 0.4) !important;
+}
+.divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--dh-border-soft) !important;
+}
+.divide-violet-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(139, 92, 246, 0.28) !important;
+}
+.ring-slate-200,
+.ring-teal-200,
+.ring-emerald-200,
+.ring-sky-200,
+.ring-violet-200,
+.ring-fuchsia-200,
+.ring-amber-200 {
+  --tw-ring-color: var(--dh-border) !important;
+}
+
+.text-slate-900,
+.text-slate-800 {
+  color: var(--dh-text) !important;
+}
+.text-slate-700,
+.text-slate-600 {
+  color: var(--dh-text-soft) !important;
+}
+.text-slate-500 {
+  color: var(--dh-muted) !important;
+}
+.text-slate-400,
+.text-slate-300 {
+  color: var(--dh-muted-2) !important;
+}
+.text-teal-700,
+.text-teal-600 {
+  color: var(--dh-text-soft) !important;
+}
+.text-emerald-700,
+.text-emerald-600 {
+  color: #6ee7b7 !important;
+}
+.text-amber-800,
+.text-amber-700,
+.text-amber-600 {
+  color: #fbbf24 !important;
+}
+.text-rose-700,
+.text-rose-600 {
+  color: #fb7185 !important;
+}
+.text-sky-600 {
+  color: #7dd3fc !important;
+}
+.text-violet-600,
+.text-fuchsia-600,
+.text-indigo-600 {
+  color: #c4b5fd !important;
+}
+
+.hover\:bg-slate-50:hover,
+.hover\:bg-slate-100:hover {
+  background-color: var(--dh-surface-hover) !important;
+}
+.hover\:bg-teal-50:hover {
+  background-color: rgba(148, 163, 184, 0.18) !important;
+}
+.hover\:bg-emerald-50:hover,
+.hover\:bg-emerald-100:hover {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+}
+.hover\:bg-sky-50:hover {
+  background-color: rgba(14, 165, 233, 0.18) !important;
+}
+.hover\:bg-amber-50:hover,
+.hover\:bg-amber-50\/60:hover,
+.hover\:bg-amber-100:hover {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+}
+.hover\:bg-rose-50:hover {
+  background-color: rgba(244, 63, 94, 0.18) !important;
+}
+.hover\:bg-violet-50\/30:hover,
+.hover\:bg-violet-50:hover {
+  background-color: rgba(139, 92, 246, 0.18) !important;
+}
+.hover\:text-slate-800:hover,
+.hover\:text-slate-700:hover,
+.hover\:text-slate-600:hover {
+  color: #f8fafc !important;
+}
+
+.shadow,
+.shadow-sm,
+.shadow-md,
+.shadow-lg,
+.shadow-xl,
+.shadow-2xl {
+  --tw-shadow-color: rgba(0, 0, 0, 0.45);
+}
+
+.focus\:border-teal-500:focus {
+  border-color: var(--dh-muted-2) !important;
+}

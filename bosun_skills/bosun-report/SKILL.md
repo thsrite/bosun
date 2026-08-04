@@ -1,0 +1,34 @@
+---
+name: bosun-report
+description: 向 Bosun 工作台回报当前任务的最终状态。仅当你正运行在 Bosun 派发的任务中（环境变量 BOSUN_TASK_ID 存在）时适用；在任务收尾、你即将停下等待用户、或任务失败无法继续时调用，让 Bosun 拿到权威状态而不必靠猜。若不在 Bosun 任务中（无 BOSUN_TASK_ID），本 skill 无操作，不要调用。
+---
+
+# bosun-report
+
+把当前任务的最终状态回报给 Bosun 工作台，取代它对终端输出的启发式猜测。
+
+## 何时使用
+
+- **仅当** 环境变量 `BOSUN_TASK_ID` 存在（说明本会话由 Bosun 派发）。
+- 在你这一轮工作**收尾时**：任务完成、失败、或需要用户拍板才能继续。
+- 不适用：环境里没有 `BOSUN_TASK_ID`（你是被用户单独开启的）→ 什么都不做。
+
+## 怎么做
+
+在你即将结束本轮工作前，运行本 skill 目录下的 `scripts/report.sh`，二选一传状态：
+
+- 任务已完成：
+  ```bash
+  bash "$(dirname "$0")/scripts/report.sh" --status done --summary "一句话说清你做了什么"
+  ```
+- 任务失败/无法继续：
+  ```bash
+  bash scripts/report.sh --status failed --summary "一句话说清卡在哪"
+  ```
+- 需要用户输入才能继续：
+  ```bash
+  bash scripts/report.sh --status needs_input --summary "一句话说清等用户拍板什么" --needs-reply
+  ```
+
+`summary` 用一句话（≤200 字）说清结论。脚本会先把状态和同一份 summary 打印到 agent 终端，再回调 Bosun；同时会自动处理引号转义，直接写自然语言即可。
+脚本在非 Bosun 会话里会自动空转，安全无副作用。

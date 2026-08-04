@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#070a0f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Bosun" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/bosun.svg" />
+    <link rel="apple-touch-icon" href="/icons/bosun-180.png" />
+    <title>Bosun 工作台</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: #070a0f;
+      }
+      @supports (height: 100dvh) {
+        html,
+        body,
+        #root {
+          height: 100dvh;
+        }
+      }
+      .pwa-startup {
+        box-sizing: border-box;
+        display: grid;
+        min-height: 100%;
+        place-content: center;
+        gap: 12px;
+        padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+        color: #e5edf7;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        text-align: center;
+      }
+      .pwa-startup__mark {
+        display: grid;
+        width: 56px;
+        height: 56px;
+        place-items: center;
+        justify-self: center;
+        border-radius: 16px;
+        background: #000;
+        color: #e5edf7;
+        font-size: 28px;
+      }
+      .pwa-startup__name {
+        font-size: 17px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div id="pwa-startup" class="pwa-startup" role="status" aria-label="Bosun 正在启动">
+        <div class="pwa-startup__mark">⚓</div>
+        <div class="pwa-startup__name">Bosun</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

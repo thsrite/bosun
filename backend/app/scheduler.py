@@ -1,0 +1,667 @@
+"""调度器 + 会话管理器。
+
+- 持有 task_id -> PtySession
+- 后台循环：有空槽时从 queued 里按 priority 挑最高的启动
+- running / waiting_input 都占槽；done/failed/cancelled 释放
+"""
+from __future__ import annotations
+
+import asyncio
+import fcntl
+import os
+import threading
+import time
+from pathlib import Path
+
+from . import db, engine_settings, events, sessions
+from .config import DATA_DIR, LOG_DIR
+from .engines import build_argv, build_resume_argv, with_report_directive
+from .pty_session import PtySession, remove_terminal_log_files
+
+_sessions: dict[int, PtySession] = {}
+_live_tokens = sessions.LiveTokenCounter()  # 增量统计运行中会话用量, 避免每 15s 重解析整份 transcript
+_loop: asyncio.AbstractEventLoop | None = None
+_tick_lock = threading.RLock()  # tick 会被请求线程与事件循环线程调用, 串行化避免重复启动
+_session_capture_lock = threading.Lock()  # 并发捕获时原子认领 rollout，避免相同任务也串号
+_PID = os.getpid()
+_OWNER_TTL = 8.0  # 调度心跳过期秒数: 主进程每 2s 续约, 超过则允许别的进程接管
+_scheduler_lock_file = None
+_scheduler_lock_guard = threading.Lock()
+
+_PAUSABLE_STATUSES = {
+    "queued",
+    "running",
+    "waiting_input",
+    "done",
+    "failed",
+    "cancelled",
+    "interrupted",
+}
+_TERMINAL_STATUSES = {"done", "failed", "cancelled", "interrupted"}
+
+
+class TaskTransitionError(ValueError):
+    """任务状态不允许当前人工操作。"""
+
+
+def _try_acquire_scheduler_file_lock(path: Path):
+    """尝试持有跨进程排他锁；进程退出时由内核自动释放。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(path, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        return None
+    return lock_file
+
+
+def _claim_process_lock() -> bool:
+    global _scheduler_lock_file
+    if _scheduler_lock_file is not None:
+        return True
+    with _scheduler_lock_guard:
+        if _scheduler_lock_file is None:
+            _scheduler_lock_file = _try_acquire_scheduler_file_lock(DATA_DIR / "scheduler.lock")
+        return _scheduler_lock_file is not None
+
+
+def _claim_scheduler() -> bool:
+    """调度单实例锁(心跳 + CAS)：只有持锁进程跑 reconcile/tick，防多后端共享 DB 时互相误标中断。
+
+    机制：setting['scheduler_owner'] = 'pid:ts'。本进程是主/无主/主心跳过期 → CAS 认领并续约，
+    返回 True；否则(别的进程活着持锁) → False，本轮不调度。CAS 保证并发下至多一个进程认领成功。
+    """
+    # Uvicorn 会先执行应用 startup，再尝试绑定端口。没有文件锁时，一个最终绑定失败的
+    # 临时后端也可能运行 reconcile，并把由另一后端持有的活会话误标为 interrupted。
+    if not _claim_process_lock():
+        return False
+
+    now = time.time()
+    val = db.get_setting("scheduler_owner")
+    new = f"{_PID}:{now}"
+    if val is None:  # 空位: 唯一键 INSERT OR IGNORE 防并发双插
+        return db.execute_rowcount(
+            "INSERT OR IGNORE INTO setting(key,value) VALUES('scheduler_owner',?)", (new,)
+        ) == 1
+    opid, ots = None, 0.0
+    try:
+        opid, s = str(val).rsplit(":", 1)
+        ots = float(s)
+    except ValueError:
+        pass
+    if opid == str(_PID) or (now - ots) > _OWNER_TTL:  # 续约自己 / 抢占过期主
+        # CAS: 仅当 value 仍是我们读到的 val 才写入(否则说明别的进程已抢先)
+        return db.execute_rowcount(
+            "UPDATE setting SET value=? WHERE key='scheduler_owner' AND value=?", (new, val)
+        ) == 1
+    return False
+
+
+def get_session(task_id: int) -> PtySession | None:
+    return _sessions.get(task_id)
+
+
+def _max_concurrent() -> int:
+    try:
+        return int(db.get_setting("max_concurrent", 3))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _running_count() -> int:
+    # 快照: 其它线程可能并发 pop(cancel/complete/delete/on_exit), 直接迭代会崩
+    return sum(1 for s in list(_sessions.values()) if s.is_alive())
+
+
+# ---- 会话状态回调（在事件循环线程执行） ----
+def _on_status(task_id: int, status: str) -> None:
+    if status in {"running", "waiting_input"}:
+        if status == "waiting_input":
+            # 同一轮等待可能先后被 PTY 提示识别和 bosun-report skill 回报。
+            # 保留首次进入等待的时间，让前端把它们视作同一条可补发通知。
+            changed = db.execute_rowcount(
+                "UPDATE task SET status=?, ended_at=NULL, exit_code=NULL, "
+                "waiting_since=CASE "
+                "WHEN status='waiting_input' AND waiting_since IS NOT NULL THEN waiting_since "
+                "ELSE ? END WHERE id=? "
+                "AND status IN ('queued','running','waiting_input','interrupted')",
+                (status, time.time(), task_id),
+            )
+        else:
+            changed = db.execute_rowcount(
+                "UPDATE task SET status=?, ended_at=NULL, exit_code=NULL, waiting_since=NULL "
+                "WHERE id=? AND status IN ('queued','running','waiting_input','interrupted')",
+                (status, task_id),
+            )
+        if not changed:
+            return
+    else:
+        db.execute("UPDATE task SET status=?, waiting_since=NULL WHERE id=?", (status, task_id))
+    payload = {"task_id": task_id, "status": status}
+    if status == "waiting_input":
+        payload["waiting_kind"] = get_waiting_kind(task_id)
+        row = db.query_one("SELECT waiting_since FROM task WHERE id=?", (task_id,))
+        payload["waiting_since"] = row["waiting_since"] if row else None
+    events.emit("task.status", payload)
+
+
+def _on_exit(task_id: int, exit_code: int) -> None:
+    status = "done" if exit_code == 0 else "failed"
+    # 仅当仍处于活动态时才由进程退出决定终态，避免覆盖手动完成/取消
+    db.execute(
+        "UPDATE task SET status=?, exit_code=?, ended_at=?, waiting_since=NULL "
+        "WHERE id=? AND status IN ('running','waiting_input')",
+        (status, exit_code, time.time(), task_id),
+    )
+    _sessions.pop(task_id, None)
+    # 仅当确实由本次退出更新了状态(仍是活动态)才推送, 避免覆盖已 cancel/complete/delete
+    cur = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
+    if cur and cur["status"] == status:
+        events.emit("task.status", {"task_id": task_id, "status": status, "exit_code": exit_code})
+        threading.Thread(target=_finalize_tokens, args=(task_id, 3.0), daemon=True).start()
+    # 空出槽位，立即尝试拉起下一个
+    tick()
+
+
+def _on_session(task_id: int, session_id: str) -> None:
+    db.execute("UPDATE task SET session_uid=? WHERE id=?", (session_id, task_id))
+    events.emit("task.session", {"task_id": task_id, "session_uid": session_id})
+
+
+def _on_tokens(task_id: int, tokens: int) -> None:
+    db.execute("UPDATE task SET tokens=? WHERE id=?", (tokens, task_id))
+    events.emit("task.tokens", {"task_id": task_id, "tokens": tokens})
+
+
+def _on_permission(task_id: int, info: dict | None) -> None:
+    events.emit("task.permission", {"task_id": task_id, "permission": info})
+
+
+def _capture_session(
+    task_id: int,
+    engine: str,
+    cwd: str,
+    prompt: str,
+    before: set,
+    since: float,
+) -> None:
+    """运行后轮询捕获引擎真实生成的会话 id(cc/codex 都不支持事前钉 id)。"""
+    for _ in range(30):
+        time.sleep(1.5)
+        if engine == "cc":
+            uid = sessions.capture_cc_session(cwd, before, since)
+        else:
+            with _session_capture_lock:
+                claimed = {
+                    row["session_uid"]
+                    for row in db.query(
+                        "SELECT session_uid FROM task WHERE id<>? AND session_uid IS NOT NULL",
+                        (task_id,),
+                    )
+                }
+                uid = sessions.capture_codex_session(
+                    before,
+                    since,
+                    cwd=cwd,
+                    prompt=prompt,
+                    exclude_uids=claimed,
+                )
+        if uid:
+            changed = db.execute_rowcount(
+                "UPDATE task SET session_uid=? WHERE id=? AND started_at=? "
+                "AND status IN ('running','waiting_input') AND session_uid IS NULL",
+                (uid, task_id, since),
+            )
+            if changed:
+                events.emit("task.session", {"task_id": task_id, "session_uid": uid})
+            return
+
+
+def _finalize_tokens(task_id: int, delay: float) -> None:
+    """任务结束后等 transcript 落盘，解析 token 用量存库。"""
+    time.sleep(delay)
+    t = db.query_one(
+        "SELECT engine, project_id, session_uid, started_at, ended_at FROM task WHERE id=?",
+        (task_id,),
+    )
+    if t is None or not t["session_uid"]:
+        return
+    project = db.query_one("SELECT path FROM project WHERE id=?", (t["project_id"],))
+    if project is None:
+        return
+    tokens = sessions.count_tokens(
+        t["engine"],
+        project["path"],
+        t["session_uid"],
+        since=t["started_at"],
+        until=t["ended_at"],
+    )
+    if tokens is not None:
+        db.execute("UPDATE task SET tokens=? WHERE id=?", (tokens, task_id))
+        events.emit("task.tokens", {"task_id": task_id, "tokens": tokens})
+
+
+def _start_task(row) -> None:
+    assert _loop is not None
+    project = db.query_one("SELECT * FROM project WHERE id=?", (row["project_id"],))
+    if project is None:
+        db.execute("UPDATE task SET status='failed' WHERE id=?", (row["id"],))
+        return
+    log_path = str(LOG_DIR / f"task-{row['id']}.log")
+    engine, auto = row["engine"], bool(row["auto_approve"])
+    session_uid = row["session_uid"]
+    run_started_at = time.time()
+    capture = None  # (before, since)
+
+    # cc 首跑(非resume、无post_input) 默认走 SDK；设置可强制 CLI。
+    use_sdk = engine_settings.should_use_claude_sdk(
+        engine,
+        resume=bool(row["resume"]),
+        post_input=row["post_input"],
+    )
+
+    if use_sdk:
+        from .sdk_session import SdkSession
+
+        session = SdkSession(
+            task_id=row["id"],
+            prompt=row["prompt"],
+            cwd=project["path"],
+            auto_approve=auto,
+            log_path=log_path,
+            loop=_loop,
+            on_status=_on_status,
+            on_exit=_on_exit,
+            on_session=_on_session,
+            on_tokens=_on_tokens,
+            on_permission=_on_permission,
+        )
+    else:
+        if row["resume"] and session_uid:
+            argv = build_resume_argv(engine, session_uid, row["prompt"], auto)
+        else:  # 首跑：引擎自建会话(会落盘)，运行后捕获真实 session id
+            argv = build_argv(engine, row["prompt"], auto)
+            before = sessions.snapshot_cc(project["path"]) if engine == "cc" else sessions.snapshot_codex()
+            capture = (before, run_started_at)
+        session = PtySession(
+            task_id=row["id"],
+            argv=argv,
+            cwd=project["path"],
+            log_path=log_path,
+            loop=_loop,
+            on_status=_on_status,
+            on_exit=_on_exit,
+            post_input=row["post_input"],
+        )
+    _sessions[row["id"]] = session
+    db.execute(
+        "UPDATE task SET status='running', log_path=?, started_at=?, ended_at=NULL, "
+        "exit_code=NULL, render_mode=?, waiting_since=NULL, "
+        # 上一轮 bosun-report 的摘要属于上一轮：新一轮跑起来就清掉，
+        # 免得待处理列表和通知里挂着过期结论。
+        "report_result=NULL, report_summary=NULL WHERE id=?",
+        (log_path, run_started_at, "chat" if use_sdk else "terminal", row["id"]),
+    )
+    try:
+        session.start()
+    except Exception as exc:  # 启动失败（如 claude 不在 PATH）
+        _sessions.pop(row["id"], None)
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"启动失败: {exc}\n")
+        except OSError:
+            pass
+        db.execute(
+            "UPDATE task SET status='failed', exit_code=127, ended_at=? WHERE id=?",
+            (time.time(), row["id"]),
+        )
+        events.emit("task.status", {"task_id": row["id"], "status": "failed", "error": str(exc)})
+        return
+    events.emit("task.status", {"task_id": row["id"], "status": "running"})
+    if capture is not None:
+        before, since = capture
+        # 认领 Codex 会话靠「首条用户消息==prompt」精确比对；派发给引擎的 prompt 被
+        # build_argv 追加了收尾约定 tail，rollout 落盘的正是带 tail 的版本。捕获必须
+        # 用同一份带 tail 的 prompt，否则短 prompt(tail 未被 500 截掉)永远认领不到。
+        dispatched_prompt = with_report_directive(row["prompt"])
+        threading.Thread(
+            target=_capture_session,
+            args=(row["id"], engine, project["path"], dispatched_prompt, before, since),
+            daemon=True,
+        ).start()
+
+
+def tick() -> None:
+    """尝试用空槽拉起 queued 任务（按优先级降序）。多线程调用, 加锁串行。"""
+    with _tick_lock:
+        free = _max_concurrent() - _running_count()
+        if free <= 0:
+            return
+        rows = db.query(
+            "SELECT * FROM task WHERE status='queued' AND deleted=0 ORDER BY priority DESC, created_at ASC LIMIT ?",
+            (free,),
+        )
+        for row in rows:
+            _start_task(row)
+
+
+def respond_permission(task_id: int, allow: bool) -> bool:
+    s = _sessions.get(task_id)
+    if s is not None and hasattr(s, "respond_permission"):
+        s.respond_permission(allow)
+        return True
+    return False
+
+
+def get_permission(task_id: int) -> dict | None:
+    s = _sessions.get(task_id)
+    return getattr(s, "pending_permission", None) if s is not None else None
+
+
+def get_waiting_kind(task_id: int) -> str | None:
+    s = _sessions.get(task_id)
+    if s is None:
+        return None
+    if getattr(s, "pending_permission", None) is not None:
+        return "permission"
+    kind = getattr(s, "waiting_kind", None)
+    return kind if kind in {"choice", "input", "permission", "review"} else None
+
+
+def get_session_cleared(task_id: int) -> bool:
+    """当前执行器是否检测到会话被 /clear 冲掉(仅 PTY 会话有此信号)。"""
+    s = _sessions.get(task_id)
+    return bool(getattr(s, "session_cleared", False))
+
+
+def cancel(task_id: int) -> bool:
+    session = _sessions.get(task_id)
+    if session is not None:
+        session.terminate()
+        _sessions.pop(task_id, None)
+    db.execute(
+        "UPDATE task SET status='cancelled', ended_at=? WHERE id=? AND status IN "
+        "('queued','running','waiting_input')",
+        (time.time(), task_id),
+    )
+    events.emit("task.status", {"task_id": task_id, "status": "cancelled"})
+    tick()
+    return True
+
+
+def complete(task_id: int) -> bool:
+    """手动标记完成：运行中的先停进程，中断/等待执行的任务也允许人工确认完成。"""
+    session = _sessions.get(task_id)
+    if session is not None:
+        session.graceful_stop()  # 尽量让 cc/codex 落盘会话，便于日后 resume/分享
+        _sessions.pop(task_id, None)
+    db.execute(
+        "UPDATE task SET status='done', ended_at=?, paused_from_status=NULL "
+        "WHERE id=? AND status IN ('running','waiting_input','queued','interrupted','paused')",
+        (time.time(), task_id),
+    )
+    events.emit("task.status", {"task_id": task_id, "status": "done"})
+    threading.Thread(target=_finalize_tokens, args=(task_id, 4.0), daemon=True).start()
+    tick()
+    return True
+
+
+def pause(task_id: int) -> bool:
+    """把活动或归档任务移入人工等待区；paused 永不被自动调度。"""
+    row = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if row is None:
+        raise TaskTransitionError("任务不存在")
+    source = row["status"]
+    if source not in _PAUSABLE_STATUSES:
+        raise TaskTransitionError(f"任务状态 {source} 不能移入等待执行")
+
+    now = time.time()
+    ended_at = now if source in {"running", "waiting_input"} else row["ended_at"]
+    changed = db.execute_rowcount(
+        "UPDATE task SET status='paused', paused_from_status=?, "
+        "original_prompt=COALESCE(original_prompt,prompt), ended_at=? "
+        "WHERE id=? AND status=? AND deleted=0",
+        (source, ended_at, task_id, source),
+    )
+    if not changed:
+        raise TaskTransitionError("任务状态已变化，请刷新后重试")
+
+    session = _sessions.pop(task_id, None)
+    if session is not None:
+        session.graceful_stop()
+        threading.Thread(target=_finalize_tokens, args=(task_id, 4.0), daemon=True).start()
+    events.emit("task.status", {"task_id": task_id, "status": "paused"})
+    tick()
+    return True
+
+
+def restore_paused(task_id: int) -> bool:
+    """把等待任务移回归档；原先是活动态的任务回到不会自动执行的 draft。"""
+    row = db.query_one(
+        "SELECT status, paused_from_status FROM task WHERE id=? AND deleted=0",
+        (task_id,),
+    )
+    if row is None:
+        raise TaskTransitionError("任务不存在")
+    if row["status"] != "paused":
+        raise TaskTransitionError("只有等待执行的任务可以移回")
+    source = row["paused_from_status"]
+    target = source if source in _TERMINAL_STATUSES else "draft"
+    changed = db.execute_rowcount(
+        "UPDATE task SET status=?, prompt=COALESCE(original_prompt,prompt), paused_from_status=NULL "
+        "WHERE id=? AND status='paused'",
+        (target, task_id),
+    )
+    if not changed:
+        raise TaskTransitionError("任务状态已变化，请刷新后重试")
+    events.emit("task.status", {"task_id": task_id, "status": target})
+    return True
+
+
+def resume_paused(task_id: int, extra_prompt: str = "") -> bool:
+    """手动执行等待任务：优先恢复有效会话，否则按原始指令开启新会话。
+
+    extra_prompt 为用户追加的指令：恢复会话时它就是唯一要发的内容(留空=只加载上下文)；
+    无会话可恢复时并到原始指令后面一起重开。
+    """
+    row = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if row is None:
+        raise TaskTransitionError("任务不存在")
+    if row["status"] != "paused":
+        raise TaskTransitionError("只有等待执行的任务可以继续")
+    project = db.query_one("SELECT path FROM project WHERE id=?", (row["project_id"],))
+    if project is None:
+        raise TaskTransitionError("任务所属项目不存在")
+
+    can_resume = bool(
+        row["session_uid"]
+        and sessions.local_session_info(row["engine"], project["path"], row["session_uid"])
+    )
+    prior = 0
+    if row["started_at"] and row["ended_at"]:
+        prior = max(0, int(row["ended_at"] - row["started_at"]))
+    extra = (extra_prompt or "").strip()
+    if can_resume:
+        prompt = extra  # 空 = 只 --resume 加载上下文，不发任何指令
+    else:
+        origin = row["original_prompt"] or row["prompt"]
+        prompt = f"{origin}\n\n补充要求：\n{extra}" if extra else origin
+    changed = db.execute_rowcount(
+        "UPDATE task SET status='queued', resume=?, prompt=?, session_uid=?, post_input=NULL, "
+        "original_prompt=COALESCE(NULLIF(original_prompt,''), NULLIF(prompt,'')), "
+        "exit_code=NULL, started_at=NULL, ended_at=NULL, elapsed_accum=elapsed_accum+?, "
+        "paused_from_status=NULL WHERE id=? AND status='paused'",
+        (int(can_resume), prompt, row["session_uid"] if can_resume else None, prior, task_id),
+    )
+    if not changed:
+        raise TaskTransitionError("任务状态已变化，请刷新后重试")
+    events.emit("task.status", {"task_id": task_id, "status": "queued"})
+    tick()
+    return True
+
+
+def delete(task_id: int) -> bool:
+    """软删除：看板隐藏但保留行(统计历史不丢)；运行中的先停进程、删日志。"""
+    session = _sessions.pop(task_id, None)
+    if session is not None:
+        session.terminate()
+    row = db.query_one("SELECT log_path, status FROM task WHERE id=?", (task_id,))
+    if row and row["log_path"]:
+        remove_terminal_log_files(row["log_path"])
+    # 活动态删除时补一个终态，避免 reconcile 反复处理
+    end = "ended_at=COALESCE(ended_at, %f)," % time.time()
+    db.execute(
+        f"UPDATE task SET deleted=1, {end} "
+        "status=CASE WHEN status IN ('running','waiting_input','queued') THEN 'cancelled' ELSE status END "
+        "WHERE id=?",
+        (task_id,),
+    )
+    events.emit("task.deleted", {"task_id": task_id})
+    tick()
+    return True
+
+
+def delete_project_tasks(project_id: int) -> int:
+    """删除项目时清理关联任务：终止活动会话、移除终端日志，再交给外层删项目级数据。"""
+    rows = db.query("SELECT id, log_path FROM task WHERE project_id=?", (project_id,))
+    now = time.time()
+    for row in rows:
+        session = _sessions.pop(row["id"], None)
+        if session is not None:
+            session.terminate()
+        if row["log_path"]:
+            remove_terminal_log_files(row["log_path"])
+    db.execute(
+        "UPDATE task SET deleted=1, ended_at=COALESCE(ended_at, ?), "
+        "status=CASE WHEN status IN ('running','waiting_input','queued') THEN 'cancelled' ELSE status END "
+        "WHERE project_id=?",
+        (now, project_id),
+    )
+    if rows:
+        events.emit("project.tasks_deleted", {"project_id": project_id, "count": len(rows)})
+    tick()
+    return len(rows)
+
+
+def to_draft(task_id: int) -> bool:
+    """撤回排队：仅对尚未启动的 queued 任务生效。"""
+    db.execute("UPDATE task SET status='draft' WHERE id=? AND status='queued'", (task_id,))
+    events.emit("task.status", {"task_id": task_id, "status": "draft"})
+    return True
+
+
+def _reconcile() -> None:
+    """对账：DB 标记为运行/待输入、但后端已无 session 的任务 → 标记中断(修状态失同步)。
+
+    宽限 20s：刚启动的任务不参与对账，避免启动竞态(会话尚未注册进 _sessions 时被误标)。
+    """
+    now = time.time()
+
+    # 若旧版本或短暂的错误调度者曾误标状态，本进程仍实际持有的活会话应恢复为活动态。
+    # 只修复 interrupted，避免覆盖用户主动完成/取消的状态。
+    for task_id, session in list(_sessions.items()):
+        if not session.is_alive():
+            continue
+        desired = session.status if session.status in {"running", "waiting_input"} else "running"
+        if desired == "waiting_input":
+            changed = db.execute_rowcount(
+                "UPDATE task SET status=?, ended_at=NULL, exit_code=NULL, "
+                "waiting_since=COALESCE(waiting_since, ?) "
+                "WHERE id=? AND status='interrupted'",
+                (desired, now, task_id),
+            )
+        else:
+            changed = db.execute_rowcount(
+                "UPDATE task SET status=?, ended_at=NULL, exit_code=NULL, waiting_since=NULL "
+                "WHERE id=? AND status='interrupted'",
+                (desired, task_id),
+            )
+        if changed:
+            payload = {"task_id": task_id, "status": desired}
+            if desired == "waiting_input":
+                payload["waiting_kind"] = get_waiting_kind(task_id)
+                row = db.query_one("SELECT waiting_since FROM task WHERE id=?", (task_id,))
+                payload["waiting_since"] = row["waiting_since"] if row else None
+            events.emit("task.status", payload)
+
+    grace = now - 20
+    rows = db.query(
+        "SELECT id, log_path FROM task WHERE status IN ('running','waiting_input') AND deleted=0 "
+        "AND (started_at IS NULL OR started_at < ?)",
+        (grace,),
+    )
+    for r in rows:
+        if r["id"] in _sessions:
+            continue
+        # 保险: 日志近期仍在写 = 有活会话(可能在别的后端进程), 不误标中断
+        lp = r["log_path"]
+        try:
+            if lp and (now - os.path.getmtime(lp)) < 15:
+                continue
+        except OSError:
+            pass
+        db.execute(
+            "UPDATE task SET status='interrupted', ended_at=?, waiting_since=NULL WHERE id=?",
+            (now, r["id"]),
+        )
+        events.emit("task.status", {"task_id": r["id"], "status": "interrupted"})
+
+
+async def _run_loop() -> None:
+    while True:
+        try:
+            if _claim_scheduler():  # 单实例守卫: 非持锁进程不对账/不调度
+                _reconcile()
+                tick()
+        except Exception:
+            pass
+        await asyncio.sleep(2.0)
+
+
+def _refresh_live_tokens() -> None:
+    """周期解析运行中任务的 transcript，token 有变化则更新+推送(实时用量)。
+
+    只增量解析上次刷新后新增的字节(见 sessions.LiveTokenCounter)，而非每次重读整份
+    持续增长的 transcript——后者是本服务内存随运行时长上涨的主因。
+    """
+    live_ids: set[int] = set()
+    for tid, s in list(_sessions.items()):
+        if not s.is_alive():
+            continue
+        live_ids.add(tid)
+        t = db.query_one(
+            "SELECT engine, project_id, session_uid, tokens, started_at FROM task WHERE id=?", (tid,)
+        )
+        if not t or not t["session_uid"]:
+            continue
+        proj = db.query_one("SELECT path FROM project WHERE id=?", (t["project_id"],))
+        if not proj:
+            continue
+        tok = _live_tokens.update(
+            tid,
+            t["engine"],
+            proj["path"],
+            t["session_uid"],
+            since=t["started_at"],
+        )
+        if tok is not None and tok != t["tokens"]:
+            db.execute("UPDATE task SET tokens=? WHERE id=?", (tok, tid))
+            events.emit("task.tokens", {"task_id": tid, "tokens": tok})
+    _live_tokens.retain(live_ids)
+
+
+def _token_loop() -> None:
+    while True:
+        time.sleep(15)
+        try:
+            _refresh_live_tokens()
+        except Exception:
+            pass
+
+
+def start(loop: asyncio.AbstractEventLoop) -> None:
+    global _loop
+    _loop = loop
+    loop.create_task(_run_loop())
+    threading.Thread(target=_token_loop, daemon=True).start()

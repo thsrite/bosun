@@ -1,0 +1,201 @@
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
+import type { Task } from "../types";
+import { useSingleFlight } from "../useSingleFlight";
+import { taskPromptText } from "../taskText";
+
+function fmtDur(start: number | null, end: number | null, accum = 0): string | null {
+  const cur = start ? Math.max(0, Math.round((end ?? Date.now() / 1000) - start)) : 0;
+  const secs = cur + (accum || 0); // accum: 续聊累计的历次时长
+  if (!start && !accum) return null;
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  return m < 60 ? `${m}m${secs % 60}s` : `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
+function fmtTokens(n: number | null): string | null {
+  if (n == null) return null;
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+export function TaskCard({
+  task,
+  onOpen,
+  onStart,
+  onComplete,
+  onCancel,
+  onDelete,
+  onRerun,
+  onContinue,
+}: {
+  task: Task;
+  onOpen: (t: Task) => void;
+  onStart: (t: Task) => void | Promise<void>;
+  onComplete: (t: Task) => void | Promise<void>;
+  onCancel: (t: Task) => void | Promise<void>;
+  onDelete: (t: Task) => void | Promise<void>;
+  onRerun: (t: Task) => void | Promise<void>;
+  onContinue: (t: Task) => void | Promise<void>;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: task.id });
+  const { busy, run: singleFlight } = useSingleFlight();
+  // 动作进行中禁用全部动作按钮，避免快速多点触发重复请求
+  const run = (fn: (t: Task) => void | Promise<void>) => async () => {
+    await singleFlight(() => fn(task));
+  };
+  const statusKey = taskStatusStyleKey(task);
+  const isPerm = statusKey === "waiting_perm";
+  const isChoice = statusKey === "waiting_choice";
+  const isReview = statusKey === "waiting_review";
+  const s = STATUS_STYLE[statusKey] ?? STATUS_STYLE.draft;
+  const isDraft = task.status === "draft";
+  const isWaiting = task.status === "waiting_input" && !isPerm && !isChoice && !isReview;
+  const active = ["running", "waiting_input", "queued"].includes(task.status);
+  const terminal = ["done", "failed", "cancelled", "interrupted"].includes(task.status);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`group w-full rounded-xl border bg-white p-3 text-sm shadow-sm transition ${
+        isPerm
+          ? "border-fuchsia-300 bg-fuchsia-50/60 ring-2 ring-fuchsia-200"
+          : isChoice
+          ? "border-orange-300 bg-orange-50/60 ring-2 ring-orange-200"
+          : isReview
+          ? "border-cyan-300 bg-cyan-50/60 ring-2 ring-cyan-200"
+          : isWaiting
+          ? "border-amber-300 bg-amber-50/60 ring-2 ring-amber-200"
+          : terminal
+            ? "border-slate-100 opacity-70"
+            : "border-slate-200 hover:shadow"
+      } ${isDragging ? "opacity-60 ring-2 ring-teal-500" : ""}`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span
+          {...attributes}
+          {...listeners}
+          className="cursor-grab select-none text-slate-300 hover:text-slate-500"
+          title="拖拽"
+        >
+          ⠿
+        </span>
+        <span className={`h-2 w-2 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
+        <span className="font-mono text-[11px] text-slate-400">#{task.id}</span>
+        <span className="rounded bg-slate-100 px-1.5 text-[10px] font-medium uppercase text-slate-500">
+          {task.engine}
+        </span>
+        {task.kind === "repair" && (
+          <span className="rounded bg-violet-100 px-1.5 text-[10px] text-violet-600">修复</span>
+        )}
+        <span className="ml-auto rounded-full bg-slate-100 px-1.5 text-[10px] font-medium text-slate-500">
+          P{task.priority}
+        </span>
+      </div>
+
+      <div className="mt-2 cursor-pointer" onClick={() => onOpen(task)} title={taskPromptText(task)}>
+        <div className="line-clamp-1 text-[13px] font-medium leading-snug text-slate-800 hover:text-slate-900">
+          {task.title || taskPromptText(task)}
+        </div>
+        {task.title && (
+          <div className="mt-0.5 line-clamp-1 text-[11px] text-slate-400">{taskPromptText(task)}</div>
+        )}
+      </div>
+
+      <div className="mt-2 flex items-center justify-between">
+        <span className={`text-[11px] font-medium ${s.text}`}>
+          {isPerm && "🔑 "}
+          {s.label}
+          {terminal && task.ended_at && (
+            <span className="ml-1 font-normal text-slate-400">
+              · {new Date(task.ended_at * 1000).toLocaleString("zh", {
+                month: "numeric",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              })}
+            </span>
+          )}
+        </span>
+        <div className="flex flex-wrap justify-end gap-1 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
+          {isDraft && (
+            <button
+              className="rounded-md bg-emerald-500 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-600 disabled:opacity-50"
+              onClick={run(onStart)}
+              disabled={busy}
+              title="排入执行"
+            >
+              ▶
+            </button>
+          )}
+          <button
+            className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
+            onClick={() => onOpen(task)}
+          >
+            终端
+          </button>
+          {(!terminal || task.status === "interrupted") && (
+            <button
+              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-sky-600 hover:bg-sky-50 disabled:opacity-50"
+              onClick={run(onComplete)}
+              disabled={busy}
+              title="标记完成"
+            >
+              ✓
+            </button>
+          )}
+          {terminal && task.session_uid && (
+            <button
+              className="rounded-md bg-teal-600 px-2 py-0.5 text-[11px] text-white hover:bg-teal-700 disabled:opacity-50"
+              onClick={run(onContinue)}
+              disabled={busy}
+              title="加载旧上下文继续"
+            >
+              ▶继续
+            </button>
+          )}
+          {terminal && (
+            <button
+              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              onClick={run(onRerun)}
+              disabled={busy}
+              title="用同样指令全新跑一遍"
+            >
+              ↻重跑
+            </button>
+          )}
+          {active && (
+            <button
+              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              onClick={run(onCancel)}
+              disabled={busy}
+              title="取消运行"
+            >
+              ✕
+            </button>
+          )}
+          <button
+            className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+            onClick={run(onDelete)}
+            disabled={busy}
+            title="删除任务"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+
+      {(fmtDur(task.started_at, task.ended_at, task.elapsed_accum) || task.tokens != null) && (
+        <div className="mt-1.5 flex items-center gap-3 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400">
+          {fmtDur(task.started_at, task.ended_at, task.elapsed_accum) && (
+            <span title="处理时长(含续聊累计)">⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</span>
+          )}
+          {task.tokens != null && <span title="token 用量">◆ {fmtTokens(task.tokens)} tok</span>}
+        </div>
+      )}
+    </div>
+  );
+}

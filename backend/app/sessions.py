@@ -1,0 +1,647 @@
+"""引擎会话文件的定位 / 读写 / 捕获。
+
+cc:    ~/.claude/projects/<cwd 编码(/→-)>/<session-id>.jsonl
+codex: ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
+"""
+from __future__ import annotations
+
+import json
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+
+CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
+CODEX_SESSIONS = Path.home() / ".codex" / "sessions"
+
+_UUID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+
+
+def encode_cwd(cwd: str) -> str:
+    """cc 的项目目录编码：路径分隔符和下划线都归一为 '-'。"""
+    return str(Path(cwd).resolve()).replace("/", "-").replace("_", "-")
+
+
+def cc_project_dir(cwd: str) -> Path:
+    return CLAUDE_PROJECTS / encode_cwd(cwd)
+
+
+def cc_session_path(cwd: str, uid: str) -> Path:
+    return cc_project_dir(cwd) / f"{uid}.jsonl"
+
+
+def snapshot_cc(cwd: str) -> set[str]:
+    d = cc_project_dir(cwd)
+    return {p.name for p in d.glob("*.jsonl")} if d.is_dir() else set()
+
+
+def capture_cc_session(cwd: str, before: set[str], since_ts: float) -> str | None:
+    """返回本次运行新生成的 cc 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
+    d = cc_project_dir(cwd)
+    if not d.is_dir():
+        return None
+    newest: tuple[float, str] | None = None
+    for p in d.glob("*.jsonl"):
+        if p.name in before:
+            continue  # 只认新文件，排除已存在(如其它会话)
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        if mtime < since_ts - 2:
+            continue
+        if newest is None or mtime > newest[0]:
+            newest = (mtime, p.stem)
+    return newest[1] if newest else None
+
+
+def _codex_rollouts() -> list[Path]:
+    if not CODEX_SESSIONS.is_dir():
+        return []
+    return list(CODEX_SESSIONS.rglob("rollout-*.jsonl"))
+
+
+def codex_session_path(uid: str) -> Path | None:
+    for p in _codex_rollouts():
+        if uid in p.name:
+            return p
+    return None
+
+
+def _ts(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _text_from_content(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts)
+    if isinstance(content, dict):
+        text = content.get("text") or content.get("content")
+        return text if isinstance(text, str) else ""
+    return ""
+
+
+# Codex 首个用户回合不是用户 prompt，而是引擎塞进来的上下文：项目里有
+# agent-rules-sync 托管的 AGENTS.md 时是 `# AGENTS.md instructions` 指令块，
+# 之后跟 `<environment_context>`。真正的 prompt 落在下一条 user 消息。这些前缀
+# 都要判空，否则按「首条用户消息==prompt」认领会话会永远比对不上(会话未捕获)。
+_INJECTED_PROMPT_PREFIXES = ("<environment_context>", "# AGENTS.md instructions")
+
+
+def _clean_prompt(text: str) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if text.startswith(_INJECTED_PROMPT_PREFIXES):
+        return ""
+    return text[:500]
+
+
+def _short_title(text: str, fallback: str) -> str:
+    line = (text or "").strip().splitlines()[0].strip() if (text or "").strip() else ""
+    line = re.sub(r"\s+", " ", line)
+    if not line:
+        return fallback
+    return line[:60] + ("…" if len(line) > 60 else "")
+
+
+def _same_or_child(cwd: str | None, project_path: str) -> bool:
+    if not cwd:
+        return False
+    try:
+        current = Path(cwd).expanduser().resolve()
+        project = Path(project_path).expanduser().resolve()
+        return current == project or project in current.parents
+    except (OSError, RuntimeError):
+        return False
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _session_meta(path: Path, engine: str, project_path: str | None = None) -> dict | None:
+    """Read bounded transcript metadata for local-session discovery."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+
+    uid = path.stem if engine == "cc" else None
+    if engine == "codex":
+        m = _UUID_RE.search(path.name)
+        if not m:
+            return None
+        uid = m.group(1)
+    if not uid or not _UUID_RE.fullmatch(uid):
+        return None
+
+    cwd = None
+    first_user = ""
+    summary = ""
+    created_at = None
+    last_at = None
+    turns = 0
+    line_count = 0
+    try:
+        with path.open(errors="replace") as f:
+            for line in f:
+                line_count += 1
+                if line_count > 4000:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else obj
+                if not isinstance(payload, dict):
+                    continue
+                cwd = cwd or payload.get("cwd") or obj.get("cwd")
+                t = _ts(obj.get("timestamp") or payload.get("timestamp"))
+                if t is not None:
+                    created_at = t if created_at is None else min(created_at, t)
+                    last_at = t if last_at is None else max(last_at, t)
+                if not summary and isinstance(payload.get("summary"), str):
+                    summary = payload["summary"].strip()
+                msg = payload.get("message")
+                role = payload.get("role")
+                content = payload.get("content")
+                if isinstance(msg, dict):
+                    role = msg.get("role", role)
+                    content = msg.get("content", content)
+                if role == "user":
+                    text = _clean_prompt(_text_from_content(content))
+                    if text:
+                        turns += 1
+                        if not first_user:
+                            first_user = text
+    except OSError:
+        return None
+
+    if engine == "codex" and project_path and not _same_or_child(cwd, project_path):
+        return None
+
+    prompt = first_user or summary
+    return {
+        "engine": engine,
+        "session_uid": uid,
+        "title": _short_title(prompt, f"{engine} {uid[:8]}"),
+        "prompt": prompt,
+        "path": str(path),
+        "cwd": cwd,
+        "created_at": created_at,
+        "updated_at": last_at or stat.st_mtime,
+        "size": stat.st_size,
+        "turns": turns,
+    }
+
+
+def local_session_info(engine: str, cwd: str, uid: str) -> dict | None:
+    if not _UUID_RE.fullmatch(uid or ""):
+        return None
+    if engine == "cc":
+        path = cc_session_path(cwd, uid)
+        if not path.exists():
+            return None
+        return _session_meta(path, engine, cwd)
+    if engine == "codex":
+        path = codex_session_path(uid)
+        if path is None or not path.exists():
+            return None
+        return _session_meta(path, engine, cwd)
+    return None
+
+
+def discover_local_sessions(cwd: str, limit: int = 50) -> list[dict]:
+    """Discover resumable local cc/codex transcript files for a project path."""
+    limit = max(1, min(int(limit or 50), 200))
+    found: list[dict] = []
+
+    cc_dir = cc_project_dir(cwd)
+    if cc_dir.is_dir():
+        cc_files = sorted(cc_dir.glob("*.jsonl"), key=_mtime, reverse=True)
+        for path in cc_files[:limit]:
+            meta = _session_meta(path, "cc", cwd)
+            if meta:
+                found.append(meta)
+
+    codex_files = sorted(
+        _codex_rollouts(),
+        key=_mtime,
+        reverse=True,
+    )
+    for path in codex_files[: max(limit * 10, 200)]:
+        meta = _session_meta(path, "codex", cwd)
+        if meta:
+            found.append(meta)
+            if len(found) >= limit * 2:
+                break
+
+    found.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
+    return found[:limit]
+
+
+def snapshot_codex() -> set[str]:
+    """记录当前所有 codex rollout 文件名，用于事后对比出新会话。"""
+    return {p.name for p in _codex_rollouts()}
+
+
+def capture_codex_session(
+    before: set[str],
+    since_ts: float,
+    cwd: str | None = None,
+    prompt: str | None = None,
+    exclude_uids: set[str] | None = None,
+) -> str | None:
+    """返回本次 Codex 运行新建的 rollout uuid。
+
+    Codex 的 transcript 目录是全局共享的。只按 mtime 取最新文件时，并发运行的
+    多个 Codex 会互相串号，所以还要核对 rollout 内记录的 cwd 和首条用户指令。
+    """
+    newest: tuple[float, str] | None = None
+    expected_prompt = _clean_prompt(prompt or "") if prompt is not None else None
+    excluded = exclude_uids or set()
+    for p in _codex_rollouts():
+        if p.name in before:
+            # 首次运行一定创建新 rollout；其它 Codex 正在更新的旧会话不能算作候选。
+            continue
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        if mtime < since_ts - 2:
+            continue
+        m = _UUID_RE.search(p.name)
+        if not m:
+            continue
+        uid = m.group(1)
+        if uid in excluded:
+            continue
+        if cwd is not None or expected_prompt is not None:
+            meta = _session_meta(p, "codex")
+            if meta is None:
+                continue
+            if cwd is not None and not _same_or_child(meta.get("cwd"), cwd):
+                continue
+            if expected_prompt is not None and meta.get("prompt") != expected_prompt:
+                continue
+        if newest is None or mtime > newest[0]:
+            newest = (mtime, uid)
+    return newest[1] if newest else None
+
+
+# ---- 分享：读/写会话文件 ----
+def read_session(engine: str, cwd: str, uid: str) -> str | None:
+    if engine == "cc":
+        p = cc_session_path(cwd, uid)
+    else:
+        p = codex_session_path(uid)
+    if p is None or not p.exists():
+        return None
+    try:
+        return p.read_text(errors="replace")
+    except OSError:
+        return None
+
+
+def _history_content_text(content) -> str:
+    """Extract only human-readable chat text, excluding tool payloads and reasoning."""
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") not in {None, "text", "input_text", "output_text"}:
+            continue
+        text = item.get("text") or item.get("content")
+        if isinstance(text, str) and text.strip():
+            parts.append(text.strip())
+    return "\n\n".join(parts).strip()
+
+
+def session_history(
+    engine: str,
+    cwd: str,
+    uid: str,
+    *,
+    max_messages: int = 300,
+    max_chars: int = 500_000,
+) -> dict:
+    """Return a bounded, responsive transcript for completed or resumable CLI sessions.
+
+    Raw PTY logs reproduce the final TUI screen, including a final clear-screen on
+    Codex exit. The engine JSONL is the durable source for readable conversation
+    history and also exists before a queued resume task starts a new PTY.
+    """
+    if engine == "cc":
+        path = cc_session_path(cwd, uid)
+    else:
+        path = codex_session_path(uid)
+    if path is None or not path.exists():
+        return {"messages": [], "truncated": False}
+
+    messages: list[dict] = []
+
+    def append(role, text, timestamp=None) -> None:
+        if role not in {"user", "assistant"} or not isinstance(text, str):
+            return
+        text = text.strip()
+        if not text or text.startswith("<environment_context>"):
+            return
+        # Codex records the same visible message as response_item + event_msg.
+        if messages and messages[-1]["role"] == role and messages[-1]["text"] == text:
+            return
+        messages.append({"role": role, "text": text, "timestamp": timestamp})
+
+    try:
+        with path.open(errors="replace") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                timestamp = obj.get("timestamp")
+                if engine == "cc":
+                    if obj.get("type") not in {"user", "assistant"}:
+                        continue
+                    msg = obj.get("message")
+                    if not isinstance(msg, dict):
+                        continue
+                    append(msg.get("role") or obj.get("type"), _history_content_text(msg.get("content")), timestamp)
+                    continue
+
+                payload = obj.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                payload_type = payload.get("type")
+                if obj.get("type") == "event_msg" and payload_type in {"user_message", "agent_message"}:
+                    role = "user" if payload_type == "user_message" else "assistant"
+                    append(role, payload.get("message"), timestamp)
+                elif obj.get("type") == "response_item" and payload_type == "message":
+                    append(payload.get("role"), _history_content_text(payload.get("content")), timestamp)
+    except OSError:
+        return {"messages": [], "truncated": False}
+
+    truncated = len(messages) > max_messages
+    if truncated:
+        messages = messages[-max_messages:]
+    total = sum(len(item["text"]) for item in messages)
+    while len(messages) > 1 and total > max_chars:
+        total -= len(messages.pop(0)["text"])
+        truncated = True
+    if messages and len(messages[0]["text"]) > max_chars:
+        messages[0]["text"] = "…\n" + messages[0]["text"][-max_chars:]
+        truncated = True
+    return {"messages": messages, "truncated": truncated}
+
+
+def _usage_tokens(usage: dict) -> int | None:
+    total = 0
+    found = False
+    for k in ("input_tokens", "output_tokens"):
+        v = usage.get(k)
+        if isinstance(v, int):
+            total += v
+            found = True
+    if found:
+        return total
+    v = usage.get("total_tokens")
+    return v if isinstance(v, int) else None
+
+
+def _session_path(engine: str, cwd: str, uid: str) -> Path | None:
+    return cc_session_path(cwd, uid) if engine == "cc" else codex_session_path(uid)
+
+
+class LiveTokenCounter:
+    """运行中会话的增量 token 统计。
+
+    调度器每 15s 刷新一次运行中任务的用量。直接调 count_tokens 会把持续增长的整份
+    transcript(实测可达上百 MB)重新读入并逐行 JSON 解析——会话跑得越久，单次刷新的
+    瞬时分配越大，是本服务 RSS 随运行时长阶梯上涨的主因(macOS 分配器不会把峰值归还
+    OS)。这里为每个任务记住已解析到的字节偏移，每次只解析新增部分，把单次刷新的峰值
+    从"整份文件"降到"两次刷新间的新增输出"。
+
+    语义对齐 count_tokens(since=<started_at>, until=None) 的有界统计，只是改为流式累加。
+    实时值即使近似，任务结束时 _finalize_tokens 会用权威的 count_tokens 覆盖。
+    """
+
+    def __init__(self) -> None:
+        # task_id -> {uid, offset, found, cc_total, codex_before, codex_in}
+        self._state: dict[int, dict] = {}
+
+    def retain(self, live_ids: set[int]) -> None:
+        """丢弃已不在运行的任务状态，避免状态字典自身无界增长。"""
+        for tid in [t for t in self._state if t not in live_ids]:
+            self._state.pop(tid, None)
+
+    def reset(self, task_id: int) -> None:
+        self._state.pop(task_id, None)
+
+    def update(self, task_id: int, engine: str, cwd: str, uid: str, since: float | None) -> int | None:
+        p = _session_path(engine, cwd, uid)
+        if p is None or not p.exists():
+            return None
+        try:
+            size = p.stat().st_size
+        except OSError:
+            return None
+        st = self._state.get(task_id)
+        # 首次、换了会话文件(resume 新会话)、或文件被截断 → 从头重算
+        if st is None or st.get("uid") != uid or size < st["offset"]:
+            st = {"uid": uid, "offset": 0, "found": False, "cc_total": 0,
+                  "codex_before": 0, "codex_in": None}
+            self._state[task_id] = st
+        if size > st["offset"]:
+            try:
+                with open(p, "rb") as f:
+                    f.seek(st["offset"])
+                    chunk = f.read()
+            except OSError:
+                return self._value(st)
+            # 只解析完整行；末尾半行留到下次(偏移只推进到最后一个换行)
+            consumed = chunk.rfind(b"\n") + 1
+            if consumed > 0:
+                st["offset"] += consumed
+                for raw in chunk[:consumed].decode("utf-8", "replace").splitlines():
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    self._accumulate(engine, obj, st, since)
+        return self._value(st)
+
+    @staticmethod
+    def _accumulate(engine: str, obj: dict, st: dict, since: float | None) -> None:
+        payload = obj.get("payload")
+        event_ts = _ts(
+            obj.get("timestamp")
+            or (payload.get("timestamp") if isinstance(payload, dict) else None)
+        )
+        in_window = since is None or (event_ts is not None and event_ts >= since)
+        usage = None
+        msg = obj.get("message")
+        if isinstance(msg, dict):
+            usage = msg.get("usage")
+        if usage is None:
+            usage = obj.get("usage")
+        if isinstance(usage, dict):
+            toks = _usage_tokens(usage)
+            if toks is not None and in_window:
+                st["cc_total"] += toks
+                st["found"] = True
+        # codex TUI: payload.info.total_token_usage 是累计值，取窗口内最后一个
+        if engine == "codex" and isinstance(payload, dict) and payload.get("type") == "token_count":
+            info = payload.get("info")
+            u = info.get("total_token_usage") if isinstance(info, dict) else None
+            if isinstance(u, dict) and event_ts is not None:
+                toks = _usage_tokens(u)
+                if toks is not None:
+                    if since is not None and event_ts < since:
+                        st["codex_before"] = toks
+                    else:
+                        st["codex_in"] = toks
+                        st["found"] = True
+
+    @staticmethod
+    def _value(st: dict) -> int | None:
+        if st["codex_in"] is not None:
+            return max(0, st["codex_in"] - st["codex_before"])
+        return st["cc_total"] if st["found"] else None
+
+
+def count_tokens(
+    engine: str,
+    cwd: str,
+    uid: str,
+    *,
+    since: float | None = None,
+    until: float | None = None,
+) -> int | None:
+    """从会话 transcript 汇总 token 用量(input+output)。会话未落盘则返回 None。"""
+    if engine == "cc":
+        p = cc_session_path(cwd, uid)
+    else:
+        p = codex_session_path(uid)
+    if p is None or not p.exists():
+        return None
+
+    usage_tokens = _usage_tokens
+
+    def in_window(ts: float | None) -> bool:
+        if since is None and until is None:
+            return True
+        if ts is None:
+            return False
+        if since is not None and ts < since:
+            return False
+        if until is not None and ts > until:
+            return False
+        return True
+
+    total = 0
+    found = False
+    codex_cumulative: int | None = None
+    codex_before_window: int | None = None
+    codex_in_window: int | None = None
+    bounded = since is not None or until is not None
+    try:
+        with open(p, errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                # cc: {message:{usage:{input_tokens,output_tokens,...}}}
+                payload = obj.get("payload")
+                event_ts = _ts(
+                    obj.get("timestamp")
+                    or (payload.get("timestamp") if isinstance(payload, dict) else None)
+                )
+                usage = None
+                msg = obj.get("message")
+                if isinstance(msg, dict):
+                    usage = msg.get("usage")
+                if usage is None:
+                    usage = obj.get("usage")
+                if isinstance(usage, dict):
+                    toks = usage_tokens(usage)
+                    if toks is not None and in_window(event_ts):
+                        total += toks
+                        found = True
+                # codex TUI transcript: token_count events carry cumulative
+                # session usage under payload.info.total_token_usage.
+                if engine == "codex" and isinstance(payload, dict) and payload.get("type") == "token_count":
+                    info = payload.get("info")
+                    usage = info.get("total_token_usage") if isinstance(info, dict) else None
+                    if isinstance(usage, dict):
+                        toks = usage_tokens(usage)
+                        if toks is not None:
+                            if not bounded:
+                                codex_cumulative = toks
+                                found = True
+                            elif event_ts is not None:
+                                if since is not None and event_ts < since:
+                                    codex_before_window = toks
+                                elif until is None or event_ts <= until:
+                                    codex_in_window = toks
+                                    found = True
+    except OSError:
+        return None
+    if bounded and codex_in_window is not None:
+        return max(0, codex_in_window - (codex_before_window or 0))
+    if codex_cumulative is not None:
+        return codex_cumulative
+    return total if found else None
+
+
+def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
+    """把分享来的会话写入本机对应位置，供 resume 加载。"""
+    # 安全: uid 必须是合法 UUID，防止路径穿越(如 ../../.zshenv)写任意文件
+    if not _UUID_RE.fullmatch(uid or ""):
+        raise ValueError(f"非法 session_uid: {uid!r}")
+    if engine == "cc":
+        p = cc_session_path(cwd, uid)
+    else:
+        # 放到今天的日期目录，文件名带上 uuid 供 codex 按 id 检索
+        day = time.strftime("%Y/%m/%d")
+        ts = time.strftime("%Y-%m-%dT%H-%M-%S")
+        p = CODEX_SESSIONS / day / f"rollout-{ts}-{uid}.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+    return p

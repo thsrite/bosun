@@ -1,0 +1,25 @@
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# node
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# data
+*.db
+*.db-wal
+*.db-shm
+.bosun/
+.bosun-uploads/
+# 兼容旧品牌目录：升级前遗留的数据/附件仍需忽略，避免私密文件被误提交
+.deckhand/
+.deckhand-uploads/
+
+.DS_Store
+/.idea/
+/.superpowers/
+/docs/superpowers/
+/tests/
