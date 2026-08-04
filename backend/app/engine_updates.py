@@ -27,6 +27,9 @@ class ToolSpec:
     binary: Callable[[], str]
     npm_packages: tuple[str, ...]
     cli_update_args: tuple[str, ...] = ()
+    # 该引擎是否有可消费的模型目录。没有的话更新后别去刷，免得把「本来就没有」
+    # 报成刷新失败。
+    has_model_catalog: bool = True
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ _SPECS: dict[str, ToolSpec] = {
         binary=lambda: config.OMP_BIN,
         npm_packages=("@oh-my-pi/pi-coding-agent",),
         cli_update_args=("update",),
+        has_model_catalog=False,
     ),
 }
 
@@ -109,6 +113,8 @@ def _resolve_binary(binary: str) -> str | None:
 
 def _refresh_model_options(result: dict, engine: str, binary: str | None) -> dict:
     if not result.get("ok") or not binary:
+        return result
+    if not _spec(engine).has_model_catalog:
         return result
     try:
         result["model_options"] = engine_models.refresh_model_options(engine, binary)

@@ -73,7 +73,7 @@ _PROMPT = """你是 Bosun（一个编排 Claude Code/Codex 的本地工具）的
 action 只能是以下白名单之一（拿不准就省略 action，表示纯建议）：
 - {{"type":"set_setting","key":"quota_block_pct|mute_threshold|max_concurrent","value":<整数>}}
 - {{"type":"set_policy","policy_id":<id>,"field":"scope|scope_arg|interval_minutes|enabled","value":<值>}}
-- {{"type":"create_task","project_id":<projects 中的 id>,"engine":"cc|codex","title":"..","prompt":"..","priority":1-10}}
+- {{"type":"create_task","project_id":<projects 中的 id>,"engine":"cc|codex|omp","title":"..","prompt":"..","priority":1-10}}
 
 需要改代码、修复项目问题或调查某个项目时，优先使用 create_task；采纳后只会创建 draft 任务，不会自动执行。
 只有安全的全局配置调整才使用 set_setting 或 set_policy。

@@ -234,6 +234,17 @@ def _capture_session(
         if uid:
             if changed:
                 events.emit("task.session", {"task_id": task_id, "session_uid": uid})
+                # 任务可能在会话落盘前就结束了：那一轮 _finalize_tokens 因为还没有
+                # session_uid 直接返回，用量会永远空着。认领晚于结算时补跑一次。
+                row = db.query_one(
+                    "SELECT status, tokens FROM task WHERE id=?", (task_id,)
+                )
+                if row and row["tokens"] is None and row["status"] not in (
+                    "running", "waiting_input",
+                ):
+                    threading.Thread(
+                        target=_finalize_tokens, args=(task_id, 0.5), daemon=True
+                    ).start()
             return
 
         row = db.query_one("SELECT status, session_uid FROM task WHERE id=?", (task_id,))

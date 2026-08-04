@@ -263,15 +263,9 @@ def validate_omp_extra_args(value: object) -> str:
         raise OmpExtraArgsError(f"参数无法解析(引号是否配对？)：{exc}") from exc
     expects_value = False
     for token in argv:
-        if expects_value:
-            expects_value = False
-            continue
-        if not token.startswith("-"):
-            raise OmpExtraArgsError(
-                f"不允许填位置参数 {token!r}：任务指令由任务本身提供，"
-                "这里只接受选项"
-            )
         name = token.split("=", 1)[0]
+        # 先查禁用名再决定是否当作上一个选项的值：否则 `--help --no-session` 里
+        # 的 --no-session 会被当成 --help 的值跳过校验。
         if name in OMP_SESSION_RELOCATING_ARGS:
             raise OmpExtraArgsError(
                 f"不允许使用 {name}：它会改变 omp 的会话存储位置，"
@@ -280,6 +274,14 @@ def validate_omp_extra_args(value: object) -> str:
         if name in OMP_RUNTIME_OWNED_ARGS:
             raise OmpExtraArgsError(
                 f"不允许使用 {name}：运行方式(续跑/审批/输出格式)由 Bosun 按任务决定"
+            )
+        if expects_value:
+            expects_value = False
+            continue
+        if not token.startswith("-"):
+            raise OmpExtraArgsError(
+                f"不允许填位置参数 {token!r}：任务指令由任务本身提供，"
+                "这里只接受选项"
             )
         # 形如 `--flag value` 的选项，下一个 token 是它的值，不该当成位置参数
         expects_value = "=" not in token and name not in _OMP_BOOLEAN_ARGS
