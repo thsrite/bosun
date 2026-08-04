@@ -35,44 +35,63 @@ def cc_session_path(cwd: str, uid: str) -> Path:
 
 
 def snapshot_cc(cwd: str) -> set[str]:
-    d = cc_project_dir(cwd)
-    return {p.name for p in d.glob("*.jsonl")} if d.is_dir() else set()
+    return _snapshot_dirs([cc_project_dir(cwd)])
 
 
 def _capture_new_session(
-    directory: Path,
+    directories: list[Path],
     before: set[str],
     since_ts: float,
     uid_of: Callable[[Path], str | None],
+    exclude_uids: set[str] | None = None,
 ) -> str | None:
     """在按 cwd 隔离的会话目录里，取本次运行新出现的最新会话 uid。
 
-    cc 和 omp 都是「一个项目一个目录」，所以只比对新文件即可；codex 的目录全局共享，
-    需要额外核对 cwd 和首条 prompt，走 capture_codex_session。
+    cc 和 omp 都是「一个项目一个目录」，跨项目不会串号；但**同一项目并发跑两个任务**
+    时，两边都可能在任一文件落盘前完成 snapshot，于是同一个新文件被两个任务同时认领。
+    所以这里同样要排掉已被别的任务认领的 uid(exclude_uids)，由调用方在锁内取。
+
+    codex 的目录全局共享，还要额外核对 cwd 和首条 prompt，走 capture_codex_session。
     """
-    if not directory.is_dir():
-        return None
+    excluded = exclude_uids or set()
     newest: tuple[float, str] | None = None
-    for p in directory.glob("*.jsonl"):
-        if p.name in before:
-            continue  # 只认新文件，排除已存在(如其它会话)
-        uid = uid_of(p)
-        if uid is None:
+    for directory in directories:
+        if not directory.is_dir():
             continue
-        try:
-            mtime = p.stat().st_mtime
-        except OSError:
-            continue
-        if mtime < since_ts - 2:
-            continue
-        if newest is None or mtime > newest[0]:
-            newest = (mtime, uid)
+        for p in directory.glob("*.jsonl"):
+            if str(p) in before:
+                continue  # 只认新文件，排除已存在(如其它会话)
+            uid = uid_of(p)
+            if uid is None or uid in excluded:
+                continue
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                continue
+            if mtime < since_ts - 2:
+                continue
+            if newest is None or mtime > newest[0]:
+                newest = (mtime, uid)
     return newest[1] if newest else None
 
 
-def capture_cc_session(cwd: str, before: set[str], since_ts: float) -> str | None:
+def _snapshot_dirs(directories: list[Path]) -> set[str]:
+    """快照现存会话文件的绝对路径，用于事后比对出本次新建的那个。"""
+    return {
+        str(p)
+        for directory in directories
+        if directory.is_dir()
+        for p in directory.glob("*.jsonl")
+    }
+
+
+def capture_cc_session(
+    cwd: str, before: set[str], since_ts: float, exclude_uids: set[str] | None = None
+) -> str | None:
     """返回本次运行新生成的 cc 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
-    return _capture_new_session(cc_project_dir(cwd), before, since_ts, lambda p: p.stem)
+    return _capture_new_session(
+        [cc_project_dir(cwd)], before, since_ts, lambda p: p.stem, exclude_uids
+    )
 
 
 def _codex_rollouts() -> list[Path]:
@@ -93,15 +112,26 @@ def omp_dir_digest(cwd: str) -> str:
     return hashlib.sha256(str(Path(cwd).expanduser().resolve()).encode()).hexdigest()
 
 
+def omp_project_dirs(cwd: str) -> list[Path]:
+    """同一 cwd 下所有已存在的 omp 会话目录，按名字排序。
+
+    目录名是 `<scope>-<可读名>-<sha256(真实路径)>`，scope 由 omp 自己决定(实测 abs，
+    家目录/临时目录下可能是别的前缀)。哈希只认路径，所以同一项目理论上可能同时存在
+    多个前缀的桶——读取一律扫全部，避免「导入的会话看不见」或「新会话捕获不到」。
+    """
+    digest = omp_dir_digest(cwd)
+    if not OMP_SESSIONS.is_dir():
+        return []
+    return sorted((p for p in OMP_SESSIONS.glob(f"*-{digest}") if p.is_dir()), key=lambda p: p.name)
+
+
 def omp_project_dir(cwd: str) -> Path:
-    """omp 按 cwd 分目录存会话。目录名前缀是 scope(实测为 abs)，按哈希后缀匹配更稳。"""
+    """写入用的单一目标目录：优先复用 omp 已建好的桶，没有才按 abs 约定新建。"""
+    existing = omp_project_dirs(cwd)
+    if existing:
+        return existing[0]
     resolved = Path(cwd).expanduser().resolve()
-    digest = hashlib.sha256(str(resolved).encode()).hexdigest()
-    if OMP_SESSIONS.is_dir():
-        for path in OMP_SESSIONS.glob(f"*-{digest}"):
-            if path.is_dir():
-                return path
-    return OMP_SESSIONS / f"abs-{resolved.name}-{digest}"
+    return OMP_SESSIONS / f"abs-{resolved.name}-{omp_dir_digest(cwd)}"
 
 
 def _omp_uid(path: Path) -> str | None:
@@ -111,17 +141,22 @@ def _omp_uid(path: Path) -> str | None:
 
 
 def omp_session_path(cwd: str, uid: str) -> Path | None:
-    return next(iter(sorted(omp_project_dir(cwd).glob(f"*_{uid}.jsonl"))), None)
+    for d in omp_project_dirs(cwd):
+        found = next(iter(sorted(d.glob(f"*_{uid}.jsonl"))), None)
+        if found is not None:
+            return found
+    return None
 
 
 def snapshot_omp(cwd: str) -> set[str]:
-    d = omp_project_dir(cwd)
-    return {p.name for p in d.glob("*.jsonl")} if d.is_dir() else set()
+    return _snapshot_dirs(omp_project_dirs(cwd))
 
 
-def capture_omp_session(cwd: str, before: set[str], since_ts: float) -> str | None:
+def capture_omp_session(
+    cwd: str, before: set[str], since_ts: float, exclude_uids: set[str] | None = None
+) -> str | None:
     """返回本次运行新生成的 omp 会话 uuid。"""
-    return _capture_new_session(omp_project_dir(cwd), before, since_ts, _omp_uid)
+    return _capture_new_session(omp_project_dirs(cwd), before, since_ts, _omp_uid, exclude_uids)
 
 
 def _ts(value) -> float | None:
@@ -323,12 +358,11 @@ def discover_local_sessions(cwd: str, limit: int = 50) -> list[dict]:
             if len(found) >= limit * 2:
                 break
 
-    omp_dir = omp_project_dir(cwd)
-    if omp_dir.is_dir():
-        for path in sorted(omp_dir.glob("*.jsonl"), key=_mtime, reverse=True)[:limit]:
-            meta = _session_meta(path, "omp", cwd)
-            if meta:
-                found.append(meta)
+    omp_files = [p for d in omp_project_dirs(cwd) for p in d.glob("*.jsonl")]
+    for path in sorted(omp_files, key=_mtime, reverse=True)[:limit]:
+        meta = _session_meta(path, "omp", cwd)
+        if meta:
+            found.append(meta)
 
     found.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
     return found[:limit]
@@ -710,6 +744,28 @@ def count_tokens(
     return total if found else None
 
 
+def _reroot_omp_content(content: str, cwd: str) -> str:
+    """把导入会话头部记录的 cwd 改写成目标项目路径。
+
+    omp 的会话头带着原始 cwd。原样落到目标项目的目录里，头里却指向源仓库，
+    resume 时可能切回源仓库继续改代码(或卡在 omp 的重定位询问上)。
+    """
+    target = str(Path(cwd).expanduser().resolve())
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "session" and "cwd" in obj:
+            obj["cwd"] = target
+            lines[i] = json.dumps(obj, ensure_ascii=False)
+            break
+    return "\n".join(lines) + "\n"
+
+
 def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
     """把分享来的会话写入本机对应位置，供 resume 加载。"""
     # 安全: uid 必须是合法 UUID，防止路径穿越(如 ../../.zshenv)写任意文件
@@ -721,6 +777,7 @@ def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
         # omp 按 cwd 分目录，文件名 <时间戳>_<uuid> 供 --resume 按 id 前缀检索
         ts = time.strftime("%Y-%m-%dT%H-%M-%S-000Z")
         p = omp_project_dir(cwd) / f"{ts}_{uid}.jsonl"
+        content = _reroot_omp_content(content, cwd)
     else:
         # 放到今天的日期目录，文件名带上 uuid 供 codex 按 id 检索
         day = time.strftime("%Y/%m/%d")

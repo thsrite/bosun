@@ -82,6 +82,10 @@ def update_settings(body: Settings):
     db.set_setting("codex_effort", engine_settings.normalize_codex_effort(body.codex_effort))
     db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
     db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
-    db.set_setting("omp_extra_args", engine_settings.normalize_omp_extra_args(body.omp_extra_args))
+    try:
+        extra_args = engine_settings.validate_omp_extra_args(body.omp_extra_args)
+    except engine_settings.OmpExtraArgsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.set_setting("omp_extra_args", extra_args)
     scheduler.tick()  # 提高上限时立即拉起排队任务
     return get_settings()

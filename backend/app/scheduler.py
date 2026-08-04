@@ -186,23 +186,36 @@ def _capture_session(
     before: set,
     since: float,
 ) -> None:
-    """运行后轮询捕获引擎真实生成的会话 id(cc/codex/omp 都不支持事前钉 id)。"""
-    for _ in range(30):
-        time.sleep(1.5)
-        if engine == "cc":
-            uid = sessions.capture_cc_session(cwd, before, since)
-        elif engine == "omp":
-            # omp 的会话目录按 cwd 隔离，不会和别的项目串号
-            uid = sessions.capture_omp_session(cwd, before, since)
-        else:
-            with _session_capture_lock:
-                claimed = {
-                    row["session_uid"]
-                    for row in db.query(
-                        "SELECT session_uid FROM task WHERE id<>? AND session_uid IS NOT NULL",
-                        (task_id,),
-                    )
-                }
+    """运行后轮询捕获引擎真实生成的会话 id(cc/codex/omp 都不支持事前钉 id)。
+
+    引擎何时把 transcript 落盘并不受我们控制，首轮很慢时可能远超最初的 45s 快轮询窗口。
+    所以任务还活着就继续以更低频率轮询，任务结束后再补几次，避免会话永远认领不到——
+    那会连带让续跑、导出、历史和 token 结算全部失效。
+    """
+    fast_rounds = 30           # 前 45s 高频轮询，覆盖绝大多数情况
+    tail_rounds = 4            # 进程退出后再补几次，等最后的落盘
+    max_seconds = 2 * 60 * 60  # 兜底上限，防止任务挂死时线程常驻
+    started = time.monotonic()
+    rounds = 0
+    after_exit = 0
+    while True:
+        time.sleep(1.5 if rounds < fast_rounds else 5.0)
+        rounds += 1
+        # 认领要在锁内完成：同项目并发任务可能在任何文件落盘前都完成了 snapshot，
+        # 不排掉已被认领的 uid 就会两个任务共用同一个会话。
+        with _session_capture_lock:
+            claimed = {
+                row["session_uid"]
+                for row in db.query(
+                    "SELECT session_uid FROM task WHERE id<>? AND session_uid IS NOT NULL",
+                    (task_id,),
+                )
+            }
+            if engine == "cc":
+                uid = sessions.capture_cc_session(cwd, before, since, exclude_uids=claimed)
+            elif engine == "omp":
+                uid = sessions.capture_omp_session(cwd, before, since, exclude_uids=claimed)
+            else:
                 uid = sessions.capture_codex_session(
                     before,
                     since,
@@ -210,14 +223,27 @@ def _capture_session(
                     prompt=prompt,
                     exclude_uids=claimed,
                 )
+            changed = 0
+            if uid:
+                # 不再限定 status：进程已退出的任务同样需要补上会话 id，
+                # started_at 已能保证这是本次运行而不是历史轮次。
+                changed = db.execute_rowcount(
+                    "UPDATE task SET session_uid=? WHERE id=? AND started_at=? AND session_uid IS NULL",
+                    (uid, task_id, since),
+                )
         if uid:
-            changed = db.execute_rowcount(
-                "UPDATE task SET session_uid=? WHERE id=? AND started_at=? "
-                "AND status IN ('running','waiting_input') AND session_uid IS NULL",
-                (uid, task_id, since),
-            )
             if changed:
                 events.emit("task.session", {"task_id": task_id, "session_uid": uid})
+            return
+
+        row = db.query_one("SELECT status, session_uid FROM task WHERE id=?", (task_id,))
+        if row is None or row["session_uid"]:
+            return  # 任务已删除，或会话已由别的途径(如 SDK 回调)补上
+        if row["status"] not in ("running", "waiting_input"):
+            after_exit += 1
+            if after_exit >= tail_rounds:
+                return
+        if time.monotonic() - started > max_seconds:
             return
 
 

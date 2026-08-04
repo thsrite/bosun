@@ -214,16 +214,45 @@ def omp_thinking_options() -> list[dict[str, str]]:
     return [dict(opt) for opt in OMP_THINKING_OPTIONS]
 
 
-def normalize_omp_extra_args(value: object) -> str:
-    """自定义参数存原文，但先校验能被 shell 词法解析，避免存进去才发现引号不配对。"""
+# 会把 transcript 写到 Bosun 找不到的地方的参数：会话目录一旦被改写，
+# 捕获/续跑/历史/token 结算会全部静默失效，所以直接拒绝而不是事后排查。
+OMP_SESSION_RELOCATING_ARGS = {
+    "--session-dir",
+    "--profile",
+    "--alias",
+    "--no-session",
+}
+
+
+class OmpExtraArgsError(ValueError):
+    """自定义参数无法使用，附带给用户看的原因。"""
+
+
+def validate_omp_extra_args(value: object) -> str:
+    """校验并返回自定义参数原文。不合法时抛 OmpExtraArgsError。"""
     raw = str(value or "").strip()
     if not raw:
         return ""
     try:
-        shlex.split(raw)
-    except ValueError:
-        return ""
+        argv = shlex.split(raw)
+    except ValueError as exc:
+        raise OmpExtraArgsError(f"参数无法解析(引号是否配对？)：{exc}") from exc
+    for token in argv:
+        name = token.split("=", 1)[0]
+        if name in OMP_SESSION_RELOCATING_ARGS:
+            raise OmpExtraArgsError(
+                f"不允许使用 {name}：它会改变 omp 的会话存储位置，"
+                "Bosun 将无法捕获会话 id，续跑、历史与用量统计都会失效"
+            )
     return raw
+
+
+def normalize_omp_extra_args(value: object) -> str:
+    """读取侧的宽松归一：拿不下的值当没配，绝不因为一个坏设置就起不了任务。"""
+    try:
+        return validate_omp_extra_args(value)
+    except OmpExtraArgsError:
+        return ""
 
 
 def omp_extra_args() -> str:
@@ -231,7 +260,7 @@ def omp_extra_args() -> str:
 
 
 def omp_extra_argv() -> list[str]:
-    """把设置里的自定义参数拆成 argv。拆不动就当没配，不阻断任务启动。
+    """把设置里的自定义参数拆成 argv。
 
     参数是拆成 argv 直接 exec 的，不经过 shell，所以不存在命令注入；但仍然禁止
     在这里塞位置参数(prompt)，否则会和任务指令抢位置。
