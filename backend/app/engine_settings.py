@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 
 from . import codex_skills_guard, db
 
@@ -213,8 +214,39 @@ def omp_thinking_options() -> list[dict[str, str]]:
     return [dict(opt) for opt in OMP_THINKING_OPTIONS]
 
 
+def normalize_omp_extra_args(value: object) -> str:
+    """自定义参数存原文，但先校验能被 shell 词法解析，避免存进去才发现引号不配对。"""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        shlex.split(raw)
+    except ValueError:
+        return ""
+    return raw
+
+
+def omp_extra_args() -> str:
+    return normalize_omp_extra_args(db.get_setting("omp_extra_args", ""))
+
+
+def omp_extra_argv() -> list[str]:
+    """把设置里的自定义参数拆成 argv。拆不动就当没配，不阻断任务启动。
+
+    参数是拆成 argv 直接 exec 的，不经过 shell，所以不存在命令注入；但仍然禁止
+    在这里塞位置参数(prompt)，否则会和任务指令抢位置。
+    """
+    raw = omp_extra_args()
+    if not raw:
+        return []
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return []
+
+
 def with_omp_runtime_args(argv: list[str]) -> list[str]:
-    """omp 的模型/思考档位插在可执行文件之后、其余参数之前。
+    """omp 的模型/思考档位/自定义参数插在可执行文件之后、其余参数之前。
 
     argv 里可能已经带上了 prompt(如 build_audit_argv)，追加到末尾会让 flag 落在
     位置参数后面，所以统一按前缀插入。
@@ -228,6 +260,8 @@ def with_omp_runtime_args(argv: list[str]) -> list[str]:
     thinking = omp_thinking()
     if thinking:
         prefix += ["--thinking", thinking]
+    # 自定义参数放最后：同名 flag 由用户显式覆盖上面两项
+    prefix += omp_extra_argv()
     return [*prefix, *argv[1:]]
 
 

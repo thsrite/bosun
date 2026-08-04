@@ -19,6 +19,7 @@ import { CreateTaskDialog } from "./CreateTaskDialog";
 import { TerminalPanel } from "./TerminalPanel";
 import { TerminalWorkspace, type WorkspaceLayout } from "./TerminalWorkspace";
 import { taskPromptText } from "../taskText";
+import { engineBadgeClass, engineName, engineShort } from "../engines";
 
 const ACTIVE_STATUSES = new Set(["queued", "running", "waiting_input"]);
 const ARCHIVED_STATUSES = new Set(["done", "failed", "cancelled", "interrupted"]);
@@ -36,15 +37,12 @@ function attentionLabel(t: Task): string {
 }
 
 function EngineBadge({ engine }: { engine: Task["engine"] }) {
-  const isCc = engine === "cc";
   return (
     <span
-      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-        isCc ? "bg-violet-50 text-violet-600" : "bg-emerald-50 text-emerald-600"
-      }`}
-      title={isCc ? "Claude Code" : "Codex"}
+      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${engineBadgeClass(engine)}`}
+      title={engineName(engine)}
     >
-      {isCc ? "CC" : "Codex"}
+      {engineShort(engine)}
     </span>
   );
 }

@@ -16,6 +16,7 @@ export type AppSettings = {
   omp_model_options: { value: string; label: string }[];
   omp_thinking: string;
   omp_thinking_options: { value: string; label: string }[];
+  omp_extra_args: string;
 };
 
 export type ClaudeResourceCategory =

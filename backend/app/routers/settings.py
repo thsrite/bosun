@@ -18,6 +18,7 @@ class Settings(BaseModel):
     codex_effort: str = ""
     omp_model: str = ""
     omp_thinking: str = ""
+    omp_extra_args: str = ""
 
 
 @router.get("")
@@ -37,6 +38,7 @@ def get_settings():
         "omp_model_options": engine_settings.omp_model_options(),
         "omp_thinking": engine_settings.omp_thinking(),
         "omp_thinking_options": engine_settings.omp_thinking_options(),
+        "omp_extra_args": engine_settings.omp_extra_args(),
     }
 
 
@@ -80,5 +82,6 @@ def update_settings(body: Settings):
     db.set_setting("codex_effort", engine_settings.normalize_codex_effort(body.codex_effort))
     db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
     db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
+    db.set_setting("omp_extra_args", engine_settings.normalize_omp_extra_args(body.omp_extra_args))
     scheduler.tick()  # 提高上限时立即拉起排队任务
     return get_settings()

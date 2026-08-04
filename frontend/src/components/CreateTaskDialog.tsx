@@ -6,6 +6,7 @@ import type { Engine, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { Modal } from "./Modal";
+import { engineName } from "../engines";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -175,7 +176,7 @@ export function CreateTaskDialog({
         }
       }
 
-      if (r.auto_reason) toast(`🤖 自动选了 ${r.engine === "cc" ? "Claude" : "Codex"}：${r.auto_reason}`, "info");
+      if (r.auto_reason) toast(`🤖 自动选了 ${engineName(r.engine)}：${r.auto_reason}`, "info");
       onCreated();
       onClose();
 

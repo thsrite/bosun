@@ -139,6 +139,8 @@ cd frontend && npm run build    # 产物在 frontend/dist
 5. 「整体分析」→ 问题收件箱 → 勾「→ 修复任务」转成修复任务（人在环）
 6. 「统计」看任务趋势 / 引擎用量 / 问题态势
 
+选用 omp 时，「设置 → Oh My Pi」可以填模型、思考档位，以及任意 omp 原生参数（如 `--advisor --max-time 30m`）——参数按 shell 词法拆成 argv 直接传给 omp，不经过 shell。
+
 ## 配置
 
 | 环境变量 | 默认值 | 用途 |

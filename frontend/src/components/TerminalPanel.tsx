@@ -24,6 +24,7 @@ import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Engine, ReplySuggestion, Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { taskPromptText } from "../taskText";
+import { engineShort } from "../engines";
 
 // 「其他任务需要处理」提醒：同一轮等待只弹一次，关闭或跳转后不再打扰。
 // 用 任务id + 该轮等待起点 作 key（waiting_since 在任务离开 waiting_input 时清空，
@@ -1583,7 +1584,7 @@ export function TerminalPanel({
         return;
       }
       const activeNow = ["queued", "running", "waiting_input"].includes(detail.status);
-      const targetLabel = target === "cc" ? "CC" : "Codex";
+      const targetLabel = engineShort(target);
       const message = activeNow
         ? `切换到 ${targetLabel} 接力？当前执行器会停止，原任务会保留。`
         : `创建一个 ${targetLabel} 接力任务？原任务会保留。`;

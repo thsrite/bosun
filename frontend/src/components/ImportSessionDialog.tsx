@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { LocalSession, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { Modal } from "./Modal";
+import { engineName } from "../engines";
 
 function fmtTime(ts: number | null | undefined): string {
   if (!ts) return "时间未知";
@@ -12,10 +13,6 @@ function fmtTime(ts: number | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function engineLabel(engine: string): string {
-  return engine === "cc" ? "Claude" : "Codex";
 }
 
 export function ImportSessionDialog({
@@ -111,7 +108,7 @@ export function ImportSessionDialog({
                       {s.title}
                     </div>
                     <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-slate-400">
-                      <span>{engineLabel(s.engine)}</span>
+                      <span>{engineName(s.engine)}</span>
                       <span className="font-mono">{s.session_uid.slice(0, 8)}</span>
                       <span>{fmtTime(s.updated_at)}</span>
                       <span>{s.turns} 轮</span>

@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   omp_model_options: [{ value: "", label: "默认" }],
   omp_thinking: "",
   omp_thinking_options: [{ value: "", label: "默认" }],
+  omp_extra_args: "",
 };
 const PULL_REFRESH_TRIGGER_PX = 72;
 const PULL_REFRESH_MAX_PX = 96;
