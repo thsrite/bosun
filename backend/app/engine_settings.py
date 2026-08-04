@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 
 from . import codex_skills_guard, db
 
@@ -214,136 +213,8 @@ def omp_thinking_options() -> list[dict[str, str]]:
     return [dict(opt) for opt in OMP_THINKING_OPTIONS]
 
 
-# 会把 transcript 写到 Bosun 找不到的地方的参数：会话目录一旦被改写，
-# 捕获/续跑/历史/token 结算会全部静默失效，所以直接拒绝而不是事后排查。
-OMP_SESSION_RELOCATING_ARGS = {
-    "--session-dir",
-    "--profile",
-    "--alias",
-    "--no-session",
-}
-
-# Bosun 自己决定的调用方式：由这里统一拼，用户覆盖会直接改变任务语义。
-# 例如配上 --resume，每个新任务都会去续别人的会话，且因为那份 transcript 已在
-# snapshot 里，Bosun 永远捕获不到会话 id。
-OMP_RUNTIME_OWNED_ARGS = {
-    "--resume", "-r",
-    "--continue", "-c",
-    "--print", "-p",
-    "--mode",
-    "--auto-approve",
-    "--approval-mode",
-    "--cwd",
-    "--export",
-    # 导入模式：会把每次派发都变成「续别人的会话」而不是新建
-    "--from-claude", "--from-codex",
-}
-
-# 会让 omp 加载不到 bosun-report skill 的参数。任务因此永远报不了完成，
-# 又因为等待判定默认关闭，会一直挂在 running 占着并发槽。
-OMP_REPORTING_BREAKING_ARGS = {
-    "--no-skills",
-    "--no-tools",
-    "--skills",          # 按 glob 过滤，可能把 bosun-report 滤掉
-    "--no-extensions",
-}
-
-# 凭据类参数：设置项会落库、经 GET /api/settings 回给前端，还会出现在进程 argv 里。
-# 团队规范要求密钥只走环境变量或密钥服务。
-OMP_CREDENTIAL_ARGS = {"--api-key"}
-
-
-# 不带值的开关，用于区分「选项的值」和「位置参数」。名单之外的选项一律按带值处理，
-# 顶多把一个开关后面的下一项少校验一次，不会误伤合法配置。
-_OMP_BOOLEAN_ARGS = {
-    "--advisor", "--no-lsp", "--no-pty", "--no-rules", "--no-title",
-    "--hide-thinking", "--prewalk", "--no-prewalk", "--plan-yolo",
-    "--allow-home", "--print-thoughts",
-}
-
-
-class OmpExtraArgsError(ValueError):
-    """自定义参数无法使用，附带给用户看的原因。"""
-
-
-def validate_omp_extra_args(value: object) -> str:
-    """校验并返回自定义参数原文。不合法时抛 OmpExtraArgsError。"""
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    try:
-        argv = shlex.split(raw)
-    except ValueError as exc:
-        raise OmpExtraArgsError(f"参数无法解析(引号是否配对？)：{exc}") from exc
-    expects_value = False
-    for token in argv:
-        name = token.split("=", 1)[0]
-        # 先查禁用名再决定是否当作上一个选项的值：否则 `--help --no-session` 里
-        # 的 --no-session 会被当成 --help 的值跳过校验。
-        if name in OMP_SESSION_RELOCATING_ARGS:
-            raise OmpExtraArgsError(
-                f"不允许使用 {name}：它会改变 omp 的会话存储位置，"
-                "Bosun 将无法捕获会话 id，续跑、历史与用量统计都会失效"
-            )
-        if name in OMP_RUNTIME_OWNED_ARGS:
-            raise OmpExtraArgsError(
-                f"不允许使用 {name}：运行方式(续跑/审批/输出格式)由 Bosun 按任务决定"
-            )
-        if name in OMP_REPORTING_BREAKING_ARGS:
-            raise OmpExtraArgsError(
-                f"不允许使用 {name}：omp 会因此加载不到 bosun-report skill，"
-                "任务永远报不了完成，会一直挂在运行中占用并发槽"
-            )
-        if name in OMP_CREDENTIAL_ARGS:
-            raise OmpExtraArgsError(
-                f"不允许在这里填 {name}：设置会落库并回传前端，密钥还会出现在进程参数里。"
-                "请改用环境变量或密钥服务"
-            )
-        if expects_value:
-            expects_value = False
-            continue
-        if not token.startswith("-"):
-            raise OmpExtraArgsError(
-                f"不允许填位置参数 {token!r}：任务指令由任务本身提供，"
-                "这里只接受选项"
-            )
-        # 形如 `--flag value` 的选项，下一个 token 是它的值，不该当成位置参数
-        expects_value = "=" not in token and name not in _OMP_BOOLEAN_ARGS
-    if expects_value:
-        # 末尾选项缺值时，build_argv 会把任务指令接在它后面当成值吃掉
-        raise OmpExtraArgsError(f"{argv[-1]} 缺少取值：否则任务指令会被当成它的值")
-    return raw
-
-
-def normalize_omp_extra_args(value: object) -> str:
-    """读取侧的宽松归一：拿不下的值当没配，绝不因为一个坏设置就起不了任务。"""
-    try:
-        return validate_omp_extra_args(value)
-    except OmpExtraArgsError:
-        return ""
-
-
-def omp_extra_args() -> str:
-    return normalize_omp_extra_args(db.get_setting("omp_extra_args", ""))
-
-
-def omp_extra_argv() -> list[str]:
-    """把设置里的自定义参数拆成 argv。
-
-    参数是拆成 argv 直接 exec 的，不经过 shell，所以不存在命令注入；但仍然禁止
-    在这里塞位置参数(prompt)，否则会和任务指令抢位置。
-    """
-    raw = omp_extra_args()
-    if not raw:
-        return []
-    try:
-        return shlex.split(raw)
-    except ValueError:
-        return []
-
-
 def with_omp_runtime_args(argv: list[str]) -> list[str]:
-    """omp 的模型/思考档位/自定义参数插在可执行文件之后、其余参数之前。
+    """omp 的模型与思考档位插在可执行文件之后、其余参数之前。
 
     argv 里可能已经带上了 prompt(如 build_audit_argv)，追加到末尾会让 flag 落在
     位置参数后面，所以统一按前缀插入。
@@ -357,8 +228,6 @@ def with_omp_runtime_args(argv: list[str]) -> list[str]:
     thinking = omp_thinking()
     if thinking:
         prefix += ["--thinking", thinking]
-    # 自定义参数放最后：同名 flag 由用户显式覆盖上面两项
-    prefix += omp_extra_argv()
     return [*prefix, *argv[1:]]
 
 

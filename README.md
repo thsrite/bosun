@@ -139,8 +139,7 @@ cd frontend && npm run build    # 产物在 frontend/dist
 5. 「整体分析」→ 问题收件箱 → 勾「→ 修复任务」转成修复任务（人在环）
 6. 「统计」看任务趋势 / 引擎用量 / 问题态势
 
-选用 omp 时，「设置 → Oh My Pi」可以填模型、思考档位，以及任意 omp 原生参数（如 `--advisor --max-time 30m`）——参数按 shell 词法拆成 argv 直接传给 omp，不经过 shell。
-下列参数会被拒绝：改变会话存储位置的（`--session-dir` / `--profile` / `--no-session`）、由 Bosun 决定运行方式的（`--resume` / `-p` / `--mode` / `--auto-approve` / `--from-claude` 等）、会导致 omp 加载不到 `bosun-report` 的（`--no-skills` / `--no-tools` / `--skills`），以及携带密钥的（`--api-key`，请改用环境变量）。
+选用 omp 时，「设置 → Oh My Pi」可以填模型与思考档位。
 
 ## 配置
 

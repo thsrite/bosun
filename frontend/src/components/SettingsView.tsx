@@ -353,25 +353,6 @@ export function SettingsView({
     codex: false,
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
-  // 自定义参数按整行提交（失焦时），避免每敲一个字符就写一次库
-  const [ompExtraArgs, setOmpExtraArgs] = useState(settings.omp_extra_args);
-
-  useEffect(() => {
-    setOmpExtraArgs(settings.omp_extra_args);
-  }, [settings.omp_extra_args]);
-
-  // 后端会拒绝改变会话存储位置的参数(--session-dir/--profile 等)，
-  // 被拒时要把原因显示出来并回退输入框，否则用户以为已经生效。
-  async function saveOmpExtraArgs() {
-    if (ompExtraArgs === settings.omp_extra_args) return;
-    try {
-      await onChange({ omp_extra_args: ompExtraArgs });
-    } catch (err) {
-      setOmpExtraArgs(settings.omp_extra_args);
-      toast(`自定义参数未保存：${readDetail(err)}`, "error");
-    }
-  }
-
   // omp 没有可消费的模型目录接口，设置页直接填模型 ID，这里只服务 cc/codex。
   async function refreshModels(engine: "cc" | "codex") {
     if (refreshingModels[engine]) return;
@@ -534,18 +515,6 @@ export function SettingsView({
               </option>
             ))}
           </select>
-        </Field>
-        <Field
-          label="自定义参数"
-          hint="原样传给 omp，如 --smol haiku --advisor --max-time 30m。不经过 shell；会改变会话存储、运行方式、或让 omp 加载不到回报 skill 的参数会被拒绝，密钥请走环境变量。"
-        >
-          <input
-            className="w-72 font-mono text-xs"
-            value={ompExtraArgs}
-            placeholder="--advisor --no-lsp"
-            onChange={(e) => setOmpExtraArgs(e.target.value)}
-            onBlur={() => void saveOmpExtraArgs()}
-          />
         </Field>
       </Section>
 
