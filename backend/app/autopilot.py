@@ -178,6 +178,62 @@ def _verify(project) -> tuple[str, str]:
     return ("pass", " ".join(ran)) if ran else ("skip", "(无验证命令)")
 
 
+def _text_blocks(content) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+    return "\n".join(parts)
+
+
+def assistant_text(engine: str, stdout: str) -> str:
+    """从 headless 的结构化输出里抽出助手正文，丢掉被回显的用户提示词。
+
+    结论判定必须基于这段正文：原始事件流里既有用户提示词也有 diff 原文，
+    对它做 PASS/FAIL 正则会读到别人的字。
+    """
+    import json
+
+    if engine == "cc":
+        try:
+            parsed = json.loads(stdout)
+        except (json.JSONDecodeError, TypeError):
+            return stdout
+        text = parsed.get("result") or parsed.get("text") if isinstance(parsed, dict) else None
+        return text if isinstance(text, str) else stdout
+
+    parts: list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if engine == "omp":
+            # omp --mode json：同一条消息会在多种事件里重复出现，只认 message_end
+            if obj.get("type") != "message_end":
+                continue
+            msg = obj.get("message")
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                parts.append(_text_blocks(msg.get("content")))
+            continue
+        # codex exec --json：助手可见输出走 agent_message 事件
+        payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else obj
+        if payload.get("type") == "agent_message" and isinstance(payload.get("message"), str):
+            parts.append(payload["message"])
+    return "\n".join(p for p in parts if p).strip()
+
+
 def _cross_review(run_id: int, engine: str, cwd: str, diff: str) -> tuple[str, str]:
     """返回 (verdict, note)，verdict ∈ pass|fail|unknown。
 
@@ -192,6 +248,9 @@ def _cross_review(run_id: int, engine: str, cwd: str, diff: str) -> tuple[str, s
     code, out, _ = _headless(run_id, engine, prompt, cwd, REVIEW_TIMEOUT)
     if code != 0:
         return "unknown", "(复审未运行)"
+    # headless 是结构化输出(json_out=True)，原始流里还夹着被回显的用户提示词。
+    # 直接正则会先撞上提示词里的「PASS 或 FAIL」，把 FAIL 的复审读成 PASS。
+    out = assistant_text(engine, out) or out
     up = out.upper()
     # 锚定行首优先(复审结论), 回退全局; 避免 diff 内 PASS/FAIL 字样或复述指令污染结论
     m = re.search(r"^\s*(PASS|FAIL)", up, re.M) or re.search(r"\b(PASS|FAIL)\b", up)

@@ -44,16 +44,19 @@ def _capture_new_session(
     since_ts: float,
     uid_of: Callable[[Path], str | None],
     exclude_uids: set[str] | None = None,
+    engine: str | None = None,
+    prompt: str | None = None,
 ) -> str | None:
     """在按 cwd 隔离的会话目录里，取本次运行新出现的最新会话 uid。
 
-    cc 和 omp 都是「一个项目一个目录」，跨项目不会串号；但**同一项目并发跑两个任务**
-    时，两边都可能在任一文件落盘前完成 snapshot，于是同一个新文件被两个任务同时认领。
-    所以这里同样要排掉已被别的任务认领的 uid(exclude_uids)，由调用方在锁内取。
-
-    codex 的目录全局共享，还要额外核对 cwd 和首条 prompt，走 capture_codex_session。
+    cc 和 omp 都是「一个项目一个目录」，跨项目不会串号。但**同一项目并发跑两个任务**
+    时，两边都可能在任一文件落盘前完成 snapshot：
+    - 排掉已被别的任务认领的 uid(exclude_uids)防重复认领；
+    - 只排重还不够——两个任务仍可能各自认领对方的会话(互换)，所以给了 prompt 时
+      还要核对 transcript 的首条用户指令，和 capture_codex_session 同一套判据。
     """
     excluded = exclude_uids or set()
+    expected_prompt = _clean_prompt(prompt) if prompt is not None else None
     newest: tuple[float, str] | None = None
     for directory in directories:
         if not directory.is_dir():
@@ -70,6 +73,12 @@ def _capture_new_session(
                 continue
             if mtime < since_ts - 2:
                 continue
+            if expected_prompt is not None and engine is not None:
+                meta = _session_meta(p, engine)
+                # 首条指令还没落盘时 meta 为空/无 prompt：这轮先不认领，下轮再看，
+                # 不能凭 mtime 抢一个还不知道属于谁的会话。
+                if meta is None or meta.get("prompt") != expected_prompt:
+                    continue
             if newest is None or mtime > newest[0]:
                 newest = (mtime, uid)
     return newest[1] if newest else None
@@ -86,11 +95,16 @@ def _snapshot_dirs(directories: list[Path]) -> set[str]:
 
 
 def capture_cc_session(
-    cwd: str, before: set[str], since_ts: float, exclude_uids: set[str] | None = None
+    cwd: str,
+    before: set[str],
+    since_ts: float,
+    exclude_uids: set[str] | None = None,
+    prompt: str | None = None,
 ) -> str | None:
     """返回本次运行新生成的 cc 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
     return _capture_new_session(
-        [cc_project_dir(cwd)], before, since_ts, lambda p: p.stem, exclude_uids
+        [cc_project_dir(cwd)], before, since_ts, lambda p: p.stem, exclude_uids,
+        engine="cc", prompt=prompt,
     )
 
 
@@ -153,10 +167,17 @@ def snapshot_omp(cwd: str) -> set[str]:
 
 
 def capture_omp_session(
-    cwd: str, before: set[str], since_ts: float, exclude_uids: set[str] | None = None
+    cwd: str,
+    before: set[str],
+    since_ts: float,
+    exclude_uids: set[str] | None = None,
+    prompt: str | None = None,
 ) -> str | None:
     """返回本次运行新生成的 omp 会话 uuid。"""
-    return _capture_new_session(omp_project_dirs(cwd), before, since_ts, _omp_uid, exclude_uids)
+    return _capture_new_session(
+        omp_project_dirs(cwd), before, since_ts, _omp_uid, exclude_uids,
+        engine="omp", prompt=prompt,
+    )
 
 
 def _ts(value) -> float | None:

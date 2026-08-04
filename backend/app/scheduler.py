@@ -212,9 +212,9 @@ def _capture_session(
                 )
             }
             if engine == "cc":
-                uid = sessions.capture_cc_session(cwd, before, since, exclude_uids=claimed)
+                uid = sessions.capture_cc_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             elif engine == "omp":
-                uid = sessions.capture_omp_session(cwd, before, since, exclude_uids=claimed)
+                uid = sessions.capture_omp_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             else:
                 uid = sessions.capture_codex_session(
                     before,

@@ -223,6 +223,30 @@ OMP_SESSION_RELOCATING_ARGS = {
     "--no-session",
 }
 
+# Bosun 自己决定的调用方式：由这里统一拼，用户覆盖会直接改变任务语义。
+# 例如配上 --resume，每个新任务都会去续别人的会话，且因为那份 transcript 已在
+# snapshot 里，Bosun 永远捕获不到会话 id。
+OMP_RUNTIME_OWNED_ARGS = {
+    "--resume", "-r",
+    "--continue", "-c",
+    "--print", "-p",
+    "--mode",
+    "--auto-approve",
+    "--approval-mode",
+    "--cwd",
+    "--export",
+}
+
+
+# 不带值的开关，用于区分「选项的值」和「位置参数」。名单之外的选项一律按带值处理，
+# 顶多把一个开关后面的下一项少校验一次，不会误伤合法配置。
+_OMP_BOOLEAN_ARGS = {
+    "--advisor", "--no-lsp", "--no-pty", "--no-tools", "--no-extensions",
+    "--no-skills", "--no-rules", "--no-title", "--hide-thinking",
+    "--prewalk", "--no-prewalk", "--plan-yolo", "--allow-home",
+    "--print-thoughts",
+}
+
 
 class OmpExtraArgsError(ValueError):
     """自定义参数无法使用，附带给用户看的原因。"""
@@ -237,13 +261,28 @@ def validate_omp_extra_args(value: object) -> str:
         argv = shlex.split(raw)
     except ValueError as exc:
         raise OmpExtraArgsError(f"参数无法解析(引号是否配对？)：{exc}") from exc
+    expects_value = False
     for token in argv:
+        if expects_value:
+            expects_value = False
+            continue
+        if not token.startswith("-"):
+            raise OmpExtraArgsError(
+                f"不允许填位置参数 {token!r}：任务指令由任务本身提供，"
+                "这里只接受选项"
+            )
         name = token.split("=", 1)[0]
         if name in OMP_SESSION_RELOCATING_ARGS:
             raise OmpExtraArgsError(
                 f"不允许使用 {name}：它会改变 omp 的会话存储位置，"
                 "Bosun 将无法捕获会话 id，续跑、历史与用量统计都会失效"
             )
+        if name in OMP_RUNTIME_OWNED_ARGS:
+            raise OmpExtraArgsError(
+                f"不允许使用 {name}：运行方式(续跑/审批/输出格式)由 Bosun 按任务决定"
+            )
+        # 形如 `--flag value` 的选项，下一个 token 是它的值，不该当成位置参数
+        expects_value = "=" not in token and name not in _OMP_BOOLEAN_ARGS
     return raw
 
 
