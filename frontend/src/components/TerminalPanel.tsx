@@ -1335,6 +1335,8 @@ export function TerminalPanel({
   const [smartLoading, setSmartLoading] = useState(false);
   const [, bumpAttention] = useReducer((n: number) => n + 1, 0);
   const [historyMode, setHistoryMode] = useState<"history" | "terminal">("history");
+  // 抽屉全屏：桌面端把 48% 宽的抽屉铺满整屏，终端由 ResizeObserver 自动重新 fit
+  const [fullscreen, setFullscreen] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const panelTopOffset = useTerminalPanelTopOffset();
   useVisualViewportCssVars();
@@ -1655,7 +1657,9 @@ export function TerminalPanel({
         className={
           embedded
             ? "relative box-border flex h-full min-h-0 w-full flex-col overflow-hidden bg-white"
-            : "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-white shadow-2xl lg:w-[48%] lg:min-w-[560px]"
+            : fullscreen
+              ? "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-white shadow-2xl"
+              : "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-white shadow-2xl lg:w-[48%] lg:min-w-[560px]"
         }
         style={embedded ? undefined : terminalPanelBodyStyle()}
         onTouchStart={onTouchStart}
@@ -1814,6 +1818,16 @@ export function TerminalPanel({
                 🗑<span className="hidden sm:inline"> 删除</span>
               </button>
             </div>
+            {/* 全屏：仅抽屉模式且桌面端有意义（移动端抽屉本来就是全宽） */}
+            {!embedded && (
+              <button
+                className="hidden whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 lg:inline-block"
+                onClick={() => setFullscreen((v) => !v)}
+                title={fullscreen ? "退出全屏" : "全屏"}
+              >
+                {fullscreen ? "⤡ 退出全屏" : "⛶ 全屏"}
+              </button>
+            )}
             {/* 关闭：始终常驻，移动端也能随时退出 */}
             <button
               className="whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
