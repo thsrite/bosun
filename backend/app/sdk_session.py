@@ -29,7 +29,7 @@ from claude_agent_sdk import (
 
 from . import engine_settings
 from .engines import with_report_directive
-from .env import child_env, api_base
+from .env import task_env
 from .pty_session import _put_drop
 
 
@@ -98,10 +98,7 @@ class SdkSession:
     def _build_options(self) -> ClaudeAgentOptions:
         opts_kwargs = {
             "cwd": self.cwd,
-            "env": child_env({
-                "BOSUN_TASK_ID": str(self.task_id),
-                "BOSUN_API": api_base(),
-            }),
+            "env": task_env(self.task_id),
             "permission_mode": "bypassPermissions" if self.auto_approve else "default",
             "can_use_tool": None if self.auto_approve else self._can_use_tool,
             # SDK 默认不下发 --setting-sources，用户级 skill 目录整个看不见；

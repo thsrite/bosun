@@ -8,6 +8,21 @@ if [ -z "${BOSUN_TASK_ID:-}" ] || [ -z "${BOSUN_API:-}" ]; then
   exit 0
 fi
 
+# 守卫：BOSUN_TASK_ID 会随环境继承给 agent 自己拉起的子 agent(如让 codex 跑一轮
+# 审查)，子 agent 装了同一个 skill 就会拿父任务的 id 乱报状态。按父进程链形状识别，
+# 判不准一律放行。详见同目录 nesting.py。
+if [ -n "${BOSUN_BACKEND_PID:-}" ] && command -v python3 >/dev/null 2>&1; then
+  _guard_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$_guard_dir/nesting.py" ]; then
+    _nested="$(python3 "$_guard_dir/nesting.py" "$$" "$BOSUN_BACKEND_PID" 2>/dev/null || echo ok)"
+    if [ "$_nested" = "nested" ]; then
+      printf '跳过 Bosun 回报：当前是嵌套 agent，任务 #%s 的状态应由派发它的 agent 回报。\n' \
+        "$BOSUN_TASK_ID" >&2
+      exit 0
+    fi
+  fi
+fi
+
 status="done"
 summary=""
 needs_reply="false"
