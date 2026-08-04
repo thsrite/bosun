@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import asyncio
 import json
 import threading
@@ -94,6 +96,11 @@ class SdkSession:
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self._log_fh = open(self.log_path, "ab", buffering=0)
         threading.Thread(target=lambda: asyncio.run(self._amain()), daemon=True).start()
+
+    @property
+    def agent_pid(self) -> int | None:
+        """SDK 直跑时 agent 就在后端进程里，基准即本进程。"""
+        return os.getpid()
 
     def _build_options(self) -> ClaudeAgentOptions:
         opts_kwargs = {

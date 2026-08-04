@@ -43,15 +43,14 @@ def child_env(extra: dict | None = None) -> dict:
 
 
 def task_env(task_id: int) -> dict:
-    """派发给 agent 的环境：任务 id、回调地址，以及用于识别嵌套 agent 的后端 pid。
+    """派发给 agent 的环境：任务 id 与回调地址。
 
-    BOSUN_TASK_ID 会被 agent 自己拉起的子 agent 继承，bosun-report skill 靠
-    BOSUN_BACKEND_PID 沿父进程链判断自己是不是嵌套的那一层。
+    BOSUN_TASK_ID 会被 agent 自己拉起的子 agent 继承，这类冒名回报由后端在
+    /report 端点按进程链识别(见 nesting.py)，不依赖子进程自证。
     """
     return child_env({
         "BOSUN_TASK_ID": str(task_id),
         "BOSUN_API": api_base(),
-        "BOSUN_BACKEND_PID": str(os.getpid()),
     })
 
 

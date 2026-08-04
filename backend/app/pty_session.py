@@ -344,6 +344,11 @@ class PtySession:
         self._idle_watch: threading.Thread | None = None
         self._stop = threading.Event()
 
+    @property
+    def agent_pid(self) -> int | None:
+        """Bosun 亲自 spawn 的 agent 进程 pid(嵌套回报判定的基准)。"""
+        return self.proc.pid if self.proc is not None else None
+
     def start(self) -> None:
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self._log_fh = open(self.log_path, "ab", buffering=0)
@@ -366,6 +371,7 @@ class PtySession:
                 Path(script_log_path).unlink(missing_ok=True)
             except OSError:
                 pass
+        # agent 进程的真实 pid：报告端点靠它判断回报是不是来自嵌套的子 agent
         self.proc = ptyprocess.PtyProcess.spawn(
             spawn_argv, cwd=self.cwd, env=env, dimensions=(30, 100)
         )
