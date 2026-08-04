@@ -49,6 +49,13 @@ _SPECS: dict[str, ToolSpec] = {
         binary=lambda: config.CODEX_BIN,
         npm_packages=("@openai/codex",),
     ),
+    "omp": ToolSpec(
+        engine="omp",
+        label="Oh My Pi",
+        binary=lambda: config.OMP_BIN,
+        npm_packages=("@oh-my-pi/pi-coding-agent",),
+        cli_update_args=("update",),
+    ),
 }
 
 _UPDATE_LOCKS = {engine: threading.Lock() for engine in _SPECS}

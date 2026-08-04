@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent
 import { api } from "../api";
 import { toast } from "../overlay";
 import { guardQuota } from "../quota";
-import type { Project } from "../types";
+import type { Engine, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { Modal } from "./Modal";
@@ -19,7 +19,7 @@ type PendingAttachment = {
 
 type RememberedTaskSettings = {
   projectId?: number;
-  engine?: "auto" | "cc" | "codex";
+  engine?: "auto" | Engine;
   priority?: number;
   autoApprove?: boolean;
 };
@@ -75,8 +75,8 @@ export function CreateTaskDialog({
   );
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const selectedProject = availableProjects.find((item) => item.id === selectedProjectId);
-  const [engine, setEngine] = useState<"auto" | "cc" | "codex">(
-    ["auto", "cc", "codex"].includes(initialSettings.engine ?? "")
+  const [engine, setEngine] = useState<"auto" | Engine>(
+    ["auto", "cc", "codex", "omp"].includes(initialSettings.engine ?? "")
       ? initialSettings.engine!
       : "auto",
   );
@@ -234,10 +234,14 @@ export function CreateTaskDialog({
             <input type="radio" checked={engine === "codex"} onChange={() => setEngine("codex")} />
             Codex
           </label>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" checked={engine === "omp"} onChange={() => setEngine("omp")} />
+            Oh My Pi
+          </label>
         </div>
         <textarea
           className="h-32 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-xs text-slate-800 focus:border-teal-500 focus:outline-none"
-          placeholder="给 cc/codex 的指令…"
+          placeholder="给 cc/codex/omp 的指令…"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus={!projects}
@@ -311,7 +315,7 @@ export function CreateTaskDialog({
             className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
               autoApprove ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-600"
             }`}
-            title="cc: --dangerously-skip-permissions / codex: --dangerously-bypass-approvals-and-sandbox"
+            title="cc: --dangerously-skip-permissions / codex: --dangerously-bypass-approvals-and-sandbox / omp: --auto-approve"
           >
             <input
               type="checkbox"

@@ -107,3 +107,12 @@ CODEX_BIN = _resolve_bin(
         Path("/usr/local/bin/codex"),
     ],
 )
+OMP_BIN = _resolve_bin(
+    "BOSUN_OMP_BIN",
+    "omp",
+    [
+        Path.home() / ".local" / "bin" / "omp",
+        Path("/opt/homebrew/bin/omp"),
+        Path("/usr/local/bin/omp"),
+    ],
+)

@@ -354,6 +354,7 @@ export function SettingsView({
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
 
+  // omp 没有可消费的模型目录接口，设置页直接填模型 ID，这里只服务 cc/codex。
   async function refreshModels(engine: "cc" | "codex") {
     if (refreshingModels[engine]) return;
 
@@ -485,6 +486,31 @@ export function SettingsView({
             onChange={(e) => void onChange({ codex_effort: e.target.value })}
           >
             {settings.codex_effort_options.map((opt) => (
+              <option key={opt.value || "default"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </Section>
+
+      <Section title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。">
+        <Field label="模型">
+          <ModelCombobox
+            id="omp-model"
+            value={settings.omp_model}
+            options={settings.omp_model_options}
+            onChange={(value) => onSettingsPatch({ omp_model: value })}
+            onCommit={(value) => void onChange({ omp_model: value })}
+          />
+        </Field>
+        <Field label="思考档位">
+          <select
+            className="w-28"
+            value={settings.omp_thinking}
+            onChange={(e) => void onChange({ omp_thinking: e.target.value })}
+          >
+            {settings.omp_thinking_options.map((opt) => (
               <option key={opt.value || "default"} value={opt.value}>
                 {opt.label}
               </option>

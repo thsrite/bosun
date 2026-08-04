@@ -33,10 +33,13 @@ export type TaskStatus =
 
 export type TaskWaitingKind = "permission" | "choice" | "input" | "review";
 
+/** 可执行任务的引擎：Claude Code / Codex CLI / Oh My Pi。 */
+export type Engine = "cc" | "codex" | "omp";
+
 export interface Task {
   id: number;
   project_id: number;
-  engine: "cc" | "codex";
+  engine: Engine;
   prompt: string;
   title: string | null;
   priority: number;
@@ -84,7 +87,7 @@ export interface SessionHistoryMessage {
 }
 
 export interface LocalSession {
-  engine: "cc" | "codex";
+  engine: Engine;
   session_uid: string;
   title: string;
   prompt: string;

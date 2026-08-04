@@ -16,6 +16,8 @@ class Settings(BaseModel):
     claude_effort: str = ""
     codex_model: str = ""
     codex_effort: str = ""
+    omp_model: str = ""
+    omp_thinking: str = ""
 
 
 @router.get("")
@@ -31,6 +33,10 @@ def get_settings():
         "codex_model_options": engine_settings.codex_model_options(),
         "codex_effort": engine_settings.codex_effort(),
         "codex_effort_options": engine_settings.codex_effort_options(),
+        "omp_model": engine_settings.omp_model(),
+        "omp_model_options": engine_settings.omp_model_options(),
+        "omp_thinking": engine_settings.omp_thinking(),
+        "omp_thinking_options": engine_settings.omp_thinking_options(),
     }
 
 
@@ -39,6 +45,7 @@ def refresh_model_options(engine: str):
     binaries = {
         "cc": config.CLAUDE_BIN,
         "codex": config.CODEX_BIN,
+        "omp": config.OMP_BIN,
     }
     binary = binaries.get(engine)
     if not binary:
@@ -71,5 +78,7 @@ def update_settings(body: Settings):
     db.set_setting("claude_effort", engine_settings.normalize_claude_effort(body.claude_effort))
     db.set_setting("codex_model", engine_settings.normalize_codex_model(body.codex_model))
     db.set_setting("codex_effort", engine_settings.normalize_codex_effort(body.codex_effort))
+    db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
+    db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
     scheduler.tick()  # 提高上限时立即拉起排队任务
     return get_settings()

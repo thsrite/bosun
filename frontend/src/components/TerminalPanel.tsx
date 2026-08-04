@@ -21,7 +21,7 @@ import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY, buildTerminalSubmitSequence } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
-import type { ReplySuggestion, Task } from "../types";
+import type { Engine, ReplySuggestion, Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { taskPromptText } from "../taskText";
 
@@ -1572,7 +1572,7 @@ export function TerminalPanel({
     });
   }
 
-  async function switchEngine(target: "cc" | "codex") {
+  async function switchEngine(target: Engine) {
     if (target === detail.engine) return;
     await run(async () => {
       if (!(await guardQuota(target))) return;
@@ -1731,11 +1731,12 @@ export function TerminalPanel({
             className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-xs font-medium uppercase text-slate-600 disabled:opacity-50"
             value={detail.engine}
             disabled={busy}
-            onChange={(e) => void switchEngine(e.target.value as "cc" | "codex")}
+            onChange={(e) => void switchEngine(e.target.value as Engine)}
             title={detail.status === "draft" ? "切换任务执行器" : "切换执行器并创建接力任务"}
           >
             <option value="cc">CC</option>
             <option value="codex">Codex</option>
+            <option value="omp">OMP</option>
           </select>
           <span className={`shrink-0 whitespace-nowrap text-sm font-medium ${s.text}`}>{s.label}</span>
           {canSwitch && (

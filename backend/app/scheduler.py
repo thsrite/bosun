@@ -186,11 +186,14 @@ def _capture_session(
     before: set,
     since: float,
 ) -> None:
-    """运行后轮询捕获引擎真实生成的会话 id(cc/codex 都不支持事前钉 id)。"""
+    """运行后轮询捕获引擎真实生成的会话 id(cc/codex/omp 都不支持事前钉 id)。"""
     for _ in range(30):
         time.sleep(1.5)
         if engine == "cc":
             uid = sessions.capture_cc_session(cwd, before, since)
+        elif engine == "omp":
+            # omp 的会话目录按 cwd 隔离，不会和别的项目串号
+            uid = sessions.capture_omp_session(cwd, before, since)
         else:
             with _session_capture_lock:
                 claimed = {
@@ -282,7 +285,12 @@ def _start_task(row) -> None:
             argv = build_resume_argv(engine, session_uid, row["prompt"], auto)
         else:  # 首跑：引擎自建会话(会落盘)，运行后捕获真实 session id
             argv = build_argv(engine, row["prompt"], auto)
-            before = sessions.snapshot_cc(project["path"]) if engine == "cc" else sessions.snapshot_codex()
+            if engine == "cc":
+                before = sessions.snapshot_cc(project["path"])
+            elif engine == "omp":
+                before = sessions.snapshot_omp(project["path"])
+            else:
+                before = sessions.snapshot_codex()
             capture = (before, run_started_at)
         session = PtySession(
             task_id=row["id"],

@@ -2,17 +2,21 @@
 
 cc:    ~/.claude/projects/<cwd 编码(/→-)>/<session-id>.jsonl
 codex: ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
+omp:   ~/.omp/agent/sessions/abs-<目录名>-<sha256(真实路径)>/<时间戳>_<uuid>.jsonl
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
 CODEX_SESSIONS = Path.home() / ".codex" / "sessions"
+OMP_SESSIONS = Path.home() / ".omp" / "agent" / "sessions"
 
 _UUID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 
@@ -35,15 +39,26 @@ def snapshot_cc(cwd: str) -> set[str]:
     return {p.name for p in d.glob("*.jsonl")} if d.is_dir() else set()
 
 
-def capture_cc_session(cwd: str, before: set[str], since_ts: float) -> str | None:
-    """返回本次运行新生成的 cc 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
-    d = cc_project_dir(cwd)
-    if not d.is_dir():
+def _capture_new_session(
+    directory: Path,
+    before: set[str],
+    since_ts: float,
+    uid_of: Callable[[Path], str | None],
+) -> str | None:
+    """在按 cwd 隔离的会话目录里，取本次运行新出现的最新会话 uid。
+
+    cc 和 omp 都是「一个项目一个目录」，所以只比对新文件即可；codex 的目录全局共享，
+    需要额外核对 cwd 和首条 prompt，走 capture_codex_session。
+    """
+    if not directory.is_dir():
         return None
     newest: tuple[float, str] | None = None
-    for p in d.glob("*.jsonl"):
+    for p in directory.glob("*.jsonl"):
         if p.name in before:
             continue  # 只认新文件，排除已存在(如其它会话)
+        uid = uid_of(p)
+        if uid is None:
+            continue
         try:
             mtime = p.stat().st_mtime
         except OSError:
@@ -51,8 +66,13 @@ def capture_cc_session(cwd: str, before: set[str], since_ts: float) -> str | Non
         if mtime < since_ts - 2:
             continue
         if newest is None or mtime > newest[0]:
-            newest = (mtime, p.stem)
+            newest = (mtime, uid)
     return newest[1] if newest else None
+
+
+def capture_cc_session(cwd: str, before: set[str], since_ts: float) -> str | None:
+    """返回本次运行新生成的 cc 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
+    return _capture_new_session(cc_project_dir(cwd), before, since_ts, lambda p: p.stem)
 
 
 def _codex_rollouts() -> list[Path]:
@@ -68,9 +88,47 @@ def codex_session_path(uid: str) -> Path | None:
     return None
 
 
+def omp_dir_digest(cwd: str) -> str:
+    """omp 会话目录名里的哈希：sha256(解析后的真实路径)。"""
+    return hashlib.sha256(str(Path(cwd).expanduser().resolve()).encode()).hexdigest()
+
+
+def omp_project_dir(cwd: str) -> Path:
+    """omp 按 cwd 分目录存会话。目录名前缀是 scope(实测为 abs)，按哈希后缀匹配更稳。"""
+    resolved = Path(cwd).expanduser().resolve()
+    digest = hashlib.sha256(str(resolved).encode()).hexdigest()
+    if OMP_SESSIONS.is_dir():
+        for path in OMP_SESSIONS.glob(f"*-{digest}"):
+            if path.is_dir():
+                return path
+    return OMP_SESSIONS / f"abs-{resolved.name}-{digest}"
+
+
+def _omp_uid(path: Path) -> str | None:
+    """omp 会话文件名形如 <时间戳>_<uuid>.jsonl。"""
+    uid = path.stem.rsplit("_", 1)[-1]
+    return uid if _UUID_RE.fullmatch(uid) else None
+
+
+def omp_session_path(cwd: str, uid: str) -> Path | None:
+    return next(iter(sorted(omp_project_dir(cwd).glob(f"*_{uid}.jsonl"))), None)
+
+
+def snapshot_omp(cwd: str) -> set[str]:
+    d = omp_project_dir(cwd)
+    return {p.name for p in d.glob("*.jsonl")} if d.is_dir() else set()
+
+
+def capture_omp_session(cwd: str, before: set[str], since_ts: float) -> str | None:
+    """返回本次运行新生成的 omp 会话 uuid。"""
+    return _capture_new_session(omp_project_dir(cwd), before, since_ts, _omp_uid)
+
+
 def _ts(value) -> float | None:
     if isinstance(value, (int, float)):
-        return float(value)
+        # omp 的消息时间戳是毫秒 epoch；cc/codex 是秒。1e11 秒 ≈ 公元 5138 年，
+        # 超过就只可能是毫秒。
+        return float(value) / 1000.0 if value > 1e11 else float(value)
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -151,6 +209,8 @@ def _session_meta(path: Path, engine: str, project_path: str | None = None) -> d
         if not m:
             return None
         uid = m.group(1)
+    elif engine == "omp":
+        uid = _omp_uid(path)
     if not uid or not _UUID_RE.fullmatch(uid):
         return None
 
@@ -230,11 +290,16 @@ def local_session_info(engine: str, cwd: str, uid: str) -> dict | None:
         if path is None or not path.exists():
             return None
         return _session_meta(path, engine, cwd)
+    if engine == "omp":
+        path = omp_session_path(cwd, uid)
+        if path is None or not path.exists():
+            return None
+        return _session_meta(path, engine, cwd)
     return None
 
 
 def discover_local_sessions(cwd: str, limit: int = 50) -> list[dict]:
-    """Discover resumable local cc/codex transcript files for a project path."""
+    """Discover resumable local cc/codex/omp transcript files for a project path."""
     limit = max(1, min(int(limit or 50), 200))
     found: list[dict] = []
 
@@ -257,6 +322,13 @@ def discover_local_sessions(cwd: str, limit: int = 50) -> list[dict]:
             found.append(meta)
             if len(found) >= limit * 2:
                 break
+
+    omp_dir = omp_project_dir(cwd)
+    if omp_dir.is_dir():
+        for path in sorted(omp_dir.glob("*.jsonl"), key=_mtime, reverse=True)[:limit]:
+            meta = _session_meta(path, "omp", cwd)
+            if meta:
+                found.append(meta)
 
     found.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
     return found[:limit]
@@ -311,12 +383,17 @@ def capture_codex_session(
     return newest[1] if newest else None
 
 
+def _session_path(engine: str, cwd: str, uid: str) -> Path | None:
+    if engine == "cc":
+        return cc_session_path(cwd, uid)
+    if engine == "omp":
+        return omp_session_path(cwd, uid)
+    return codex_session_path(uid)
+
+
 # ---- 分享：读/写会话文件 ----
 def read_session(engine: str, cwd: str, uid: str) -> str | None:
-    if engine == "cc":
-        p = cc_session_path(cwd, uid)
-    else:
-        p = codex_session_path(uid)
+    p = _session_path(engine, cwd, uid)
     if p is None or not p.exists():
         return None
     try:
@@ -360,10 +437,7 @@ def session_history(
     Codex exit. The engine JSONL is the durable source for readable conversation
     history and also exists before a queued resume task starts a new PTY.
     """
-    if engine == "cc":
-        path = cc_session_path(cwd, uid)
-    else:
-        path = codex_session_path(uid)
+    path = _session_path(engine, cwd, uid)
     if path is None or not path.exists():
         return {"messages": [], "truncated": False}
 
@@ -399,6 +473,16 @@ def session_history(
                     append(msg.get("role") or obj.get("type"), _history_content_text(msg.get("content")), timestamp)
                     continue
 
+                if engine == "omp":
+                    # omp: {"type":"message","message":{"role":...,"content":[...]}}
+                    if obj.get("type") != "message":
+                        continue
+                    msg = obj.get("message")
+                    if not isinstance(msg, dict):
+                        continue
+                    append(msg.get("role"), _history_content_text(msg.get("content")), timestamp)
+                    continue
+
                 payload = obj.get("payload")
                 if not isinstance(payload, dict):
                     continue
@@ -425,21 +509,16 @@ def session_history(
 
 
 def _usage_tokens(usage: dict) -> int | None:
-    total = 0
-    found = False
-    for k in ("input_tokens", "output_tokens"):
+    """input+output 口径。cc/codex 的键是 *_tokens，omp 用的是 input/output。"""
+    for keys in (("input_tokens", "output_tokens"), ("input", "output")):
+        parts = [usage[k] for k in keys if isinstance(usage.get(k), int)]
+        if parts:
+            return sum(parts)
+    for k in ("total_tokens", "totalTokens"):
         v = usage.get(k)
         if isinstance(v, int):
-            total += v
-            found = True
-    if found:
-        return total
-    v = usage.get("total_tokens")
-    return v if isinstance(v, int) else None
-
-
-def _session_path(engine: str, cwd: str, uid: str) -> Path | None:
-    return cc_session_path(cwd, uid) if engine == "cc" else codex_session_path(uid)
+            return v
+    return None
 
 
 class LiveTokenCounter:
@@ -550,11 +629,12 @@ def count_tokens(
     since: float | None = None,
     until: float | None = None,
 ) -> int | None:
-    """从会话 transcript 汇总 token 用量(input+output)。会话未落盘则返回 None。"""
-    if engine == "cc":
-        p = cc_session_path(cwd, uid)
-    else:
-        p = codex_session_path(uid)
+    """从会话 transcript 汇总 token 用量(input+output)。会话未落盘则返回 None。
+
+    cc / omp 的 usage 是逐条消息的增量，直接累加；codex 的 token_count 是累计值，
+    走下面的窗口差值分支。
+    """
+    p = _session_path(engine, cwd, uid)
     if p is None or not p.exists():
         return None
 
@@ -637,6 +717,10 @@ def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
         raise ValueError(f"非法 session_uid: {uid!r}")
     if engine == "cc":
         p = cc_session_path(cwd, uid)
+    elif engine == "omp":
+        # omp 按 cwd 分目录，文件名 <时间戳>_<uuid> 供 --resume 按 id 前缀检索
+        ts = time.strftime("%Y-%m-%dT%H-%M-%S-000Z")
+        p = omp_project_dir(cwd) / f"{ts}_{uid}.jsonl"
     else:
         # 放到今天的日期目录，文件名带上 uuid 供 codex 按 id 检索
         day = time.strftime("%Y/%m/%d")

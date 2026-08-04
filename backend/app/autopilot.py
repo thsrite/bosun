@@ -48,6 +48,26 @@ def _parse_tokens(engine: str, stdout: str) -> int:
         except (json.JSONDecodeError, TypeError):
             return 0
         return sum(v for k, v in u.items() if isinstance(v, int) and k in ("input_tokens", "output_tokens"))
+    if engine == "omp":
+        # omp --mode json 是逐事件 NDJSON，每条消息自带增量 usage。同一条消息会在
+        # message_start/message_end/turn_end/agent_end 里重复出现，只认 message_end
+        # 累加，否则会重复计数。
+        total = 0
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "message_end":
+                continue
+            msg = obj.get("message")
+            u = msg.get("usage") if isinstance(msg, dict) else None
+            if isinstance(u, dict):
+                total += sum(v for k, v in u.items() if isinstance(v, int) and k in ("input", "output"))
+        return total
     # codex JSONL：逐事件找含 token 的 usage，取累计最大
     best = 0
     for line in stdout.splitlines():

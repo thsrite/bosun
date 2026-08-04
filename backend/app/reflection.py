@@ -159,7 +159,7 @@ def reflect(cwd: str, origin: str = "manual") -> int:
 
 _SETTING_KEYS = {"quota_block_pct", "mute_threshold", "max_concurrent"}
 _POLICY_FIELDS = {"scope", "scope_arg", "interval_minutes", "enabled"}
-_TASK_ENGINES = {"cc", "codex"}
+_TASK_ENGINES = {"cc", "codex", "omp"}
 
 # 值域护栏: 自进化路径与 UI 侧同一套下限, 防 LLM 提的畸形值绕过护栏设成危险配置。
 _SETTING_BOUNDS = {

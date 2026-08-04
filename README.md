@@ -10,7 +10,7 @@ Bosun 是一个本地优先的 Web 工作台，用来扫描和管理本机多个
 ## 核心能力
 
 - 扫描本机目录并集中管理多个项目
-- 在 Claude Code 和 Codex 之间选择执行引擎，创建、排队和接续任务
+- 在 Claude Code、Codex 和 Oh My Pi 之间选择执行引擎，创建、排队和接续任务
 - 通过优先级与并发上限自动调度任务
 - 在浏览器中查看实时终端、输入指令并接管会话
 - 汇总问题、任务趋势、引擎用量与复盘数据
@@ -48,6 +48,7 @@ _以上截图使用完全虚构的项目、路径、任务、终端输出和系�
 - Node.js 18+ 与 npm
 - Git
 - 已安装并登录 `claude`（Claude Code）和/或 `codex` CLI，且命令位于 `PATH` 中
+- 可选：`omp`（[Oh My Pi](https://github.com/can1357/oh-my-pi)，`npm i -g @oh-my-pi/pi-coding-agent`）。它自带 provider 凭据、依赖 Bun 运行时，安装体积约 1.1 GB；Bosun 不为它做订阅额度查询
 
 ### 安装
 
@@ -132,7 +133,7 @@ cd frontend && npm run build    # 产物在 frontend/dist
 ## 用法
 
 1. 右上「+ 项目 / 扫描」→ 填一个根目录扫描导入，或手动加单个仓库
-2. 项目泳道里「+ 任务」→ 选 cc/codex + 写指令 + 优先级 → 自动进调度
+2. 项目泳道里「+ 任务」→ 选 cc/codex/omp + 写指令 + 优先级 → 自动进调度
 3. 点任务卡「终端」→ 右侧实时终端，可打字插手
 4. 拖拽任务卡改优先级；顶栏调并发上限
 5. 「整体分析」→ 问题收件箱 → 勾「→ 修复任务」转成修复任务（人在环）
@@ -148,12 +149,16 @@ cd frontend && npm run build    # 产物在 frontend/dist
 | `BOSUN_PASSWORD` | 未设置 | 访问口令；设置后会覆盖设置页中保存的口令 |
 | `BOSUN_BACKEND_PORT` | `8770` | `start.sh` 使用的后端端口 |
 | `BOSUN_FRONTEND_PORT` | `5199` | `start.sh` 开发模式使用的前端端口 |
+| `BOSUN_CLAUDE_BIN` | 自动探测 `claude` | Claude Code 可执行文件路径 |
+| `BOSUN_CODEX_BIN` | 自动探测 `codex` | Codex CLI 可执行文件路径 |
+| `BOSUN_OMP_BIN` | 自动探测 `omp` | Oh My Pi 可执行文件路径 |
 
 默认数据保存在 `~/.bosun/`。升级或迁移前，建议先备份该目录。
 
 ## 安全说明
 
-- Bosun 会继承本机 Claude Code / Codex 的登录状态和文件访问能力，请只导入可信仓库。
+- Bosun 会继承本机 Claude Code / Codex / Oh My Pi 的登录状态和文件访问能力，请只导入可信仓库。
+- Oh My Pi 启动时会自动读取 `~/.claude` 下的配置，包括已配置的 MCP server 和 skills；不希望它接触这些资源时，不要选用该引擎。
 - 未设置访问口令时，任何能访问服务的人都可能操作任务和终端；局域网环境也不应视为安全边界。
 - 若需跨设备访问，至少启用强口令；若需公网访问，请额外使用 HTTPS、可信反向代理和网络访问控制。
 - 不要把 API Key、访问令牌、数据库或 `~/.bosun/` 中的运行数据提交到 Git。
