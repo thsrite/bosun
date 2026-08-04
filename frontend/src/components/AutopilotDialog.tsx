@@ -139,6 +139,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
               >
                 <option value="cc">Claude Code</option>
                 <option value="codex">Codex</option>
+                <option value="omp">Oh My Pi</option>
               </select>
             </label>
             <label className="flex flex-col gap-1">
@@ -150,6 +151,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
               >
                 <option value="codex">Codex</option>
                 <option value="cc">Claude Code</option>
+                <option value="omp">Oh My Pi</option>
               </select>
             </label>
             <label className="flex flex-col gap-1">

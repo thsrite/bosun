@@ -12,7 +12,7 @@ import { QuotaBadge } from "./components/QuotaBadge";
 import { SettingsView } from "./components/SettingsView";
 import { OverlayHost, confirmDialog, toast } from "./overlay";
 import { guardQuota } from "./quota";
-import type { Project } from "./types";
+import type { Engine, Project } from "./types";
 import { useSingleFlight } from "./useSingleFlight";
 
 type Tab = "projects" | "tasks" | "claude" | "stats" | "delivery" | "settings";
@@ -41,6 +41,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   codex_model_options: [{ value: "", label: "默认" }],
   codex_effort: "",
   codex_effort_options: [{ value: "", label: "默认" }],
+  omp_model: "",
+  omp_model_options: [{ value: "", label: "默认" }],
+  omp_thinking: "",
+  omp_thinking_options: [{ value: "", label: "默认" }],
 };
 const PULL_REFRESH_TRIGGER_PX = 72;
 const PULL_REFRESH_MAX_PX = 96;

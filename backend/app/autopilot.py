@@ -48,6 +48,26 @@ def _parse_tokens(engine: str, stdout: str) -> int:
         except (json.JSONDecodeError, TypeError):
             return 0
         return sum(v for k, v in u.items() if isinstance(v, int) and k in ("input_tokens", "output_tokens"))
+    if engine == "omp":
+        # omp --mode json 是逐事件 NDJSON，每条消息自带增量 usage。同一条消息会在
+        # message_start/message_end/turn_end/agent_end 里重复出现，只认 message_end
+        # 累加，否则会重复计数。
+        total = 0
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "message_end":
+                continue
+            msg = obj.get("message")
+            u = msg.get("usage") if isinstance(msg, dict) else None
+            if isinstance(u, dict):
+                total += sum(v for k, v in u.items() if isinstance(v, int) and k in ("input", "output"))
+        return total
     # codex JSONL：逐事件找含 token 的 usage，取累计最大
     best = 0
     for line in stdout.splitlines():
@@ -158,6 +178,82 @@ def _verify(project) -> tuple[str, str]:
     return ("pass", " ".join(ran)) if ran else ("skip", "(无验证命令)")
 
 
+def _text_blocks(content) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+    return "\n".join(parts)
+
+
+def assistant_text(engine: str, stdout: str) -> str:
+    """从 headless 的结构化输出里抽出助手正文，丢掉被回显的用户提示词。
+
+    结论判定必须基于这段正文：原始事件流里既有用户提示词也有 diff 原文，
+    对它做 PASS/FAIL 正则会读到别人的字。
+    """
+    import json
+
+    if engine == "cc":
+        try:
+            parsed = json.loads(stdout)
+        except (json.JSONDecodeError, TypeError):
+            return stdout
+        text = parsed.get("result") or parsed.get("text") if isinstance(parsed, dict) else None
+        return text if isinstance(text, str) else stdout
+
+    parts: list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if engine == "omp":
+            # omp --mode json：同一条消息会在多种事件里重复出现，只认 message_end
+            if obj.get("type") != "message_end":
+                continue
+            msg = obj.get("message")
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                parts.append(_text_blocks(msg.get("content")))
+            continue
+        # codex exec --json：助手正文在 item.completed 事件里(实测 codex-cli 0.146.0)
+        #   {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+        if obj.get("type") == "item.completed":
+            item = obj.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+    return "\n".join(p for p in parts if p).strip()
+
+
+def _looks_structured(stdout: str) -> bool:
+    """输出里是否存在成行的 JSON 事件(用于区分「结构化但没抽到」和「本来就是纯文本」)。"""
+    import json
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        return True
+    return False
+
+
 def _cross_review(run_id: int, engine: str, cwd: str, diff: str) -> tuple[str, str]:
     """返回 (verdict, note)，verdict ∈ pass|fail|unknown。
 
@@ -172,6 +268,17 @@ def _cross_review(run_id: int, engine: str, cwd: str, diff: str) -> tuple[str, s
     code, out, _ = _headless(run_id, engine, prompt, cwd, REVIEW_TIMEOUT)
     if code != 0:
         return "unknown", "(复审未运行)"
+    # headless 是结构化输出(json_out=True)，原始流里还夹着被回显的用户提示词。
+    # 直接正则会先撞上提示词里的「PASS 或 FAIL」，把 FAIL 的复审读成 PASS。
+    extracted = assistant_text(engine, out)
+    if not extracted.strip():
+        if _looks_structured(out):
+            # 事件流在那儿但抽不出助手正文：空响应 / NDJSON 截断 / CLI 换了 schema。
+            # 退回扫原始流就会读到被回显的提示词，宁可判 unknown(不放行)。
+            return "unknown", "(复审输出无法解析)"
+        # 纯文本输出(如 SDK 返回)里没有回显的提示词，按原文判定是安全的
+    else:
+        out = extracted
     up = out.upper()
     # 锚定行首优先(复审结论), 回退全局; 避免 diff 内 PASS/FAIL 字样或复述指令污染结论
     m = re.search(r"^\s*(PASS|FAIL)", up, re.M) or re.search(r"\b(PASS|FAIL)\b", up)

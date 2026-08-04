@@ -44,6 +44,13 @@ function parseExportedHistory(bundle: { engine?: string; jsonl?: string }) {
       if (message) append(message.role ?? item.type, contentText(message.content), timestamp);
       continue;
     }
+    if (bundle.engine === "omp") {
+      // omp: {"type":"message","message":{"role":...,"content":[...]}}
+      if (item.type !== "message") continue;
+      const message = item.message as Record<string, unknown> | undefined;
+      if (message) append(message.role, contentText(message.content), timestamp);
+      continue;
+    }
     const payload = item.payload as Record<string, unknown> | undefined;
     if (!payload) continue;
     if (item.type === "event_msg" && (payload.type === "user_message" || payload.type === "agent_message")) {

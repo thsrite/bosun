@@ -21,9 +21,10 @@ import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY, buildTerminalSubmitSequence } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
-import type { ReplySuggestion, Task } from "../types";
+import type { Engine, ReplySuggestion, Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { taskPromptText } from "../taskText";
+import { engineShort } from "../engines";
 
 // 「其他任务需要处理」提醒：同一轮等待只弹一次，关闭或跳转后不再打扰。
 // 用 任务id + 该轮等待起点 作 key（waiting_since 在任务离开 waiting_input 时清空，
@@ -1572,7 +1573,7 @@ export function TerminalPanel({
     });
   }
 
-  async function switchEngine(target: "cc" | "codex") {
+  async function switchEngine(target: Engine) {
     if (target === detail.engine) return;
     await run(async () => {
       if (!(await guardQuota(target))) return;
@@ -1583,7 +1584,7 @@ export function TerminalPanel({
         return;
       }
       const activeNow = ["queued", "running", "waiting_input"].includes(detail.status);
-      const targetLabel = target === "cc" ? "CC" : "Codex";
+      const targetLabel = engineShort(target);
       const message = activeNow
         ? `切换到 ${targetLabel} 接力？当前执行器会停止，原任务会保留。`
         : `创建一个 ${targetLabel} 接力任务？原任务会保留。`;
@@ -1731,11 +1732,12 @@ export function TerminalPanel({
             className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-xs font-medium uppercase text-slate-600 disabled:opacity-50"
             value={detail.engine}
             disabled={busy}
-            onChange={(e) => void switchEngine(e.target.value as "cc" | "codex")}
+            onChange={(e) => void switchEngine(e.target.value as Engine)}
             title={detail.status === "draft" ? "切换任务执行器" : "切换执行器并创建接力任务"}
           >
             <option value="cc">CC</option>
             <option value="codex">Codex</option>
+            <option value="omp">OMP</option>
           </select>
           <span className={`shrink-0 whitespace-nowrap text-sm font-medium ${s.text}`}>{s.label}</span>
           {canSwitch && (

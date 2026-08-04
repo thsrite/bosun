@@ -181,6 +181,10 @@ def refresh_model_options(engine: str, binary: str) -> list[dict[str, str]]:
         options = discover_claude_model_options(binary)
     elif engine == "codex":
         options = discover_codex_model_options(binary)
+    elif engine == "omp":
+        # omp 的 --model 是跨 provider 的模糊匹配，没有可直接消费的目录接口；
+        # 设置页可以直接填模型 ID，这里明确告知而不是抛未知引擎。
+        raise ModelDiscoveryError("omp 暂不支持自动刷新模型列表，可直接填写模型 ID")
     else:
         raise ValueError(f"unknown engine: {engine}")
     db.set_setting(_SETTING_KEYS[engine], json.dumps(options, ensure_ascii=False))

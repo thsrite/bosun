@@ -2,13 +2,14 @@
 
 cc  = Claude Code CLI (`claude`)：支持 --session-id 钉住会话 id、--resume 恢复
 codex = OpenAI Codex CLI (`codex`)：resume <uuid> 恢复；会话 id 需运行后捕获
+omp = Oh My Pi CLI (`omp`)：--resume <id 前缀> 恢复；会话 id 需运行后捕获
 """
 from __future__ import annotations
 
 from . import engine_settings
-from .config import CLAUDE_BIN, CODEX_BIN
+from .config import CLAUDE_BIN, CODEX_BIN, OMP_BIN
 
-ENGINES = {"cc", "codex"}
+ENGINES = {"cc", "codex", "omp"}
 
 # 收尾回报约定：光把 bosun-report skill 装上，模型收尾时未必想得起来调，
 # 尤其是以「反问用户」结尾的那一轮。这里在派发的 prompt 末尾显式要求一次。
@@ -42,6 +43,12 @@ def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | 
             argv.append("--dangerously-bypass-approvals-and-sandbox")
         argv.append(prompt)
         return argv
+    if engine == "omp":
+        argv = engine_settings.with_omp_runtime_args([OMP_BIN])
+        if auto_approve:
+            argv.append("--auto-approve")
+        argv.append(prompt)
+        return argv
     raise ValueError(f"unknown engine: {engine}")
 
 
@@ -60,6 +67,14 @@ def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: 
         argv = engine_settings.with_codex_runtime_args([CODEX_BIN, "resume", session_uid])
         if auto_approve:
             argv.append("--dangerously-bypass-approvals-and-sandbox")
+        if prompt:
+            argv.append(prompt)
+        return argv
+    if engine == "omp":
+        argv = engine_settings.with_omp_runtime_args([OMP_BIN])
+        if auto_approve:
+            argv.append("--auto-approve")
+        argv += ["--resume", session_uid]
         if prompt:
             argv.append(prompt)
         return argv
@@ -86,6 +101,15 @@ def build_headless_argv(engine: str, prompt: str, auto_approve: bool = True, jso
             argv.append("--dangerously-bypass-approvals-and-sandbox")
         argv.append(prompt)
         return argv
+    if engine == "omp":
+        argv = engine_settings.with_omp_runtime_args([OMP_BIN, "-p"])
+        if json_out:
+            # omp 的结构化输出是逐事件 NDJSON(--mode json)，不是单个 JSON 对象。
+            argv += ["--mode", "json"]
+        if auto_approve:
+            argv.append("--auto-approve")
+        argv.append(prompt)
+        return argv
     raise ValueError(f"unknown engine: {engine}")
 
 
@@ -96,4 +120,6 @@ def build_audit_argv(engine: str, audit_prompt: str) -> list[str]:
         return [*argv, audit_prompt]
     if engine == "codex":
         return engine_settings.with_codex_runtime_args([CODEX_BIN, "exec", audit_prompt])
+    if engine == "omp":
+        return engine_settings.with_omp_runtime_args([OMP_BIN, "-p", audit_prompt])
     raise ValueError(f"unknown engine: {engine}")

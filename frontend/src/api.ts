@@ -1,5 +1,5 @@
 import { authHeaders, setToken } from "./auth";
-import type { Finding, IssueSource, LocalSession, Project, ReplySuggestion, Task } from "./types";
+import type { Engine, Finding, IssueSource, LocalSession, Project, ReplySuggestion, Task } from "./types";
 
 export type AppSettings = {
   max_concurrent: number;
@@ -12,6 +12,10 @@ export type AppSettings = {
   codex_model_options: { value: string; label: string }[];
   codex_effort: string;
   codex_effort_options: { value: string; label: string }[];
+  omp_model: string;
+  omp_model_options: { value: string; label: string }[];
+  omp_thinking: string;
+  omp_thinking_options: { value: string; label: string }[];
 };
 
 export type ClaudeResourceCategory =
@@ -101,7 +105,7 @@ export type ProposalTaskSummary = {
   project_id: number;
   title: string | null;
   status: string;
-  engine: "cc" | "codex";
+  engine: Engine;
 };
 
 export type ProposalAction = {
@@ -197,7 +201,7 @@ export const api = {
   tasks: (projectId?: number) =>
     fetch(projectId == null ? "/api/tasks" : `/api/tasks?project_id=${projectId}`).then((r) => j<Task[]>(r)),
   getTask: (id: number) => fetch(`/api/tasks/${id}`).then((r) => j<Task>(r)),
-  updateTask: (id: number, body: { title?: string; prompt?: string; engine?: "cc" | "codex" }) =>
+  updateTask: (id: number, body: { title?: string; prompt?: string; engine?: Engine }) =>
     write<Task>("PUT", `/api/tasks/${id}`, body),
   getLog: (id: number, source: "auto" | "terminal" | "script" = "auto") =>
     fetch(`/api/tasks/${id}/log?source=${source}`).then((r) =>
@@ -248,8 +252,8 @@ export const api = {
     write<{ id: number }>("POST", `/api/tasks/${id}/rerun`),
   continueTask: (id: number, body: { prompt?: string; compact?: boolean; start?: boolean }) =>
     write<{ id: number }>("POST", `/api/tasks/${id}/continue`, body),
-  handoffTask: (id: number, engine: "cc" | "codex", start = true) =>
-    write<{ id: number; engine: "cc" | "codex"; from_task_id: number }>(
+  handoffTask: (id: number, engine: Engine, start = true) =>
+    write<{ id: number; engine: Engine; from_task_id: number }>(
       "POST", `/api/tasks/${id}/handoff`, { engine, start },
     ),
   exportSession: (id: number) =>

@@ -6,6 +6,7 @@ import {
   type EngineToolUpdateResult,
   type HostMetrics,
 } from "../api";
+import type { Engine } from "../types";
 import { Modal } from "./Modal";
 
 type ProviderUsage = {
@@ -374,6 +375,7 @@ function ProviderDetail({
   label,
   note,
   q,
+  quotaUnsupported = false,
   engine,
   tool,
   toolState,
@@ -384,6 +386,8 @@ function ProviderDetail({
   label: string;
   note: string;
   q: ProviderUsage | null | undefined;
+  /** 该引擎没有订阅额度接口(如 omp 自带 provider key)，只展示版本与更新。 */
+  quotaUnsupported?: boolean;
   engine: string;
   tool: EngineToolInfo | null | undefined;
   toolState: EngineToolState | undefined;
@@ -401,7 +405,7 @@ function ProviderDetail({
           <div className="text-[11px] text-slate-400">{note}</div>
         </div>
         <span className={`rounded-full px-2 py-0.5 text-[11px] ${q?.available ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-          {!q ? "读取中" : q.available ? "可用" : "不可用"}
+          {quotaUnsupported ? "无额度接口" : !q ? "读取中" : q.available ? "可用" : "不可用"}
         </span>
       </div>
       {q?.available ? (
@@ -416,7 +420,9 @@ function ProviderDetail({
         </div>
       ) : (
         <div className="rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-500">
-          {q?.error || "正在读取状态"}
+          {quotaUnsupported
+            ? "自带 provider 凭据，没有订阅额度接口，不参与额度阈值拦截"
+            : q?.error || "正在读取状态"}
         </div>
       )}
       <ToolVersionPanel
@@ -461,14 +467,14 @@ export function QuotaBadge({
   }, [setToolState]);
 
   const loadTools = useCallback(async () => {
-    for (const engine of ["cc", "codex"]) setToolState(engine, { loading: true, error: null, result: null });
+    for (const engine of ["cc", "codex", "omp"]) setToolState(engine, { loading: true, error: null, result: null });
     try {
       const info = await api.engineTools.list();
       setTools(info);
-      for (const engine of ["cc", "codex"]) setToolState(engine, { loading: false });
+      for (const engine of ["cc", "codex", "omp"]) setToolState(engine, { loading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      for (const engine of ["cc", "codex"]) setToolState(engine, { loading: false, error: message });
+      for (const engine of ["cc", "codex", "omp"]) setToolState(engine, { loading: false, error: message });
     }
   }, [setToolState]);
 
@@ -526,7 +532,7 @@ export function QuotaBadge({
         type="button"
         className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs hover:bg-emerald-100 md:hidden"
         onClick={() => setOpen(true)}
-        title="查看 cc / codex 状态详情"
+        title="查看 cc / codex / omp 状态详情"
       >
         <CompactProvider label="cc" q={q?.claude} />
         <span className="shrink-0 text-emerald-200">|</span>
@@ -536,7 +542,7 @@ export function QuotaBadge({
         type="button"
         className="hidden max-w-full items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs hover:bg-emerald-100 md:flex"
         onClick={() => setOpen(true)}
-        title={`查看 cc / codex 状态详情；${hostTitle(host)}`}
+        title={`查看 cc / codex / omp 状态详情；${hostTitle(host)}`}
       >
         <Provider label="Claude" q={q?.claude} />
         <span className="text-emerald-200">|</span>
@@ -544,7 +550,7 @@ export function QuotaBadge({
         <HostMetricStrip host={host} />
       </button>
       {open && (
-        <Modal title="cc / Codex 状态" onClose={() => setOpen(false)} wide>
+        <Modal title="cc / Codex / omp 状态" onClose={() => setOpen(false)} wide>
           <div className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2">
               <ProviderDetail
@@ -565,6 +571,18 @@ export function QuotaBadge({
                 engine="codex"
                 tool={tools.codex}
                 toolState={toolStates.codex}
+                onRefreshTool={loadTool}
+                onCheckUpdate={checkUpdate}
+                onUpdateTool={updateTool}
+              />
+              <ProviderDetail
+                label="omp"
+                note="Oh My Pi"
+                q={null}
+                quotaUnsupported
+                engine="omp"
+                tool={tools.omp}
+                toolState={toolStates.omp}
                 onRefreshTool={loadTool}
                 onCheckUpdate={checkUpdate}
                 onUpdateTool={updateTool}

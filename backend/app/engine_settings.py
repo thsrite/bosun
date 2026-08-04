@@ -163,6 +163,74 @@ def with_codex_runtime_args(argv: list[str]) -> list[str]:
     return [*prefix, *argv[1:]]
 
 
+# ---- omp(Oh My Pi)模型与思考档位 ----
+# omp 的 --model 做模糊匹配("opus" / "gpt-5.6" / "openai/gpt-5.2" 都接受)，
+# 所以内置项只是常用建议，settings 里同样允许填任意自定义模型 ID。
+OMP_MODEL_OPTIONS = [
+    {"value": "", "label": "默认"},
+    {"value": "opus", "label": "Opus"},
+    {"value": "sonnet", "label": "Sonnet"},
+    {"value": "gpt-5.6", "label": "gpt-5.6"},
+    {"value": "gemini", "label": "Gemini"},
+]
+# 对应 omp --thinking 的取值
+OMP_THINKING_OPTIONS = [
+    {"value": "", "label": "默认"},
+    {"value": "off", "label": "Off"},
+    {"value": "minimal", "label": "Minimal"},
+    {"value": "low", "label": "Low"},
+    {"value": "medium", "label": "Medium"},
+    {"value": "high", "label": "High"},
+    {"value": "xhigh", "label": "XHigh"},
+    {"value": "max", "label": "Max"},
+    {"value": "auto", "label": "Auto"},
+]
+_OMP_THINKING_VALUES = {opt["value"] for opt in OMP_THINKING_OPTIONS}
+
+
+def normalize_omp_model(value: object) -> str:
+    return str(value or "").strip()
+
+
+def omp_model() -> str:
+    return normalize_omp_model(db.get_setting("omp_model", ""))
+
+
+def omp_model_options() -> list[dict[str, str]]:
+    return _cached_model_options("omp_model_options", OMP_MODEL_OPTIONS)
+
+
+def normalize_omp_thinking(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    return raw if raw in _OMP_THINKING_VALUES else ""
+
+
+def omp_thinking() -> str:
+    return normalize_omp_thinking(db.get_setting("omp_thinking", ""))
+
+
+def omp_thinking_options() -> list[dict[str, str]]:
+    return [dict(opt) for opt in OMP_THINKING_OPTIONS]
+
+
+def with_omp_runtime_args(argv: list[str]) -> list[str]:
+    """omp 的模型与思考档位插在可执行文件之后、其余参数之前。
+
+    argv 里可能已经带上了 prompt(如 build_audit_argv)，追加到末尾会让 flag 落在
+    位置参数后面，所以统一按前缀插入。
+    """
+    if not argv:
+        return argv
+    prefix = [argv[0]]
+    model = omp_model()
+    if model:
+        prefix += ["--model", model]
+    thinking = omp_thinking()
+    if thinking:
+        prefix += ["--thinking", thinking]
+    return [*prefix, *argv[1:]]
+
+
 def should_use_claude_sdk(
     engine: str,
     resume: bool,
