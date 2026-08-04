@@ -57,7 +57,7 @@ def _capture_new_session(
     """
     excluded = exclude_uids or set()
     expected_prompt = _clean_prompt(prompt) if prompt is not None else None
-    newest: tuple[float, str] | None = None
+    best: tuple[float, str] | None = None  # (与启动时刻的距离, uid)
     for directory in directories:
         if not directory.is_dir():
             continue
@@ -79,9 +79,13 @@ def _capture_new_session(
                 # 不能凭 mtime 抢一个还不知道属于谁的会话。
                 if meta is None or meta.get("prompt") != expected_prompt:
                     continue
-            if newest is None or mtime > newest[0]:
-                newest = (mtime, uid)
-    return newest[1] if newest else None
+            # 并发任务的 prompt 可能完全相同(prompt 比对分不开)，此时取创建时间
+            # 最贴近本次启动的那个，而不是「最新的」——后者会让先起的任务抢到
+            # 后起任务的会话，两边互换。
+            distance = abs(mtime - since_ts)
+            if best is None or distance < best[0]:
+                best = (distance, uid)
+    return best[1] if best else None
 
 
 def _snapshot_dirs(directories: list[Path]) -> set[str]:

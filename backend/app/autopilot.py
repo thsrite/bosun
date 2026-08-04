@@ -227,10 +227,14 @@ def assistant_text(engine: str, stdout: str) -> str:
             if isinstance(msg, dict) and msg.get("role") == "assistant":
                 parts.append(_text_blocks(msg.get("content")))
             continue
-        # codex exec --json：助手可见输出走 agent_message 事件
-        payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else obj
-        if payload.get("type") == "agent_message" and isinstance(payload.get("message"), str):
-            parts.append(payload["message"])
+        # codex exec --json：助手正文在 item.completed 事件里(实测 codex-cli 0.146.0)
+        #   {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+        if obj.get("type") == "item.completed":
+            item = obj.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
     return "\n".join(p for p in parts if p).strip()
 
 
