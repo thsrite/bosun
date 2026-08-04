@@ -3,6 +3,9 @@
 bosun 后端若从 Claude Code 会话内启动，会继承 CLAUDECODE / CLAUDE_CODE_SESSION_ID /
 CLAUDE_CODE_CHILD_SESSION 等标记。这些若泄漏给被 spawn 的 cc/codex，子进程会以为自己是
 "嵌套/子会话" → 不独立持久化会话 transcript → --resume 找不到会话。故一律剥离。
+
+同理，后端若本身跑在某个 Bosun 任务里，会继承那个任务的 BOSUN_TASK_ID / BOSUN_API，
+泄漏下去会让子进程拿着别的任务 id 回报状态，所以也一并剥掉，只保留本层显式注入的值。
 """
 from __future__ import annotations
 
@@ -16,6 +19,10 @@ _STRIP = {
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_EFFORT",
     "AI_AGENT",
+    # 继承自「跑着 bosun 后端的那个 Bosun 任务」，不能顺着传给本层派发的子进程
+    "BOSUN_TASK_ID",
+    "BOSUN_API",
+    "BOSUN_BACKEND_PID",
 }
 
 
@@ -33,6 +40,18 @@ def child_env(extra: dict | None = None) -> dict:
     if extra:
         e.update(extra)
     return e
+
+
+def task_env(task_id: int) -> dict:
+    """派发给 agent 的环境：任务 id 与回调地址。
+
+    BOSUN_TASK_ID 会被 agent 自己拉起的子 agent 继承，这类冒名回报由后端在
+    /report 端点按进程链识别(见 nesting.py)，不依赖子进程自证。
+    """
+    return child_env({
+        "BOSUN_TASK_ID": str(task_id),
+        "BOSUN_API": api_base(),
+    })
 
 
 def api_base() -> str:

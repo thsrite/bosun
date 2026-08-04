@@ -24,12 +24,16 @@ done
 printf 'Bosun 汇报 [%s]: %s\n' "$status" "$summary"
 
 # 用 python3 安全拼 JSON（避免 summary 里的引号/换行破坏报文）。
-payload=$(SUMMARY="$summary" STATUS="$status" NEEDS="$needs_reply" python3 -c '
+# reporter_pid 交给后端判断这次回报是不是来自嵌套的子 agent(子 agent 会连
+# BOSUN_TASK_ID 一起继承)。判定放后端：它不受 agent 沙箱限制读得到进程表，
+# 也知道自己 spawn 的 agent 真实 pid，不必靠进程名去猜谁是顶层。
+payload=$(SUMMARY="$summary" STATUS="$status" NEEDS="$needs_reply" PID="$$" python3 -c '
 import json, os
 print(json.dumps({
     "result": os.environ["STATUS"],
     "summary": os.environ["SUMMARY"],
     "needs_reply": os.environ["NEEDS"] == "true",
+    "reporter_pid": int(os.environ["PID"]),
 }))')
 
 curl -sS -m 10 -X POST \

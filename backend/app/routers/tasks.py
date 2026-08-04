@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import db, events, reply_assist, routing, scheduler, sessions
+from .. import db, events, nesting, reply_assist, routing, scheduler, sessions
 from ..engines import ENGINES
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -405,6 +405,8 @@ class ReportBody(BaseModel):
     result: Literal["done", "failed", "needs_input"]
     summary: str = ""
     needs_reply: bool = False
+    # 调用方(bosun-report skill)自己的 pid，用于识别嵌套 agent 的冒名回报
+    reporter_pid: int | None = None
 
 
 _REPORT_STATUS = {"done": "waiting_input", "failed": "failed", "needs_input": "waiting_input"}
@@ -419,6 +421,11 @@ def report_task(task_id: int, body: ReportBody):
     )
     if t is None:
         raise HTTPException(status_code=404, detail="task not found")
+    # 子 agent 会连 BOSUN_TASK_ID 一起继承，拿父任务的 id 回报。判定放在这里而不是
+    # skill 脚本里：后端不受 agent 沙箱限制，读得到完整进程表。
+    if nesting.is_nested_report(body.reporter_pid):
+        raise HTTPException(status_code=409, detail="嵌套 agent 不能代替父任务回报状态")
+    session = scheduler.get_session(task_id)
     status = _REPORT_STATUS[body.result]
     summary = (body.summary or "")[:2000]
     if status == "waiting_input":
@@ -435,7 +442,6 @@ def report_task(task_id: int, body: ReportBody):
             "WHERE id=?",
             (status, body.result, summary, task_id),
         )
-    session = scheduler.get_session(task_id)
     if session is not None and hasattr(session, "mark_reported"):
         session.mark_reported(status)
     current = db.query_one("SELECT waiting_since FROM task WHERE id=?", (task_id,))

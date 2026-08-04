@@ -347,12 +347,9 @@ class PtySession:
     def start(self) -> None:
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self._log_fh = open(self.log_path, "ab", buffering=0)
-        from .env import child_env, api_base
+        from .env import task_env
 
-        env = child_env({
-            "BOSUN_TASK_ID": str(self.task_id),
-            "BOSUN_API": api_base(),
-        })
+        env = task_env(self.task_id)
         spawn_argv = self.argv
         script_log_path = script_log_path_for(self.log_path)
         script_argv = _build_script_argv(self.argv, script_log_path)
