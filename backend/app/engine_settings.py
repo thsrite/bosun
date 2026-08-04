@@ -285,6 +285,9 @@ def validate_omp_extra_args(value: object) -> str:
             )
         # 形如 `--flag value` 的选项，下一个 token 是它的值，不该当成位置参数
         expects_value = "=" not in token and name not in _OMP_BOOLEAN_ARGS
+    if expects_value:
+        # 末尾选项缺值时，build_argv 会把任务指令接在它后面当成值吃掉
+        raise OmpExtraArgsError(f"{argv[-1]} 缺少取值：否则任务指令会被当成它的值")
     return raw
 
 

@@ -238,6 +238,22 @@ def assistant_text(engine: str, stdout: str) -> str:
     return "\n".join(p for p in parts if p).strip()
 
 
+def _looks_structured(stdout: str) -> bool:
+    """输出里是否存在成行的 JSON 事件(用于区分「结构化但没抽到」和「本来就是纯文本」)。"""
+    import json
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        return True
+    return False
+
+
 def _cross_review(run_id: int, engine: str, cwd: str, diff: str) -> tuple[str, str]:
     """返回 (verdict, note)，verdict ∈ pass|fail|unknown。
 
@@ -254,7 +270,15 @@ def _cross_review(run_id: int, engine: str, cwd: str, diff: str) -> tuple[str, s
         return "unknown", "(复审未运行)"
     # headless 是结构化输出(json_out=True)，原始流里还夹着被回显的用户提示词。
     # 直接正则会先撞上提示词里的「PASS 或 FAIL」，把 FAIL 的复审读成 PASS。
-    out = assistant_text(engine, out) or out
+    extracted = assistant_text(engine, out)
+    if not extracted.strip():
+        if _looks_structured(out):
+            # 事件流在那儿但抽不出助手正文：空响应 / NDJSON 截断 / CLI 换了 schema。
+            # 退回扫原始流就会读到被回显的提示词，宁可判 unknown(不放行)。
+            return "unknown", "(复审输出无法解析)"
+        # 纯文本输出(如 SDK 返回)里没有回显的提示词，按原文判定是安全的
+    else:
+        out = extracted
     up = out.upper()
     # 锚定行首优先(复审结论), 回退全局; 避免 diff 内 PASS/FAIL 字样或复述指令污染结论
     m = re.search(r"^\s*(PASS|FAIL)", up, re.M) or re.search(r"\b(PASS|FAIL)\b", up)

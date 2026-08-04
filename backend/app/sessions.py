@@ -73,16 +73,20 @@ def _capture_new_session(
                 continue
             if mtime < since_ts - 2:
                 continue
-            if expected_prompt is not None and engine is not None:
+            created = mtime
+            if engine is not None:
                 meta = _session_meta(p, engine)
-                # 首条指令还没落盘时 meta 为空/无 prompt：这轮先不认领，下轮再看，
-                # 不能凭 mtime 抢一个还不知道属于谁的会话。
-                if meta is None or meta.get("prompt") != expected_prompt:
-                    continue
-            # 并发任务的 prompt 可能完全相同(prompt 比对分不开)，此时取创建时间
-            # 最贴近本次启动的那个，而不是「最新的」——后者会让先起的任务抢到
-            # 后起任务的会话，两边互换。
-            distance = abs(mtime - since_ts)
+                if expected_prompt is not None:
+                    # 首条指令还没落盘时 meta 为空/无 prompt：这轮先不认领，下轮再看，
+                    # 不能抢一个还不知道属于谁的会话。
+                    if meta is None or meta.get("prompt") != expected_prompt:
+                        continue
+                if meta is not None and meta.get("created_at"):
+                    created = meta["created_at"]
+            # 并发任务的 prompt 可能完全相同(比对分不开)，此时按「创建时刻最贴近本次
+            # 启动」归属。必须用 transcript 自己记录的创建时间：mtime 会随会话继续
+            # 输出而后移，先起的任务反而会显得更贴近后起任务的启动时刻，导致互换。
+            distance = abs(created - since_ts)
             if best is None or distance < best[0]:
                 best = (distance, uid)
     return best[1] if best else None
