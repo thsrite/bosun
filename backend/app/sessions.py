@@ -144,17 +144,24 @@ def omp_dir_digest(cwd: str) -> str:
 
 
 def omp_project_dirs(cwd: str) -> list[Path]:
-    """同一 cwd 下所有已存在的 omp 会话目录，按名字排序。
+    """同一 cwd 下所有可能存放会话的 omp 目录，按名字排序。
 
-    目录名是 `<scope>-<可读名>-<sha256(真实路径)>`，scope 由 omp 自己决定(实测 abs，
-    家目录/临时目录下可能是别的前缀)。哈希只认路径，所以同一项目理论上可能同时存在
-    多个前缀的桶——读取一律扫全部，避免「导入的会话看不见」或「新会话捕获不到」。
+    默认布局下目录名是 `<scope>-<可读名>-<sha256(真实路径)>`，scope 由 omp 自己决定
+    (实测 abs，家目录/临时目录下可能是别的前缀)。哈希只认路径，所以同一项目理论上
+    可能同时存在多个前缀的桶——读取一律扫全部，避免「导入的会话看不见」或
+    「新会话捕获不到」。
+
+    另外 PI_CODING_AGENT_SESSION_DIR 被设置时，omp 可能直接把会话文件写在该目录下
+    而不再分桶。两种语义都扫：文件名本身要过 _omp_uid 校验，多扫一个目录不会误认。
     """
-    digest = omp_dir_digest(cwd)
     root = omp_sessions_root()
     if not root.is_dir():
         return []
-    return sorted((p for p in root.glob(f"*-{digest}") if p.is_dir()), key=lambda p: p.name)
+    digest = omp_dir_digest(cwd)
+    dirs = sorted((p for p in root.glob(f"*-{digest}") if p.is_dir()), key=lambda p: p.name)
+    if any(_omp_uid(p) for p in root.glob("*.jsonl")):
+        dirs.append(root)
+    return dirs
 
 
 def omp_project_dir(cwd: str) -> Path:
