@@ -537,7 +537,7 @@ export function SettingsView({
         </Field>
         <Field
           label="自定义参数"
-          hint="原样传给 omp，如 --smol haiku --advisor --max-time 30m。不经过 shell；--session-dir/--profile 等会挪走会话存储的参数会被拒绝。"
+          hint="原样传给 omp，如 --smol haiku --advisor --max-time 30m。不经过 shell；会改变会话存储、运行方式、或让 omp 加载不到回报 skill 的参数会被拒绝，密钥请走环境变量。"
         >
           <input
             className="w-72 font-mono text-xs"

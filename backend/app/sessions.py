@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 from collections.abc import Callable
@@ -16,7 +17,15 @@ from pathlib import Path
 
 CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
 CODEX_SESSIONS = Path.home() / ".codex" / "sessions"
+# omp 允许用 PI_CODING_AGENT_SESSION_DIR 改会话根目录；agent 是后端 spawn 的，
+# 继承的正是这份环境，所以这里读同一个变量才能跟它对上。
+_OMP_SESSIONS_ENV = "PI_CODING_AGENT_SESSION_DIR"
 OMP_SESSIONS = Path.home() / ".omp" / "agent" / "sessions"
+
+
+def omp_sessions_root() -> Path:
+    configured = os.environ.get(_OMP_SESSIONS_ENV)
+    return Path(configured).expanduser() if configured else OMP_SESSIONS
 
 _UUID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 
@@ -142,9 +151,10 @@ def omp_project_dirs(cwd: str) -> list[Path]:
     多个前缀的桶——读取一律扫全部，避免「导入的会话看不见」或「新会话捕获不到」。
     """
     digest = omp_dir_digest(cwd)
-    if not OMP_SESSIONS.is_dir():
+    root = omp_sessions_root()
+    if not root.is_dir():
         return []
-    return sorted((p for p in OMP_SESSIONS.glob(f"*-{digest}") if p.is_dir()), key=lambda p: p.name)
+    return sorted((p for p in root.glob(f"*-{digest}") if p.is_dir()), key=lambda p: p.name)
 
 
 def omp_project_dir(cwd: str) -> Path:
@@ -153,7 +163,7 @@ def omp_project_dir(cwd: str) -> Path:
     if existing:
         return existing[0]
     resolved = Path(cwd).expanduser().resolve()
-    return OMP_SESSIONS / f"abs-{resolved.name}-{omp_dir_digest(cwd)}"
+    return omp_sessions_root() / f"abs-{resolved.name}-{omp_dir_digest(cwd)}"
 
 
 def _omp_uid(path: Path) -> str | None:

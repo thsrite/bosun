@@ -235,16 +235,30 @@ OMP_RUNTIME_OWNED_ARGS = {
     "--approval-mode",
     "--cwd",
     "--export",
+    # 导入模式：会把每次派发都变成「续别人的会话」而不是新建
+    "--from-claude", "--from-codex",
 }
+
+# 会让 omp 加载不到 bosun-report skill 的参数。任务因此永远报不了完成，
+# 又因为等待判定默认关闭，会一直挂在 running 占着并发槽。
+OMP_REPORTING_BREAKING_ARGS = {
+    "--no-skills",
+    "--no-tools",
+    "--skills",          # 按 glob 过滤，可能把 bosun-report 滤掉
+    "--no-extensions",
+}
+
+# 凭据类参数：设置项会落库、经 GET /api/settings 回给前端，还会出现在进程 argv 里。
+# 团队规范要求密钥只走环境变量或密钥服务。
+OMP_CREDENTIAL_ARGS = {"--api-key"}
 
 
 # 不带值的开关，用于区分「选项的值」和「位置参数」。名单之外的选项一律按带值处理，
 # 顶多把一个开关后面的下一项少校验一次，不会误伤合法配置。
 _OMP_BOOLEAN_ARGS = {
-    "--advisor", "--no-lsp", "--no-pty", "--no-tools", "--no-extensions",
-    "--no-skills", "--no-rules", "--no-title", "--hide-thinking",
-    "--prewalk", "--no-prewalk", "--plan-yolo", "--allow-home",
-    "--print-thoughts",
+    "--advisor", "--no-lsp", "--no-pty", "--no-rules", "--no-title",
+    "--hide-thinking", "--prewalk", "--no-prewalk", "--plan-yolo",
+    "--allow-home", "--print-thoughts",
 }
 
 
@@ -274,6 +288,16 @@ def validate_omp_extra_args(value: object) -> str:
         if name in OMP_RUNTIME_OWNED_ARGS:
             raise OmpExtraArgsError(
                 f"不允许使用 {name}：运行方式(续跑/审批/输出格式)由 Bosun 按任务决定"
+            )
+        if name in OMP_REPORTING_BREAKING_ARGS:
+            raise OmpExtraArgsError(
+                f"不允许使用 {name}：omp 会因此加载不到 bosun-report skill，"
+                "任务永远报不了完成，会一直挂在运行中占用并发槽"
+            )
+        if name in OMP_CREDENTIAL_ARGS:
+            raise OmpExtraArgsError(
+                f"不允许在这里填 {name}：设置会落库并回传前端，密钥还会出现在进程参数里。"
+                "请改用环境变量或密钥服务"
             )
         if expects_value:
             expects_value = False
