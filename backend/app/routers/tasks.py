@@ -422,11 +422,10 @@ def report_task(task_id: int, body: ReportBody):
     if t is None:
         raise HTTPException(status_code=404, detail="task not found")
     # 子 agent 会连 BOSUN_TASK_ID 一起继承，拿父任务的 id 回报。判定放在这里而不是
-    # skill 脚本里：后端不受 agent 沙箱限制，且知道自己 spawn 的 agent 真实 pid。
-    session = scheduler.get_session(task_id)
-    agent_pid = getattr(session, "agent_pid", None) if session is not None else None
-    if nesting.is_nested_report(body.reporter_pid, agent_pid):
+    # skill 脚本里：后端不受 agent 沙箱限制，读得到完整进程表。
+    if nesting.is_nested_report(body.reporter_pid):
         raise HTTPException(status_code=409, detail="嵌套 agent 不能代替父任务回报状态")
+    session = scheduler.get_session(task_id)
     status = _REPORT_STATUS[body.result]
     summary = (body.summary or "")[:2000]
     if status == "waiting_input":

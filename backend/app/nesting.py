@@ -5,19 +5,28 @@ BOSUN_TASK_ID 是通过环境变量注入给 agent 的，agent 自己再拉起�
 bosun-report skill，就会拿着父任务的 id 回报状态——实际发生过一次「codex 审查完
 把父任务报成 done」。
 
-判定放在后端而不是 skill 脚本里，有两个决定性理由：
-1. 子 agent 可能跑在沙箱里读不到进程表，让它自证「我不是嵌套的」本身就不可靠；
-2. 后端知道自己 spawn 的 agent 真实 pid，不必靠进程名去猜哪个才是顶层 agent。
+判定放在后端而不是 skill 脚本里：子 agent 可能跑在沙箱里读不到进程表，
+让它自证「我不是嵌套的」本身就不可靠；后端不受这个限制。
 
-于是判据变得很干净：从回报者往上走到 agent_pid，**中间只要还夹着一个 agent 进程，
-就是嵌套**。顶层 agent 自己不参与匹配(它就是 agent_pid)，所以进程名只用于识别
-「多出来的那个」。
+边界取**后端进程自己的 pid**，判据是「从回报者到后端之间夹了几个 agent」：
 
-拿不准一律放行：进程已退出、链路断了、拿不到 agent pid——宁可多收一次回报，
+    正常(PTY)        report.sh ← shell ← claude ← 后端                1 个 → 放行
+    正常(script 包)  report.sh ← shell ← claude ← script ← 后端       1 个 → 放行
+    正常(SDK)        report.sh ← shell ← claude ← 后端                1 个 → 放行
+    嵌套             report.sh ← shell ← codex ← shell ← claude ← 后端 2 个 → 拒绝
+
+不去精确定位「哪个进程才是顶层 agent」是刻意的：SDK 走 subprocess 传输另起
+claude 进程、开了 BOSUN_SCRIPT_LOG 时 spawn 的是 script 包装——凡是想钉死某个
+pid 的做法都会在这些路径上把正常回报误判掉。后端 pid 则始终可靠。
+
+相邻的两个 agent 也照常各计一层：agent 不经 shell 直接 Popen 子 agent 同样是嵌套。
+
+拿不准一律放行：进程已退出、链路断了、进程表读不到——宁可多收一次回报，
 也不能把正常任务的回报拒掉(那会让 Bosun 退回靠终端输出猜状态)。
 """
 from __future__ import annotations
 
+import os
 import subprocess
 
 # Bosun 认识的 agent 可执行文件名(实测 ps comm：Claude Code 是 claude，不是 node)。
@@ -56,11 +65,15 @@ def read_process_table() -> dict[int, tuple[int, str]]:
     return table
 
 
+# 正常链路允许出现的 agent 层数：Bosun 自己派发的那个 agent 占一层。
+MAX_AGENT_LAYERS = 1
+
+
 def agents_between(
-    reporter_pid: int, agent_pid: int, table: dict[int, tuple[int, str]]
+    reporter_pid: int, boundary_pid: int, table: dict[int, tuple[int, str]]
 ) -> int | None:
-    """数回报者与 agent_pid 之间夹着几个 agent 进程。走不到 agent_pid 返回 None。"""
-    if reporter_pid == agent_pid:
+    """数回报者与 boundary_pid 之间夹着几个 agent 进程。走不到边界返回 None。"""
+    if reporter_pid == boundary_pid:
         return 0
     count = 0
     current = reporter_pid
@@ -69,10 +82,10 @@ def agents_between(
         if entry is None:
             return None
         parent = entry[0]
-        if parent == agent_pid:
+        if parent == boundary_pid:
             return count
         if parent in (0, current):
-            return None  # 走到 init 都没遇到 agent：链路对不上
+            return None  # 走到 init 都没遇到后端：链路对不上
         parent_entry = table.get(parent)
         if parent_entry is None:
             return None
@@ -84,11 +97,16 @@ def agents_between(
 
 def is_nested_report(
     reporter_pid: int | None,
-    agent_pid: int | None,
+    boundary_pid: int | None = None,
     table: dict[int, tuple[int, str]] | None = None,
 ) -> bool:
     """回报是否来自嵌套 agent。任何拿不准的情况都返回 False(放行)。"""
-    if not reporter_pid or not agent_pid:
+    if not reporter_pid:
         return False
-    count = agents_between(reporter_pid, agent_pid, table if table is not None else read_process_table())
-    return bool(count)
+    boundary = boundary_pid or os.getpid()
+    count = agents_between(
+        reporter_pid, boundary, table if table is not None else read_process_table()
+    )
+    if count is None:
+        return False
+    return count > MAX_AGENT_LAYERS
