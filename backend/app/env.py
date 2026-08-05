@@ -21,6 +21,7 @@ _STRIP = {
     "AI_AGENT",
     # 继承自「跑着 bosun 后端的那个 Bosun 任务」，不能顺着传给本层派发的子进程
     "BOSUN_TASK_ID",
+    "BOSUN_TASK_TOKEN",
     "BOSUN_API",
     "BOSUN_BACKEND_PID",
 }
@@ -43,14 +44,20 @@ def child_env(extra: dict | None = None) -> dict:
 
 
 def task_env(task_id: int) -> dict:
-    """派发给 agent 的环境：任务 id 与回调地址。
+    """派发给 agent 的环境：任务 id、回调地址与本轮回调凭证。
 
     BOSUN_TASK_ID 会被 agent 自己拉起的子 agent 继承，这类冒名回报由后端在
     /report 端点按进程链识别(见 nesting.py)，不依赖子进程自证。
+
+    BOSUN_TASK_TOKEN 让 agent 在开了访问口令时也能回报：它只对本任务的
+    /report 端点有效(见 auth.issue_task_token)，拿不到别的接口。
     """
+    from . import auth
+
     return child_env({
         "BOSUN_TASK_ID": str(task_id),
         "BOSUN_API": api_base(),
+        "BOSUN_TASK_TOKEN": auth.issue_task_token(task_id),
     })
 
 

@@ -8,10 +8,10 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .. import db, events, nesting, reply_assist, routing, scheduler, sessions
+from .. import auth, db, events, nesting, reply_assist, routing, scheduler, sessions
 from ..engines import ENGINES
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -412,9 +412,40 @@ class ReportBody(BaseModel):
 _REPORT_STATUS = {"done": "waiting_input", "failed": "failed", "needs_input": "waiting_input"}
 
 
+def _is_loopback(request: Request) -> bool:
+    return (request.client.host if request.client else "") in {"127.0.0.1", "::1"}
+
+
+def _report_authorized(task_id: int, request: Request | None) -> bool:
+    """回报凭证校验：会话 token(前端手动补报) 或本任务的回调 token(agent)。
+
+    没开访问口令时一律放行；request 为 None 只可能是进程内直接调用。
+
+    例外：升级前就已经跑起来的任务，环境里没有 BOSUN_TASK_TOKEN(注入发生在派发
+    时刻，改不了活着的进程)，它们的 report_token 为空。这类**仍在运行**的任务
+    只认本机回环的回报，让在飞的会话还能正常收尾；下一轮派发就有 token 了。
+    """
+    if not auth.is_enabled():
+        return True
+    if request is None:
+        return True
+    token = auth.token_from_request(request.headers)
+    if auth.validate_token(token) or auth.validate_task_token(task_id, token):
+        return True
+    row = db.query_one("SELECT status, report_token FROM task WHERE id=?", (task_id,))
+    return (
+        bool(row)
+        and not row["report_token"]
+        and row["status"] == "running"
+        and _is_loopback(request)
+    )
+
+
 @router.post("/{task_id}/report")
-def report_task(task_id: int, body: ReportBody):
+def report_task(task_id: int, body: ReportBody, request: Request = None):
     """cc/codex 任务收尾时的权威状态回调（由 bosun-report skill 触发）。"""
+    if not _report_authorized(task_id, request):
+        raise HTTPException(status_code=401, detail="回报凭证无效")
     t = db.query_one(
         "SELECT id, status, waiting_since FROM task WHERE id=? AND deleted=0",
         (task_id,),

@@ -36,7 +36,28 @@ print(json.dumps({
     "reporter_pid": int(os.environ["PID"]),
 }))')
 
-curl -sS -m 10 -X POST \
+# 开了访问口令时，回调也要带凭证：BOSUN_TASK_TOKEN 由后端按任务下发，
+# 只对本任务的 /report 有效。没开口令时该变量为空，请求照常放行。
+# 展开写法 ${a[@]+"${a[@]}"} 是为了兼容 macOS 自带的 bash 3.2：
+# 那里 set -u 下直接展开空数组会报 unbound variable。
+auth_args=()
+if [ -n "${BOSUN_TASK_TOKEN:-}" ]; then
+  auth_args=(-H "Authorization: Bearer ${BOSUN_TASK_TOKEN}")
+fi
+
+# 回报失败必须看得见：以前一律 `|| true` 吞掉，401/网络不通时终端照样显示
+# 「已回报」，Bosun 那头却什么都没收到，没人能发现。
+code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' -X POST \
   -H "Content-Type: application/json" \
+  ${auth_args[@]+"${auth_args[@]}"} \
   -d "$payload" \
-  "${BOSUN_API}/api/tasks/${BOSUN_TASK_ID}/report" >/dev/null || true
+  "${BOSUN_API}/api/tasks/${BOSUN_TASK_ID}/report" 2>/dev/null) || true
+[ -n "$code" ] || code="000"
+
+case "$code" in
+  2*) ;;
+  *)
+    printf 'Bosun 回报失败(HTTP %s)：状态没同步到工作台，请直接告知用户。\n' "$code" >&2
+    exit 1
+    ;;
+esac

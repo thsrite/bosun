@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -71,11 +72,19 @@ app = FastAPI(title="Bosun")
 # 无需登录即可访问的 API：健康检查与登录流程本身。其余 /api/* 一律校验 token。
 _PUBLIC_API_PATHS = {"/api/health", "/api/auth/status", "/api/auth/login"}
 
+# agent 回报端点不走会话 token(agent 登录不了)，改由端点自己校验任务级凭证。
+_TASK_REPORT_PATH = re.compile(r"^/api/tasks/\d+/report$")
+
 
 @app.middleware("http")
 async def _require_auth(request, call_next):
     path = request.url.path
-    if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and auth_service.is_enabled():
+    if (
+        path.startswith("/api/")
+        and path not in _PUBLIC_API_PATHS
+        and not _TASK_REPORT_PATH.match(path)
+        and auth_service.is_enabled()
+    ):
         token = auth_service.token_from_request(request.headers)
         if not auth_service.validate_token(token):
             return JSONResponse({"detail": "未登录或会话已过期"}, status_code=401)

@@ -150,6 +150,30 @@ def purge_expired() -> None:
     db.execute("DELETE FROM auth_session WHERE expires_at < ?", (time.time(),))
 
 
+# ---- 任务回调 token ----------------------------------------------------
+# agent 不是浏览器，登录不了，但 bosun-report 必须能回报状态；开了访问口令后
+# 全局中间件会把这类无凭证回调一律 401 掉(任务状态永远进不了 waiting_input，
+# 待处理列表因此空掉)。故每次派发任务时随机发一枚只对该任务、只对 /report
+# 端点有效的 token，随环境变量交给 agent。
+
+
+def issue_task_token(task_id: int) -> str:
+    """给本轮运行发一枚任务回调 token（覆盖上一轮的，旧 token 随即失效）。"""
+    token = secrets.token_urlsafe(24)
+    db.execute("UPDATE task SET report_token=? WHERE id=?", (token, task_id))
+    return token
+
+
+def validate_task_token(task_id: int, token: str | None) -> bool:
+    """token 是否是该任务当前这轮的回调凭证。"""
+    if not token:
+        return False
+    row = db.query_one("SELECT report_token FROM task WHERE id=?", (task_id,))
+    if row is None or not row["report_token"]:
+        return False
+    return hmac.compare_digest(str(row["report_token"]), token)
+
+
 def token_from_request(headers) -> str | None:
     """从 Authorization: Bearer 头取 token。"""
     raw = headers.get("authorization") or ""

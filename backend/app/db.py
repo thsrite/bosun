@@ -179,6 +179,7 @@ def _ensure_columns() -> None:
         "report_result": "TEXT",       # agent 回调结果: done | failed | needs_input
         "report_summary": "TEXT",      # agent 回调的一句话结论
         "waiting_since": "REAL",       # 当前 waiting_input 轮次起点；用于通知补发/去重
+        "report_token": "TEXT",        # 本轮派发给 agent 的 /report 回调凭证
     })
     _ensure_table_columns(conn, "finding", {
         "origin": "TEXT NOT NULL DEFAULT 'manual'",  # manual | autopilot
