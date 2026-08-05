@@ -655,7 +655,9 @@ export function ActiveTasksView({
 
   async function resumePausedTask(task: Task) {
     if (transitioningTaskId !== null) return;
-    const prompt = await promptDialog("追加指令（留空=只加载上下文继续）", "");
+    const prompt = await promptDialog("追加指令（留空=只加载上下文继续）", "", {
+      attachToTaskId: task.id,
+    });
     if (prompt === null) return; // 取消弹窗=不继续
     if (!(await guardQuota(task.engine))) return;
     setTransitioningTaskId(task.id);

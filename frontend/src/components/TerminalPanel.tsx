@@ -1535,7 +1535,9 @@ export function TerminalPanel({
       if (!(await guardQuota(detail.engine))) return;
       let prompt = "";
       if (!compact) {
-        const input = await promptDialog("追加指令（留空=只加载上下文继续）", "");
+        const input = await promptDialog("追加指令（留空=只加载上下文继续）", "", {
+          attachToTaskId: detail.id,
+        });
         if (input === null) return; // 取消弹窗=不继续；留空=只恢复上下文不发指令
         prompt = input;
       }

@@ -266,7 +266,9 @@ export function TaskBoard({
           onChanged();
         }}
         onContinue={async (tk) => {
-          const prompt = await promptDialog("追加指令（留空=只加载上下文继续）", "");
+          const prompt = await promptDialog("追加指令（留空=只加载上下文继续）", "", {
+            attachToTaskId: tk.id,
+          });
           if (prompt === null) return; // 取消弹窗=不继续；留空=只恢复上下文不发指令
           if (!(await guardQuota(tk.engine))) return;
           await api.continueTask(tk.id, { prompt, start: true });
