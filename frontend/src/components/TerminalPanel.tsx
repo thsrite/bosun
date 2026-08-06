@@ -18,7 +18,7 @@ import { ChatView } from "./ChatView";
 import { SessionHistoryView } from "./SessionHistoryView";
 import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
-import { TERMINAL_SUBMIT_KEY, buildTerminalSubmitSequence } from "../terminalInput";
+import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Engine, ReplySuggestion, Task } from "../types";
@@ -65,21 +65,6 @@ function getLayoutViewportHeight(): number {
 
 function getMinUsableViewportHeight(): number {
   return Math.min(260, Math.max(160, Math.round(getLayoutViewportHeight() * 0.35)));
-}
-
-function focusTextareaWithoutScroll(input: HTMLTextAreaElement | null) {
-  if (!input) return;
-  try {
-    input.focus({ preventScroll: true });
-  } catch {
-    input.focus();
-  }
-  const end = input.value.length;
-  try {
-    input.setSelectionRange(end, end);
-  } catch {
-    /* ignore */
-  }
 }
 
 function preferredAudioMimeType(): string {
@@ -396,7 +381,7 @@ function TerminalView({
       const term = termRef.current;
       const ws = wsRef.current;
       if (!term || ws?.readyState !== WebSocket.OPEN) return;
-      // The mobile composer transfers a completed textarea value, so route it through
+      // Route composed payloads (reply suggestion, uploaded file paths) through
       // xterm's paste API. xterm normalizes newlines and, when the TUI negotiated
       // bracketed paste, wraps the payload before onData forwards it to the PTY.
       // This prevents Codex's paste-burst detector from holding a lone ASCII key
@@ -445,20 +430,11 @@ function TerminalView({
     termRef.current = term;
     const disposeAltBufferWorkaround = installAltBufferScrollbackWorkaround(term);
     fit.fit();
-    // 移动端（<md，走下方 TerminalMobileComposer 输入）不弹输入法：
-    // xterm 渲染了真实隐藏 textarea，点终端会被原生聚焦并弹出虚拟键盘，
-    // 遮住 Claude 的选择菜单。给它设 inputmode="none"，被聚焦也不弹键盘；
-    // 桌面端移除该属性正常键入。同时移动端不自动聚焦，只有点输入框才弹。
+    // 桌面端挂载即聚焦可直接打字；移动端不自动聚焦（打开面板不弹输入法），
+    // 由 onTouchEnd 的「轻点终端」手势聚焦 xterm 隐藏 textarea 弹出输入法，
+    // 键入直接进 PTY——@ 文件引用、/ 命令补全等都由 CLI 自身在终端里渲染。
+    // 输入法弹出时 visualViewport 机制会收缩面板高度并 refit，不会盖住终端内容。
     const isDesktopLayout = () => window.matchMedia("(min-width: 768px)").matches;
-    const helperTextarea = elRef.current.querySelector<HTMLTextAreaElement>(
-      ".xterm-helper-textarea",
-    );
-    const syncMobileInputMode = () => {
-      if (!helperTextarea) return;
-      if (isDesktopLayout()) helperTextarea.removeAttribute("inputmode");
-      else helperTextarea.setAttribute("inputmode", "none");
-    };
-    syncMobileInputMode();
     if (isDesktopLayout()) term.focus();
 
     let ws: WebSocket | null = null;
@@ -810,7 +786,8 @@ function TerminalView({
       if (["End", "Home", "PageDown", "PageUp"].includes(e.key)) markUserScroll();
     };
     const focusTerminal = () => {
-      // 移动端点击终端区域仅用于查看/滚动，不聚焦、不弹输入法
+      // 桌面端按下即聚焦；移动端 pointerdown 也是滚动手势的起点，不能在这里聚焦
+      // （会导致一拖就弹输入法），改由 onTouchEnd 判定「轻点」后聚焦
       if (isDesktopLayout()) term.focus();
     };
     // 移动端触摸滚动：纵向拖拽转成 scrollLines 翻历史；长按选择由系统接管、横向拖动不接管。
@@ -822,6 +799,8 @@ function TerminalView({
     let tLastX = 0;
     let tStartY = 0;
     let tLastY = 0;
+    let tStartAt = 0;
+    let tapFocusUntil = 0;
     let tRemainder = 0;
     let tActive = false;
     let tScrollStarted = false;
@@ -863,19 +842,68 @@ function TerminalView({
       );
       return true;
     };
+    // 行内亚像素偏移：xterm 只能整行滚(scrollLines)，纯行量化的拖动每步跳一个字符行，
+    // 观感明显发涩。把不足一行的余量用 translateY 补到画布上，视觉上做到像素级跟手；
+    // 松手停稳/撞边界/滚动交给 TUI 时把偏移吸回行网格。
+    const screenEl = terminalHost.querySelector<HTMLElement>(".xterm-screen");
+    if (screenEl) screenEl.style.willChange = "transform";
+    let subCellOffset = 0;
+    let subCellSnapTimer: number | null = null;
+    const setSubCellOffset = (px: number) => {
+      if (!screenEl || subCellOffset === px) return;
+      subCellOffset = px;
+      screenEl.style.transform = px ? `translateY(${px}px)` : "";
+    };
+    const clearSubCellTransition = () => {
+      if (subCellSnapTimer != null) {
+        window.clearTimeout(subCellSnapTimer);
+        subCellSnapTimer = null;
+      }
+      if (screenEl) screenEl.style.transition = "";
+    };
+    // 松手吸回行网格：残余偏移 ≤ 半个字符行，用一段短过渡回去，避免肉眼可见的跳变
+    const snapSubCellOffset = () => {
+      tRemainder = 0;
+      if (!screenEl || subCellOffset === 0) return;
+      screenEl.style.transition = "transform 90ms ease-out";
+      setSubCellOffset(0);
+      if (subCellSnapTimer != null) window.clearTimeout(subCellSnapTimer);
+      subCellSnapTimer = window.setTimeout(() => {
+        subCellSnapTimer = null;
+        if (screenEl) screenEl.style.transition = "";
+      }, 120);
+    };
     // 按手指位移滚动，返回是否真的动了(撞到顶/底则不动，用于停止甩滚)
     const scrollByFingerDelta = (dy: number): boolean => {
       tRemainder += dy / cellHeight();
       const lines = Math.trunc(tRemainder);
-      if (lines === 0) return true;
       tRemainder -= lines;
-      if (dispatchApplicationWheel(lines)) return true;
-      markUserScroll();
-      const before = term.buffer.active.viewportY;
-      // xterm: 负数向上（历史）、正数向下（最新）。上滑时 dy/lines<0，必须原样传入；
-      // 取反会让上滑变成向下滚，而终端初始已在底部，于是视觉上完全没有反应。
-      term.scrollLines(lines);
-      return term.buffer.active.viewportY !== before;
+      if (lines !== 0 && dispatchApplicationWheel(lines)) {
+        // TUI 接管滚动（鼠标跟踪模式），画布归 TUI 重绘，不做亚像素偏移
+        tRemainder = 0;
+        setSubCellOffset(0);
+        return true;
+      }
+      const buffer = term.buffer.active;
+      let moved = true;
+      if (lines !== 0) {
+        markUserScroll();
+        const before = buffer.viewportY;
+        // xterm: 负数向上（历史）、正数向下（最新）。上滑时 dy/lines<0，必须原样传入；
+        // 取反会让上滑变成向下滚，而终端初始已在底部，于是视觉上完全没有反应。
+        term.scrollLines(lines);
+        moved = buffer.viewportY !== before;
+      }
+      // 撞到顶/底后余量清零，不把画布拖出边界露出底色
+      if (
+        (buffer.viewportY >= buffer.baseY && tRemainder > 0) ||
+        (buffer.viewportY <= 0 && tRemainder < 0)
+      ) {
+        tRemainder = 0;
+      }
+      // 视口下移 1 行 = 内容上移 1 行，故余量 f 行对应 translateY(-f·行高)
+      setSubCellOffset(-tRemainder * cellHeight());
+      return lines === 0 ? true : moved;
     };
     const startFling = () => {
       stopFling();
@@ -889,8 +917,11 @@ function TerminalView({
         const dt = Math.min(50, now - last); // 后台切回大跳做钳制
         last = now;
         const moved = scrollByFingerDelta(vel * dt);
-        vel *= Math.pow(0.95, dt / 16); // 每 ~16ms 衰减到 0.95
-        if (!moved || Math.abs(vel) < 0.02) return; // 到顶/到底或速度衰减尽 → 停
+        vel *= Math.pow(0.998, dt); // iOS 风格逐毫秒衰减(≈0.968/16ms)，滑得更远更绵
+        if (!moved || Math.abs(vel) < 0.01) {
+          snapSubCellOffset(); // 到顶/到底或速度衰减尽 → 停，吸回行网格
+          return;
+        }
         flingFrame = requestAnimationFrame(step);
       };
       flingFrame = requestAnimationFrame(step);
@@ -905,9 +936,12 @@ function TerminalView({
       stopFling(); // 手指按下打断上一次甩滚
       tStartX = tLastX = t.clientX;
       tStartY = tLastY = t.clientY;
+      tStartAt = performance.now();
       tLastMoveAt = performance.now();
       tVelocity = 0;
-      tRemainder = 0;
+      // 打断甩滚接着拖：把画布上尚未吸回的亚像素偏移换算回余量，保证视觉连续不跳
+      clearSubCellTransition();
+      tRemainder = subCellOffset ? -subCellOffset / cellHeight() : 0;
       tScrollStarted = false;
       tActive = true;
     };
@@ -937,16 +971,44 @@ function TerminalView({
       scrollByFingerDelta(dy);
     };
     const onTouchEnd = (e: globalThis.TouchEvent) => {
+      const wasActive = tActive;
       if (tActive) e.stopPropagation();
       tActive = false;
       touchActive = false;
       if (tScrollStarted) startFling(); // 松手按末速甩滚，撞顶/底或衰减尽自停
+      if (tScrollStarted && flingFrame == null) snapSubCellOffset(); // 慢速松手没起甩滚 → 直接吸回
+      // 移动端「轻点终端」＝想输入：聚焦 xterm 隐藏 textarea 弹出输入法，键入直进 PTY，
+      // 与桌面端点击终端即可打字一致。纵向拖动(滚历史)、长按选区、pinch 都不算轻点。
+      if (
+        wasActive &&
+        !tScrollStarted &&
+        e.type === "touchend" &&
+        liveRef.current &&
+        !isDesktopLayout() &&
+        performance.now() - tStartAt < 350 &&
+        !hasNativeTerminalSelection() &&
+        !term.hasSelection()
+      ) {
+        term.focus();
+        // 浏览器会对这次轻点补发模拟鼠标事件，落在不可聚焦画布上的 mousedown 默认行为
+        // 会把刚聚焦的 textarea 又 blur 掉（表现为输入法一闪就收）。标记一个短窗口，
+        // 让链尾的 click（晚于 mousedown）再补一次聚焦兜底。
+        tapFocusUntil = performance.now() + 500;
+      }
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
       selectionResumeTimer = window.setTimeout(() => {
         selectionResumeTimer = null;
         maybeResumeDeferredWrites();
       }, 150);
     };
+    // 轻点聚焦的兜底：touchend 里的 focus 可能被随后的模拟 mousedown 默认行为 blur 掉，
+    // 在模拟事件链最后的 click 上再聚焦一次（仍属用户手势，允许弹出输入法）。
+    const onTerminalTapFocusClick = () => {
+      if (performance.now() > tapFocusUntil) return;
+      tapFocusUntil = 0;
+      term.focus();
+    };
+    terminalHost.addEventListener("click", onTerminalTapFocusClick);
     const touchCaptureOptions = { capture: true, passive: false } as AddEventListenerOptions;
     const touchEndCaptureOptions = { capture: true, passive: true } as AddEventListenerOptions;
     terminalHost.addEventListener("pointerdown", focusTerminal);
@@ -973,7 +1035,6 @@ function TerminalView({
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
       fit.fit();
-      syncMobileInputMode(); // 断点变化（旋转/窗口缩放）时同步 inputmode
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -990,9 +1051,11 @@ function TerminalView({
       stopApplicationScroll();
       if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
+      if (subCellSnapTimer != null) window.clearTimeout(subCellSnapTimer);
       scrollDisposable.dispose();
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
+      terminalHost.removeEventListener("click", onTerminalTapFocusClick);
       terminalHost.removeEventListener("copy", onTerminalCopy);
       terminalHost.removeEventListener("paste", onTerminalPaste, true);
       terminalHost.removeEventListener("wheel", markUserScroll, userScrollCaptureOptions);
@@ -1054,6 +1117,7 @@ function TerminalView({
           suggestion={suggestion}
           onSend={sendTerminalData}
           onPaste={pasteTerminalData}
+          onFocusTerminal={() => termRef.current?.focus()}
           onSmartGenerate={onSmartGenerate}
           smartLoading={smartLoading}
         />
@@ -1068,6 +1132,7 @@ function TerminalMobileComposer({
   suggestion,
   onSend,
   onPaste,
+  onFocusTerminal,
   onSmartGenerate,
   smartLoading,
 }: {
@@ -1076,22 +1141,16 @@ function TerminalMobileComposer({
   suggestion?: ReplySuggestion | null;
   onSend: (data: string) => void;
   onPaste: (data: string) => void;
+  onFocusTerminal: () => void;
   onSmartGenerate?: () => void;
   smartLoading?: boolean;
 }) {
-  const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]); // 已上传文件的绝对路径
   const [uploading, setUploading] = useState(false);
   const [dismissedSuggestion, setDismissedSuggestion] = useState("");
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const canShowSuggestion =
-    !!suggestion?.available &&
-    !!suggestion.text.trim() &&
-    !text.trim() &&
-    dismissedSuggestion !== suggestion.text;
-  const visibleSuggestion = canShowSuggestion ? suggestion : null;
-
-  const refocus = () => window.setTimeout(() => focusTextareaWithoutScroll(inputRef.current), 0);
+  const visibleSuggestion =
+    suggestion?.available && suggestion.text.trim() && dismissedSuggestion !== suggestion.text
+      ? suggestion
+      : null;
 
   useEffect(() => {
     setDismissedSuggestion("");
@@ -1099,55 +1158,37 @@ function TerminalMobileComposer({
 
   const acceptSuggestion = () => {
     if (!suggestion?.text.trim()) return;
-    setText(suggestion.text);
+    // 粘贴到终端输入行（不自动发送），并聚焦终端方便继续编辑后回车
+    onPaste(suggestion.text);
     setDismissedSuggestion(suggestion.text);
-    refocus();
-  };
-
-  const sendText = () => {
-    if (!connected) return;
-    const frames = buildTerminalSubmitSequence(text, attachments);
-    if (frames.length === 0) return;
-    const [payload, submitKey] = frames;
-    if (!payload || !submitKey) return;
-    onPaste(payload);
-    onSend(submitKey);
-    setText("");
-    setAttachments([]);
-    refocus();
+    onFocusTerminal();
   };
 
   const sendKey = (data: string) => {
     if (!connected) return;
     onSend(data);
-    refocus();
   };
 
   const sendCommand = (command: string) => {
     if (!connected) return;
     onSend(`${command}${TERMINAL_SUBMIT_KEY}`);
-    refocus();
-  };
-
-  const onInputTouchStart = (e: TouchEvent<HTMLTextAreaElement>) => {
-    if (!isTouchDevice() || document.activeElement === e.currentTarget) return;
-    e.preventDefault();
-    focusTextareaWithoutScroll(e.currentTarget);
   };
 
   const onPickFiles = async (files: File[]) => {
     setUploading(true);
     try {
-      // 逐个上传，单个失败不影响其余；成功的存为附件卡片，发送时才注入路径
+      // 逐个上传，单个失败不影响其余；成功的路径直接粘贴到终端输入行光标处，
+      // 与桌面端粘贴图片的行为一致
+      const paths: string[] = [];
       for (const file of files) {
         try {
           const { path } = await api.uploadFile(taskId, file);
-          setAttachments((prev) => [...prev, path]);
+          paths.push(path);
         } catch (err) {
           toast(`「${file.name}」上传失败：${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      refocus();
+      if (paths.length > 0) onPaste(` ${paths.join(" ")} `);
     } finally {
       setUploading(false);
     }
@@ -1155,43 +1196,29 @@ function TerminalMobileComposer({
 
   return (
     <div className="dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-slate-700/50 bg-[#101722] px-2 pt-2 md:hidden">
-      <div className="flex gap-1.5 overflow-x-auto">
-        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x03")} label="Ctrl-C" />
+      {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
+          文本输入直接轻点终端区域弹输入法键入。 */}
+      <div className="grid grid-cols-6 gap-1.5">
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b")} label="Esc" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\t")} label="Tab" />
-        <TerminalKeyButton disabled={!connected} onSend={() => sendKey(TERMINAL_SUBMIT_KEY)} label="Enter" />
-        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[A")} label="↑" wide />
-        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[B")} label="↓" wide />
-        <TerminalKeyButton disabled={!connected} onSend={() => sendCommand("commit push")} label="CP" wide />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x03")} label="Ctrl-C" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[A")} label="↑" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x7f")} label="⌫" />
         <AttachmentPicker
-          buttonClassName="shrink-0 whitespace-nowrap rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+          buttonClassName="w-full whitespace-nowrap rounded-md border border-slate-700 bg-slate-800 px-1 py-1.5 text-[12px] font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40"
           disabled={!connected || uploading}
           onFiles={onPickFiles}
-          title="上传文件（可多选），发送时附带其路径"
+          title="上传文件（可多选），路径会粘贴到终端输入行"
         >
-          {uploading ? "上传中…" : "文件"}
+          {uploading ? "…" : "File"}
         </AttachmentPicker>
+        <TerminalKeyButton disabled={!connected} onSend={() => sendCommand("commit push")} label="CP" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey(" ")} label="Space" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[D")} label="←" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[B")} label="↓" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[C")} label="→" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey(TERMINAL_SUBMIT_KEY)} label="Enter" />
       </div>
-      {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {attachments.map((p, i) => (
-            <span
-              key={`${p}-${i}`}
-              className="inline-flex max-w-[60%] items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-200"
-            >
-              <span className="truncate">📎 {p.split("/").pop()}</span>
-              <button
-                type="button"
-                className="shrink-0 text-slate-400 hover:text-slate-200"
-                onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                title="移除"
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
       {visibleSuggestion && (
         <div className="rounded-lg border border-teal-500/25 bg-teal-500/10 px-2.5 py-2 text-xs text-teal-50">
           <div className="mb-1 flex items-center gap-2">
@@ -1216,7 +1243,7 @@ function TerminalMobileComposer({
               type="button"
               className="rounded px-1.5 py-0.5 text-[11px] font-medium text-teal-100 hover:bg-teal-400/15"
               onClick={acceptSuggestion}
-              title="填入输入框，不会自动发送"
+              title="粘贴到终端输入行，不会自动发送"
             >
               采用建议
             </button>
@@ -1233,50 +1260,12 @@ function TerminalMobileComposer({
             type="button"
             className="block w-full text-left leading-relaxed text-teal-50"
             onClick={acceptSuggestion}
-            title="填入输入框，不会自动发送"
+            title="粘贴到终端输入行，不会自动发送"
           >
             {visibleSuggestion.text}
           </button>
         </div>
       )}
-      <div className="flex items-end gap-2">
-        <textarea
-          ref={inputRef}
-          className="max-h-24 min-h-[2.35rem] flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-[16px] text-slate-100 placeholder-slate-500 focus:border-teal-500 focus:outline-none"
-          rows={1}
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder={connected ? "输入到终端，点发送会自动回车" : "终端连接中…"}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onTouchStart={onInputTouchStart}
-          onKeyDown={(e) => {
-            if (e.key === "Tab" && canShowSuggestion) {
-              e.preventDefault();
-              acceptSuggestion();
-              return;
-            }
-            if (e.key === "Escape" && visibleSuggestion) {
-              e.preventDefault();
-              setDismissedSuggestion(visibleSuggestion.text);
-              return;
-            }
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendText();
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-40"
-          disabled={!connected || (!text.trim() && attachments.length === 0)}
-          onClick={sendText}
-        >
-          发送
-        </button>
-      </div>
     </div>
   );
 }
@@ -1285,18 +1274,18 @@ function TerminalKeyButton({
   disabled,
   onSend,
   label,
-  wide = false,
 }: {
   disabled: boolean;
   onSend: () => void;
   label: string;
-  wide?: boolean;
 }) {
   return (
     <button
       type="button"
-      className={`shrink-0 whitespace-nowrap rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[12px] font-medium text-slate-200 hover:border-slate-600 hover:bg-slate-800 disabled:opacity-40 ${wide ? "min-w-10" : ""}`}
+      className="w-full whitespace-nowrap rounded-md border border-slate-700 bg-slate-900 px-1 py-1.5 text-center text-[12px] font-medium text-slate-200 hover:border-slate-600 hover:bg-slate-800 disabled:opacity-40"
       disabled={disabled}
+      // 拦掉默认的焦点转移：正在用输入法直打终端时按方向键/Enter，键盘不收起
+      onPointerDown={(e) => e.preventDefault()}
       onClick={onSend}
     >
       {label}
