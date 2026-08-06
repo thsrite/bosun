@@ -532,6 +532,7 @@ export function ActiveTasksView({
   }
   const [showCreate, setShowCreate] = useState(false);
   const [archiveQuery, setArchiveQuery] = useState("");
+  const [archiveDateOverrides, setArchiveDateOverrides] = useState<Record<string, boolean>>({});
   const [archiveProjectId, setArchiveProjectId] = useState("");
   const [completingTaskId, setCompletingTaskId] = useState<number | null>(null);
   const [transitioningTaskId, setTransitioningTaskId] = useState<number | null>(null);
@@ -585,6 +586,12 @@ export function ActiveTasksView({
     return groups;
   }, [archiveProjectId, archiveQuery, archivedTasks, projectById]);
   const archivedCount = archivedGroups.reduce((count, group) => count + group.tasks.length, 0);
+  // 默认只展开最新日期；筛选/搜索时全部展开，用户手动点过的日期以其选择为准
+  const archiveFiltering = Boolean(archiveQuery.trim() || archiveProjectId);
+  const isArchiveDateOpen = (date: string, index: number) =>
+    archiveDateOverrides[date] ?? (archiveFiltering || index === 0);
+  const toggleArchiveDate = (date: string, index: number) =>
+    setArchiveDateOverrides((prev) => ({ ...prev, [date]: !isArchiveDateOpen(date, index) }));
   const totalArchivedCount = archivedTasks.length;
   const attentionTasks = activeTasks.filter((t) => t.status === "waiting_input");
   // 当前工作台已打开的任务（用于面板内切换/可加入列表）
@@ -1062,15 +1069,23 @@ export function ActiveTasksView({
             </div>
           ) : (
             <div className="space-y-3">
-              {archivedGroups.map((group) => (
+              {archivedGroups.map((group, groupIndex) => {
+                const expanded = isArchiveDateOpen(group.date, groupIndex);
+                return (
                 <div key={group.date} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  <div className="flex items-center border-b border-slate-100 bg-slate-50 px-3 py-2">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    onClick={() => toggleArchiveDate(group.date, groupIndex)}
+                    className={`flex w-full items-center px-3 py-2 text-left hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${expanded ? "border-b border-slate-100 bg-slate-50" : "bg-slate-50"}`}
+                  >
+                    <span className={`mr-2 text-[10px] text-slate-400 transition-transform ${expanded ? "rotate-90" : ""}`}>▶</span>
                     <span className="text-xs font-semibold text-slate-600">{group.date}</span>
                     <span className="ml-auto rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-100 ring-1 ring-inset ring-slate-700">
                       {group.tasks.length}
                     </span>
-                  </div>
-                  <div className="divide-y divide-slate-100">
+                  </button>
+                  <div className={`divide-y divide-slate-100 ${expanded ? "" : "hidden"}`}>
                     {group.tasks.map((task) => {
                       const project = projectById.get(task.project_id);
                       const style = STATUS_STYLE[statusKey(task)] ?? STATUS_STYLE.done;
@@ -1146,7 +1161,8 @@ export function ActiveTasksView({
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
