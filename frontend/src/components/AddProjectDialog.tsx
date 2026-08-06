@@ -16,7 +16,6 @@ export function AddProjectDialog({
   const [cur, setCur] = useState("");
   const [pathInput, setPathInput] = useState("");
   const [parent, setParent] = useState<string | null>(null);
-  const [curIsGit, setCurIsGit] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(false);
   const { busy, run } = useSingleFlight();
@@ -30,7 +29,6 @@ export function AddProjectDialog({
       setCur(r.path);
       setPathInput(r.path);
       setParent(r.parent);
-      setCurIsGit(r.is_git);
       setEntries(r.entries);
     } catch (e: any) {
       setMsg(`打不开：${e.message}`);
@@ -49,7 +47,7 @@ export function AddProjectDialog({
       setMsg("");
       if (mode === "scan") {
         const r = await api.scan(cur);
-        setMsg(`扫描到并导入 ${r.count} 个 git 项目`);
+        setMsg(`扫描到并导入 ${r.count} 个项目`);
         onDone();
       } else {
         await api.addProject(cur);
@@ -65,11 +63,11 @@ export function AddProjectDialog({
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           <label className="flex items-center gap-1.5">
             <input type="radio" checked={mode === "scan"} onChange={() => setMode("scan")} />
-            扫描根目录（批量导入其下 git 仓库）
+            扫描根目录（批量导入其下项目）
           </label>
           <label className="flex items-center gap-1.5">
             <input type="radio" checked={mode === "add"} onChange={() => setMode("add")} />
-            添加当前目录（单个仓库）
+            添加当前目录（单个项目）
           </label>
         </div>
 
@@ -107,9 +105,6 @@ export function AddProjectDialog({
               >
                 <span className="shrink-0">{e.is_git ? "⚓" : "📁"}</span>
                 <span className="min-w-0 flex-1 truncate text-slate-700">{e.name}</span>
-                {e.is_git && (
-                  <span className="shrink-0 rounded bg-teal-50 px-1.5 text-[10px] text-teal-600">git</span>
-                )}
                 <span className="shrink-0 text-slate-300">›</span>
               </button>
             ))
@@ -121,7 +116,6 @@ export function AddProjectDialog({
         <div className="flex items-center gap-2 pt-1">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-400">
             当前：{cur || "…"}
-            {curIsGit && <span className="ml-1 text-teal-600">· 是 git 仓库</span>}
           </span>
           <button
             className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-slate-600 hover:bg-slate-50"

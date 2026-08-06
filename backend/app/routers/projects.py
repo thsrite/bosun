@@ -113,22 +113,37 @@ def scan_root(body: ScanRoot):
     if not root.is_dir():
         raise HTTPException(400, f"目录不存在: {root}")
     added = []
-    # 广度优先找 .git 目录，命中就不再深入
-    def walk(d: Path, depth: int):
-        if depth > body.max_depth:
-            return
-        if (d / ".git").exists():
-            pid = _add(str(d), None)
-            added.append({"id": pid, "path": str(d)})
-            return
-        try:
-            for child in sorted(d.iterdir()):
-                if child.is_dir() and not child.name.startswith("."):
-                    walk(child, depth + 1)
-        except PermissionError:
-            pass
 
-    walk(root, 0)
+    def add_dir(d: Path):
+        pid = _add(str(d), None)
+        added.append({"id": pid, "path": str(d)})
+
+    # 命中 git 仓库就导入且不再深入
+    def walk(d: Path, depth: int) -> bool:
+        """返回 d 自身或其子树是否导入了内容。"""
+        if (d / ".git").exists():
+            add_dir(d)
+            return True
+        if depth >= body.max_depth:
+            return False
+        try:
+            children = [c for c in sorted(d.iterdir()) if c.is_dir() and not c.name.startswith(".")]
+        except PermissionError:
+            return False
+        return any([walk(child, depth + 1) for child in children])
+
+    # 根目录本身是仓库时直接导入; 否则逐个子目录处理,
+    # 子目录下限深内没有任何 git 仓库的, 把该子目录本身当普通项目导入
+    if (root / ".git").exists():
+        add_dir(root)
+    else:
+        try:
+            children = [c for c in sorted(root.iterdir()) if c.is_dir() and not c.name.startswith(".")]
+        except PermissionError:
+            raise HTTPException(403, f"无权限读取: {root}")
+        for child in children:
+            if not walk(child, 1):
+                add_dir(child)
     return {"added": added, "count": len(added)}
 
 
