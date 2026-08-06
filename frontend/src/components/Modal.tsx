@@ -18,7 +18,8 @@ export function Modal({
   return createPortal(
     <div
       data-no-pull-refresh
-      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-900/30 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
+      // 必须高于终端面板（z-[60]），否则在终端详情打开时弹窗会被压在下面。
+      className="fixed inset-0 z-[65] flex items-end justify-center overflow-y-auto bg-slate-900/30 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label={title}

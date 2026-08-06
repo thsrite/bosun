@@ -184,7 +184,7 @@ export function OverlayHost() {
   return (
     <>
       {/* Toasts 右上角堆叠 */}
-      <div className="pointer-events-none fixed left-4 right-4 top-[max(1rem,env(safe-area-inset-top))] z-[60] flex flex-col items-end gap-2 sm:left-auto">
+      <div className="pointer-events-none fixed left-4 right-4 top-[max(1rem,env(safe-area-inset-top))] z-[75] flex flex-col items-end gap-2 sm:left-auto">
         {_toasts.map((t) => (
           <div
             key={t.id}
