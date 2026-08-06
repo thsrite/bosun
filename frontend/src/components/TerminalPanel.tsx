@@ -32,6 +32,13 @@ import { engineShort } from "../engines";
 // 切换时会按 key 重挂载，组件内 state 会丢。
 const seenAttention = new Set<string>();
 
+// 智能建议自动生成的去重（同一轮等待只生成一次）。与 seenAttention 同理放模块级：
+// 面板在任务间切换会重挂载，组件内 state 会丢，重挂载即重新生成会白烧一次额度。
+const autoSmartGenerated = new Set<string>();
+// 只有「真提问」才自动烧一次 LLM 生成；「回合结束待核对」(review) 是最高频的等待，
+// 不自动触发，保留手动按钮。
+const AUTO_SMART_KINDS = new Set(["permission", "choice", "input"]);
+
 function attentionKey(t: Task): string {
   return `${t.id}:${t.waiting_since ?? 0}`;
 }
@@ -1397,6 +1404,8 @@ export function TerminalPanel({
   const permissionSig = perm ? `${perm.tool}:${perm.input}` : "";
   // 未结束(含 queued/draft)都轮询: 排队任务转为运行时能刷新出终端
   const polling = !["done", "failed", "cancelled", "interrupted"].includes(detail.status);
+  // 记录 LLM 建议是为哪一轮等待生成的：换轮后它已是对上一个问题的回答，要让位
+  const smartRoundRef = useRef<string>("");
   useEffect(() => {
     let cancelled = false;
     if (!active) {
@@ -1408,8 +1417,15 @@ export function TerminalPanel({
         if (cancelled) return;
         setSuggestion((prev) => {
           if (!s.available) return null;
-          // 周期轮询的规则建议不覆盖用户手动点“智能生成”得到的 LLM 建议
-          if (prev?.source === "llm" && s.source !== "llm") return prev;
+          // 规则建议不覆盖同一轮等待里的 LLM 建议；但换了等待轮后 LLM 建议已是
+          // 对上一个问题的回答，必须让位，否则比模板更危险（答非所问还像模像样）。
+          if (
+            prev?.source === "llm" &&
+            s.source !== "llm" &&
+            smartRoundRef.current === attentionKey(detail)
+          ) {
+            return prev;
+          }
           return s;
         });
       })
@@ -1419,20 +1435,35 @@ export function TerminalPanel({
     return () => {
       cancelled = true;
     };
-  }, [active, detail.id, detail.status, detail.started_at, permissionSig]);
+  }, [active, detail.id, detail.status, detail.started_at, detail.waiting_since, permissionSig]);
 
-  // 按需让 Claude 读当前任务日志生成针对性回复（覆盖规则建议）
+  // 按需让 Claude 读当前任务上下文生成针对性回复（覆盖规则建议）
   const generateSmartSuggestion = useCallback(async () => {
     setSmartLoading(true);
+    const round = attentionKey(detail);
     try {
       const s = await api.smartReplySuggestion(detail.id);
-      if (s.available && s.text.trim()) setSuggestion(s);
+      if (s.available && s.text.trim()) {
+        smartRoundRef.current = round;
+        setSuggestion(s);
+      }
     } catch {
       /* 生成失败保留现有建议 */
     } finally {
       setSmartLoading(false);
     }
-  }, [detail.id]);
+  }, [detail.id, detail.waiting_since]);
+
+  // 真提问（权限/选择/要信息）进入等待时自动生成一次智能建议，替换掉规则模板；
+  // review 类等待不触发（频次太高），仍走手动「智能生成」按钮。
+  useEffect(() => {
+    if (detail.status !== "waiting_input") return;
+    if (!AUTO_SMART_KINDS.has(detail.waiting_kind ?? "")) return;
+    const key = attentionKey(detail);
+    if (autoSmartGenerated.has(key)) return;
+    autoSmartGenerated.add(key);
+    void generateSmartSuggestion();
+  }, [detail.status, detail.waiting_kind, detail.id, detail.waiting_since, generateSmartSuggestion]);
 
   useEffect(() => {
     if (!polling) return;

@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException
 
-from . import db, scheduler, sdk_run
+from . import db, scheduler, sdk_run, sessions
 
 MAX_LOG_BYTES = 16 * 1024
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -202,22 +202,34 @@ def suggest_reply(task_id: int) -> dict:
 # --- 智能推荐：让 Claude 读当前任务上下文，按需生成针对性回复 ---
 
 _SMART_TIMEOUT = 90
+# 终端尾部只用来识别「当前在问什么」，压小以免 TUI 重绘残留淹没真正的问题；
+# 对话摘录才是判断意图的主上下文。
+_SMART_LOG_CHARS = 4000
+_SMART_HISTORY_CHARS = 6000
+_SMART_HISTORY_MESSAGES = 30
 _SMART_PROMPT = """你在帮用户处理一个卡在“待输入”状态的 AI 编码任务（由 Bosun 编排 Claude Code/Codex 运行）。\
-任务已暂停，正等用户回复。请阅读下面的任务目标和最近运行日志，判断 AI 当前到底卡在哪、在问什么，\
+任务已暂停，正等用户回复。请结合任务目标、此前对话和终端最近输出，判断 AI 当前到底卡在哪、在问什么，\
 然后**替用户拟一条可以直接发送的简短回复**。
 
 要求：
 - 直接输出这条回复本身，不要任何解释、前后缀、标题或引号包裹。
-- 只回应当前正在问的具体问题；若是在做选择，给出明确、风险最低、不影响无关功能的那一个。
+- 只回应当前正在问的具体问题，不要泛泛地说「继续推进」「保持最小改动」这类空话。
+- 若 AI 在等一个菜单/编号选择，回复就是要选的那一项（编号或选项内容），可附一句理由。
+- 若 AI 列出多个方案，选风险最低、不影响无关功能的那一个。
 - 中文，简洁（通常 1-3 句），像用户本人在打字。
-- 坚持最小改动；遇到不确定先说明取舍再继续。
-{permission}
+{permission}{kind}
 任务目标：
 {prompt}
-
-最近运行日志：
+{history}
+终端最近输出（可能含界面残留，仅用于识别当前提问）：
 {log}
 """
+
+_KIND_HINTS = {
+    "choice": "\n注意：AI 正停在一个选择提示上，回复应直接给出所选项。\n",
+    "input": "\n注意：AI 正在等用户补充信息，回复应直接给出该信息或明确的处理指示。\n",
+    "review": "\n注意：本轮执行已结束，AI 在等用户核对结果；回复应针对结果给出下一步指示。\n",
+}
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z]*\n?|\n?```$")
 
@@ -233,14 +245,40 @@ def _clean_reply(text: str) -> str:
     return cleaned
 
 
-def _smart_prompt(task: Mapping[str, Any], log_text: str, pending_permission: dict | None) -> str:
+def _conversation_excerpt(engine: str, cwd: str, uid: str | None) -> str:
+    """结构化对话史（session transcript）摘录：比原始终端日志干净得多的意图上下文。"""
+    if not uid:
+        return ""
+    try:
+        history = sessions.session_history(engine, cwd, uid, max_messages=_SMART_HISTORY_MESSAGES)
+    except Exception:  # noqa: BLE001 - 摘录只是增强，任何读取失败都不阻断建议生成
+        return ""
+    lines = [
+        f"{'用户' if m.get('role') == 'user' else 'AI'}：{m.get('text', '')}"
+        for m in history.get("messages", [])
+        if m.get("text")
+    ]
+    return "\n\n".join(lines)[-_SMART_HISTORY_CHARS:]
+
+
+def _smart_prompt(
+    task: Mapping[str, Any],
+    log_text: str,
+    pending_permission: dict | None,
+    history: str = "",
+    waiting_kind: str | None = None,
+) -> str:
     goal = str(_value(task, "prompt", "")).strip() or "（未记录）"
-    log = _strip_ansi(log_text)[-MAX_LOG_BYTES:].strip() or "（暂无近期输出）"
+    log = _strip_ansi(log_text)[-_SMART_LOG_CHARS:].strip() or "（暂无近期输出）"
     permission = ""
     if pending_permission:
         tool = pending_permission.get("tool") or pending_permission.get("name") or "工具调用"
         permission = f"\n注意：任务正在等待 {tool} 权限确认，回复应针对是否允许该操作。\n"
-    return _SMART_PROMPT.format(prompt=goal, log=log, permission=permission)
+    kind = "" if pending_permission else _KIND_HINTS.get(waiting_kind or "", "")
+    history_block = f"\n此前对话摘录（时间正序）：\n{history}\n" if history.strip() else ""
+    return _SMART_PROMPT.format(
+        prompt=goal, log=log, permission=permission, kind=kind, history=history_block
+    )
 
 
 def build_smart_suggestion(
@@ -250,6 +288,8 @@ def build_smart_suggestion(
     cwd: str,
     runner,
     now: float | None = None,
+    history: str = "",
+    waiting_kind: str | None = None,
 ) -> dict:
     """用可注入的 runner(prompt, cwd)->dict 生成智能回复；失败/空则回退规则建议。"""
     now = now or time.time()
@@ -258,7 +298,7 @@ def build_smart_suggestion(
         result["updated_at"] = now
         return result
 
-    prompt = _smart_prompt(task, log_text, pending_permission)
+    prompt = _smart_prompt(task, log_text, pending_permission, history, waiting_kind)
     try:
         res = runner(prompt, cwd) or {}
     except Exception:  # noqa: BLE001 - LLM 通道任何异常都回退到规则建议
@@ -279,6 +319,10 @@ def smart_suggest_reply(task_id: int) -> dict:
     log_text = _read_recent_log(task["log_path"])
     project = db.query_one("SELECT path FROM project WHERE id=?", (task["project_id"],))
     cwd = project["path"] if project else "."
+    history = _conversation_excerpt(
+        str(_value(task, "engine", "cc")), cwd, _value(task, "session_uid")
+    )
+    waiting_kind = scheduler.get_waiting_kind(task_id)
 
     def runner(prompt: str, run_cwd: str) -> dict:
         # 禁用工具 + 单轮：退化成纯文本生成，不触碰用户仓库。
@@ -290,4 +334,7 @@ def smart_suggest_reply(task_id: int) -> dict:
             extra_opts={"allowed_tools": [], "max_turns": 1},
         )
 
-    return build_smart_suggestion(task, log_text, pending_permission, cwd, runner)
+    return build_smart_suggestion(
+        task, log_text, pending_permission, cwd, runner,
+        history=history, waiting_kind=waiting_kind,
+    )
