@@ -8,6 +8,7 @@ import asyncio
 import os
 import time
 from contextlib import suppress
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -19,6 +20,23 @@ router = APIRouter()
 
 # 未通过鉴权时的关闭码（4000+ 为应用自定义区间），前端据此提示重新登录
 WS_UNAUTHORIZED = 4401
+# 跨源页面直连被拒（同源部署下浏览器里只有恶意网页会跨源连 WS）
+WS_FORBIDDEN_ORIGIN = 4403
+
+
+def _same_origin(ws: WebSocket) -> bool:
+    """浏览器跨源页面能直连本机 WS——未设口令时等于把 PTY 交给任意网页，
+    故凡带 Origin 的连接都要求与 Host 同源（scheme 不参与：反代终结 TLS 后
+    upstream 看到的是 http，比 scheme 会误伤 https 部署）。
+    非浏览器客户端（curl/脚本/测试）不带 Origin，放行。
+    注意：反代需保留原始 Host（nginx 场景 proxy_set_header Host $host），
+    否则合法前端也会被判跨源。
+    """
+    origin = ws.headers.get("origin")
+    if not origin:
+        return True
+    netloc = urlsplit(origin).netloc  # "null"/畸形值 → 空 netloc → 拒绝
+    return bool(netloc) and netloc == (ws.headers.get("host") or "")
 
 
 async def _authorize(ws: WebSocket) -> tuple[bool, str | None]:
@@ -35,6 +53,10 @@ async def _authorize(ws: WebSocket) -> tuple[bool, str | None]:
     ticket = auth.token_from_subprotocols(requested)
     # 客户端提了子协议，服务端就必须回选一个，否则浏览器判定握手失败
     subprotocol = auth.WS_AUTH_SUBPROTOCOL if ticket else None
+    if not _same_origin(ws):
+        await ws.accept(subprotocol=subprotocol)
+        await ws.close(code=WS_FORBIDDEN_ORIGIN)
+        return False, subprotocol
     if not auth.is_enabled():
         return True, subprotocol
     if auth.validate_token(auth.token_from_request(ws.headers) or ticket):

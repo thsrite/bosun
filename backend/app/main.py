@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, JSONResponse, Response
@@ -92,12 +91,9 @@ async def _require_auth(request, call_next):
     return await call_next(request)
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# 不挂 CORS：生产由后端同源挂载 dist，开发走 Vite proxy，同源覆盖全部合法访问。
+# 放行头(allow_origins=*)只会把 API 暴露给浏览器里的跨源网页——未设口令时
+# 等于任意网页可驱动全权限引擎。跨源 WS 由 routers/ws.py 按 Origin 拒绝。
 
 app.include_router(auth.router)
 app.include_router(projects.router)
