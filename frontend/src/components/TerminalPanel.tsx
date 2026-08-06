@@ -148,6 +148,51 @@ function installAltBufferScrollbackWorkaround(term: Terminal): () => void {
   };
 }
 
+type XtermCoreInternals = {
+  _inputEvent?: (ev: InputEvent) => boolean;
+  _keyPressHandled?: boolean;
+  _unprocessedDeadKey?: boolean;
+  cancel?: (ev: Event, force?: boolean) => boolean | undefined;
+  coreService?: { triggerDataEvent?: (data: string, wasUserInput?: boolean) => void };
+  optionsService?: { rawOptions?: { screenReaderMode?: boolean } };
+};
+
+// 移动端输入法打不出符号的修复（与上游 xterm.js#5887 同根因，官方仅提议方向未发版）：
+// 软键盘/IME 对每个键都报 keyCode 229，符号既不走 composition 也不触发 keypress，
+// 只以 input(insertText) 事件到达；xterm 的 _inputEvent 用「本轮见过 keydown」当门闩
+// 把它丢弃，keydown 229 路径的 textarea 差值兜底又因值累积、input 先于 keydown 的
+// 顺序差异失准。这里把门闩收窄成「不在合成中」：insertText 直接发数据并阻止其落入
+// textarea。_keyPressHandled 检查保留，键盘 keypress 正常路径不会双发；中文合成期间
+// 的 insertCompositionText 不匹配 insertText，仍走 xterm 原生合成流程。
+// 依赖 _core 私有成员：升级 xterm 后若成员缺失则整体跳过，回退原生行为。
+function installMobileImeInsertTextFix(term: Terminal): void {
+  const core = (term as unknown as { _core?: XtermCoreInternals })._core;
+  if (
+    !core ||
+    typeof core._inputEvent !== "function" ||
+    typeof core.cancel !== "function" ||
+    typeof core.coreService?.triggerDataEvent !== "function"
+  ) {
+    return;
+  }
+  const original = core._inputEvent.bind(core);
+  core._inputEvent = (ev: InputEvent): boolean => {
+    if (
+      ev.data &&
+      ev.inputType === "insertText" &&
+      !ev.isComposing &&
+      !core.optionsService?.rawOptions?.screenReaderMode
+    ) {
+      if (core._keyPressHandled) return false;
+      core._unprocessedDeadKey = false;
+      core.coreService!.triggerDataEvent!(ev.data, true);
+      core.cancel!(ev);
+      return true;
+    }
+    return original(ev);
+  };
+}
+
 function useVisualViewportCssVars() {
   useEffect(() => {
     const vv = window.visualViewport;
@@ -429,6 +474,7 @@ function TerminalView({
     term.open(elRef.current);
     termRef.current = term;
     const disposeAltBufferWorkaround = installAltBufferScrollbackWorkaround(term);
+    if (isTouchDevice()) installMobileImeInsertTextFix(term);
     fit.fit();
     // 桌面端挂载即聚焦可直接打字；移动端不自动聚焦（打开面板不弹输入法），
     // 由 onTouchEnd 的「轻点终端」手势聚焦 xterm 隐藏 textarea 弹出输入法，
