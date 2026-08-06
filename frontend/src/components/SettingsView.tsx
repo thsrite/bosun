@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api, type AppSettings, type AuthStatus, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
 import { setToken } from "../auth";
 import { useEngineVisible } from "../installedEngines";
@@ -291,9 +293,14 @@ function BosunVersion() {
       )}
 
       {info?.update_available && info.release_notes && (
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
-          {info.release_notes}
-        </pre>
+        <div className="chat-md max-h-40 overflow-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{ a: (p) => <a {...p} target="_blank" rel="noreferrer" /> }}
+          >
+            {info.release_notes}
+          </ReactMarkdown>
+        </div>
       )}
 
       {info && info.blockers.length > 0 && (
