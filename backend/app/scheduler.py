@@ -637,15 +637,22 @@ def _reconcile() -> None:
         (grace,),
     )
     for r in rows:
-        if r["id"] in _sessions:
+        # 只认「活着」的会话：exit 回调失联/后端异常时，死会话对象可能一直挂在注册表里，
+        # 仅按成员判断会让任务永卡 running/waiting_input（线上曾卡数小时且 UI 无恢复入口）。
+        session = _sessions.get(r["id"])
+        if session is not None and session.is_alive():
             continue
-        # 保险: 日志近期仍在写 = 有活会话(可能在别的后端进程), 不误标中断
+        # 保险: 日志近期仍在写 = 有活会话(可能在别的后端进程)，或进程刚退出、
+        # 正待 _on_exit 落 done/failed —— 都不抢标中断
         lp = r["log_path"]
         try:
             if lp and (now - os.path.getmtime(lp)) < 15:
                 continue
         except OSError:
             pass
+        if session is not None:
+            # 死会话清出注册表：终端 WS 才能走「回放日志」分支而不是挂在无输出的死会话上
+            _sessions.pop(r["id"], None)
         db.execute(
             "UPDATE task SET status='interrupted', ended_at=?, waiting_since=NULL WHERE id=?",
             (now, r["id"]),
