@@ -29,7 +29,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from . import engine_settings
+from . import engine_settings, skills_install
 from .engines import with_report_directive
 from .env import task_env
 from .pty_session import _put_drop
@@ -93,6 +93,7 @@ class SdkSession:
 
     # ---- 生命周期 ----
     def start(self) -> None:
+        skills_install.ensure_engine_skills("cc")  # SDK 走 ~/.claude/skills 加载 bosun-report
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self._log_fh = open(self.log_path, "ab", buffering=0)
         threading.Thread(target=lambda: asyncio.run(self._amain()), daemon=True).start()

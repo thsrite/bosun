@@ -136,7 +136,7 @@ async def _startup() -> None:
     from . import autopilot
     autopilot.reconcile_on_startup()  # 重启后把残留 running 的自愈 run 落终态, 防项目自愈永久卡死
     from . import skills_install
-    skills_install.install_skills()
+    skills_install.install_installed_engines()
     codex_skills_guard.persist_superpowers_disables()
     loop = asyncio.get_running_loop()
     events.set_loop(loop)
