@@ -4,7 +4,7 @@ import type { Engine } from "./types";
 const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }> = {
   cc: { name: "Claude Code", short: "CC", badge: "bg-violet-50 text-violet-600" },
   codex: { name: "Codex", short: "Codex", badge: "bg-emerald-50 text-emerald-600" },
-  omp: { name: "Oh My Pi", short: "OMP", badge: "bg-sky-50 text-sky-600" },
+  omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-50 text-sky-600" },
 };
 
 /** 界面里引擎的展示顺序。 */

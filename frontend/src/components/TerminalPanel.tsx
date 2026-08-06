@@ -1739,7 +1739,7 @@ export function TerminalPanel({
           >
             <option value="cc">CC</option>
             <option value="codex">Codex</option>
-            <option value="omp">OMP</option>
+            <option value="omp">omp</option>
           </select>
           <span className={`shrink-0 whitespace-nowrap text-sm font-medium ${s.text}`}>{s.label}</span>
           {canSwitch && (

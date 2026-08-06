@@ -48,7 +48,7 @@ const PROVIDERS: {
   usageKey?: keyof Pick<QuotaUsage, "claude" | "codex">;
 }[] = [
   { engine: "cc", label: "Claude Code", chip: "Claude", note: "Claude CLI", usageKey: "claude" },
-  { engine: "codex", label: "codex", chip: "Codex", note: "Codex CLI", usageKey: "codex" },
+  { engine: "codex", label: "Codex", chip: "Codex", note: "Codex CLI", usageKey: "codex" },
   { engine: "omp", label: "omp", chip: "omp", note: "Oh My Pi" },
 ];
 
