@@ -34,6 +34,8 @@ function ModelCombobox({
   const [filtering, setFiltering] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
   const query = filtering ? value.trim().toLocaleLowerCase() : "";
+  const selectedLabel = value ? options.find((option) => option.value === value)?.label : undefined;
+  const displayValue = filtering ? value : selectedLabel ?? value;
   const filteredOptions = options.filter((option) => {
     if (!query) return true;
     return option.value.toLocaleLowerCase().includes(query) || option.label.toLocaleLowerCase().includes(query);
@@ -68,7 +70,7 @@ function ModelCombobox({
         aria-controls={`${id}-options`}
         aria-activedescendant={highlighted >= 0 ? `${id}-option-${highlighted}` : undefined}
         className="w-full rounded-md border border-slate-200 bg-white py-1 pl-2 pr-7 text-sm text-slate-800 outline-none transition focus:border-teal-400 focus:ring-1 focus:ring-teal-400/30"
-        value={value}
+        value={displayValue}
         placeholder="默认 / 自定义 ID"
         onFocus={() => {
           setOpen(true);
@@ -80,10 +82,13 @@ function ModelCombobox({
           setFiltering(true);
           setHighlighted(-1);
         }}
-        onBlur={(event) => {
-          onCommit(event.currentTarget.value);
+        onBlur={() => {
+          onCommit(value);
           window.setTimeout(() => {
-            if (!rootRef.current?.contains(document.activeElement)) setOpen(false);
+            if (!rootRef.current?.contains(document.activeElement)) {
+              setOpen(false);
+              setFiltering(false);
+            }
           }, 0);
         }}
         onKeyDown={(event) => {
@@ -100,7 +105,7 @@ function ModelCombobox({
             if (open && highlighted >= 0 && filteredOptions[highlighted]) {
               selectOption(filteredOptions[highlighted].value);
             } else {
-              onCommit(event.currentTarget.value);
+              onCommit(value);
               setOpen(false);
               setFiltering(false);
               event.currentTarget.blur();
