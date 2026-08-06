@@ -130,6 +130,22 @@ cd frontend && npm run build    # 产物在 frontend/dist
 # 之后访问后端 http://127.0.0.1:8770 即为完整应用
 ```
 
+## 更新
+
+「设置 → Bosun 版本」可以对比本地版本与 GitHub 上最新的 [release](https://github.com/thsrite/bosun/releases)，并一键更新本地代码：
+
+1. `git fetch --tags` 后快进合并到该 release 的 tag（不做 merge，也不会 reset）
+2. 按本次变更的文件决定是否重装后端依赖、前端依赖、重建 `frontend/dist`
+3. 由 Bosun.app 托管的后端会自动重启；`start.sh` 启动的后端需要自己重启
+
+以下情况会拒绝更新，交由你自己处理，不会覆盖本地内容：
+
+- 工作区有未提交改动
+- 本地存在该 release 之外的提交（无法快进）
+- 当前部署不是 git 工作区（例如直接下载的源码包）
+
+发版时需要同步更新 `backend/app/version.py` 的 `VERSION`、`frontend/package.json` 的 `version`，并打上同名 tag（`vX.Y.Z`）；三者不一致会导致版本比对失真。
+
 ## 用法
 
 1. 右上「+ 项目 / 扫描」→ 填一个根目录扫描导入，或手动加单个仓库

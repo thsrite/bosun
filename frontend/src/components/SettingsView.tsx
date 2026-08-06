@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, type AppSettings, type AuthStatus } from "../api";
+import { api, type AppSettings, type AuthStatus, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
 import { setToken } from "../auth";
 import { confirmDialog, toast } from "../overlay";
 
@@ -185,6 +185,135 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       </div>
       {children}
     </div>
+  );
+}
+
+/** Bosun 版本：对比 GitHub 最新 release，并在本地 git 工作区上一键更新。 */
+function BosunVersion() {
+  const [info, setInfo] = useState<SelfUpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [result, setResult] = useState<SelfUpdateResult | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.selfUpdate
+      .status()
+      .then((next) => { if (alive) setInfo(next); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  async function check() {
+    if (checking) return;
+    setChecking(true);
+    setResult(null);
+    try {
+      const next = await api.selfUpdate.check();
+      setInfo(next);
+      if (next.check_error) toast(next.check_error, "error");
+      else if (next.update_available) toast(`发现新版本 ${next.latest_tag}`, "success");
+      else toast("已是最新版本", "success");
+    } catch (err) {
+      toast(`检查更新失败：${readDetail(err)}`, "error");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function update() {
+    if (updating || !info) return;
+    const confirmed = await confirmDialog(
+      `将本地代码更新到 ${info.latest_tag}，并按需重装依赖、重建前端，完成后后端会重启（运行中的任务会被中断）。确定更新？`,
+      { danger: true },
+    );
+    if (!confirmed) return;
+
+    setUpdating(true);
+    setResult(null);
+    try {
+      const next = await api.selfUpdate.run();
+      setResult(next);
+      if (!next.ok) toast(`更新失败：${next.error || "未知错误"}`, "error");
+      else if (next.restart === "manual") toast(next.restart_hint || "更新完成，请手动重启后端", "success");
+      else toast(next.message || "更新完成，后端正在重启", "success");
+      if (next.ok) setInfo(await api.selfUpdate.status().catch(() => info));
+    } catch (err) {
+      toast(`更新失败：${readDetail(err)}`, "error");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  const versionText = info
+    ? `v${info.current_version}${info.branch ? ` · ${info.branch}` : ""}${info.head ? ` @ ${info.head}` : ""}`
+    : "读取中…";
+
+  return (
+    <Section title="Bosun 版本" hint={`更新以 GitHub Release 为准，从 ${info?.repo || "thsrite/bosun"} 拉取。`}>
+      <Field label="当前版本" hint={versionText}>
+        <button
+          type="button"
+          disabled={checking || updating}
+          onClick={() => void check()}
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >{checking ? "检查中…" : "检查更新"}</button>
+      </Field>
+
+      {info?.check_error && <div className="text-xs text-rose-500">{info.check_error}</div>}
+
+      {info?.update_available && (
+        <Field
+          label={`新版本 ${info.latest_tag}`}
+          hint={info.published_at ? `发布于 ${new Date(info.published_at).toLocaleString()}` : undefined}
+        >
+          <div className="flex items-center gap-2">
+            <a
+              href={info.release_url || info.releases_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-teal-600 hover:underline"
+            >更新说明</a>
+            <button
+              type="button"
+              disabled={updating || !info.can_update}
+              onClick={() => void update()}
+              className="rounded-lg border border-teal-300 px-3 py-1.5 text-sm text-teal-600 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >{updating ? "更新中…" : "立即更新"}</button>
+          </div>
+        </Field>
+      )}
+
+      {info?.update_available && info.release_notes && (
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+          {info.release_notes}
+        </pre>
+      )}
+
+      {info && info.blockers.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          无法在线更新：{info.blockers.join("；")}
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+          {result.steps.map((step, index) => (
+            <div key={`${step.name}-${index}`} className="flex gap-2">
+              <span className={step.skipped ? "text-slate-400" : step.ok ? "text-teal-600" : "text-rose-500"}>
+                {step.skipped ? "–" : step.ok ? "✓" : "✕"}
+              </span>
+              <span className="min-w-0 flex-1">
+                {step.name}
+                {step.skipped && step.output ? `（${step.output}）` : ""}
+                {!step.ok && step.output ? <pre className="mt-1 whitespace-pre-wrap text-rose-500">{step.output}</pre> : null}
+              </span>
+            </div>
+          ))}
+          {result.error && <div className="text-rose-500">{result.error}</div>}
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -528,6 +657,8 @@ export function SettingsView({
           >重启后端</button>
         </Field>
       </Section>
+
+      <BosunVersion />
 
       <AccessControl auth={auth} onAuthChanged={onAuthChanged} />
     </div>

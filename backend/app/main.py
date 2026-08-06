@@ -27,6 +27,7 @@ from .routers import (
     sources,
     stats,
     tasks,
+    updates,
     ws,
 )
 
@@ -110,6 +111,7 @@ app.include_router(findings.router)
 app.include_router(sources.router)
 app.include_router(settings.router)
 app.include_router(stats.router)
+app.include_router(updates.router)
 app.include_router(ws.router)
 
 

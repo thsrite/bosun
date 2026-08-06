@@ -90,6 +90,49 @@ export type EngineToolUpdateResult = {
   model_options_error?: string | null;
 };
 
+export type SelfUpdateInfo = {
+  repo: string;
+  releases_url: string;
+  current_version: string;
+  branch?: string | null;
+  detached?: boolean;
+  dirty?: boolean;
+  head?: string | null;
+  is_git?: boolean;
+  blockers: string[];
+  can_update: boolean;
+  latest_version?: string | null;
+  latest_tag?: string | null;
+  update_available?: boolean | null;
+  release_notes?: string | null;
+  release_url?: string | null;
+  published_at?: string | null;
+  check_error?: string | null;
+  checked_at?: number | null;
+};
+
+export type SelfUpdateStep = {
+  name: string;
+  command?: string | null;
+  exit_code?: number | null;
+  ok: boolean;
+  skipped?: boolean;
+  output?: string;
+};
+
+export type SelfUpdateResult = {
+  ok: boolean;
+  changed: boolean;
+  steps: SelfUpdateStep[];
+  error?: string | null;
+  from_version?: string | null;
+  to_version?: string | null;
+  tag?: string | null;
+  message?: string | null;
+  restart?: "scheduled" | "manual" | "none";
+  restart_hint?: string | null;
+};
+
 export type ReflectionSettings = {
   auto_enabled: boolean;
   interval_minutes: number;
@@ -323,6 +366,12 @@ export const api = {
       write<EngineToolInfo>("POST", `/api/quota/tools/${encodeURIComponent(engine)}/check-update`),
     update: (engine: string) =>
       write<EngineToolUpdateResult>("POST", `/api/quota/tools/${encodeURIComponent(engine)}/update`),
+  },
+
+  selfUpdate: {
+    status: () => fetch("/api/self-update").then((r) => j<SelfUpdateInfo>(r)),
+    check: () => write<SelfUpdateInfo>("POST", "/api/self-update/check"),
+    run: () => write<SelfUpdateResult>("POST", "/api/self-update/run"),
   },
 
   proposals: {
