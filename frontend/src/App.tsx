@@ -69,6 +69,8 @@ export default function App() {
   const [showProposals, setShowProposals] = useState(false);
   const [hasPendingUpdates, setHasPendingUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // null = 还没探测出结果；未装 claude CLI 时不展示 Claude 管理入口
+  const [claudeInstalled, setClaudeInstalled] = useState<boolean | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const { busy: startingAll, run: runStartAll } = useSingleFlight();
   const mainRef = useRef<HTMLElement | null>(null);
@@ -191,6 +193,23 @@ export default function App() {
       ws?.close();
     };
   }, [signedIn, load, applyHash]);
+
+  // Claude 管理只管 ~/.claude 下的资源，没装 claude CLI 时整个页面没有意义
+  useEffect(() => {
+    if (!signedIn) return;
+    api.engineTools
+      .get("cc")
+      .then((info) => setClaudeInstalled(Boolean(info.installed)))
+      .catch(() => setClaudeInstalled(false));
+  }, [signedIn, reloadKey]);
+
+  // 已经停在 Claude 管理却探测到没装：退回项目页，别留个空页面
+  useEffect(() => {
+    if (claudeInstalled === false && tab === "claude") {
+      setTab("projects");
+      location.hash = "#projects";
+    }
+  }, [claudeInstalled, tab]);
 
   const resetPull = useCallback(() => {
     pullRef.current = null;
@@ -351,7 +370,7 @@ export default function App() {
           </button>
 
           <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-            {NAV.map((n) => {
+            {NAV.filter((n) => n.key !== "claude" || claudeInstalled === true).map((n) => {
               const active = !inProject && tab === n.key;
               return (
                 <button
@@ -447,7 +466,7 @@ export default function App() {
             hasPendingUpdates={hasPendingUpdates}
             refreshing={refreshing}
           />
-        ) : tab === "claude" ? (
+        ) : tab === "claude" && claudeInstalled !== false ? (
           <ClaudeManagerView />
         ) : tab === "settings" ? (
           <SettingsView
@@ -460,7 +479,7 @@ export default function App() {
         ) : (
           <HomeView
             projects={projects}
-            tab={tab}
+            tab={tab === "claude" ? "projects" : tab}
             onOpen={openProject}
             onAddProject={() => setShowAdd(true)}
             onProposals={() => setShowProposals(true)}
