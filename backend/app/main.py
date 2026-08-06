@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, JSONResponse, Response
 
 from . import auth as auth_service
-from . import codex_skills_guard, db, events, policies, reflection_scheduler, scheduler
+from . import codex_skills_guard, db, events, policies, reflection_scheduler, scheduler, self_update
 from .routers import (
     auth,
     autopilot,
@@ -154,6 +154,7 @@ def health(request: Request):
             "GROUP BY status"
         )
         payload["tasks"] = {row["status"]: row["n"] for row in rows}
+        payload.update(self_update.health_summary())
     return payload
 
 

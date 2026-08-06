@@ -183,29 +183,78 @@ def status() -> dict:
 
 
 def check_update() -> dict:
+    global _cached_check
     info = _base_info(_repo_state())
     release, error = _latest_release()
     info["checked_at"] = time.time()
     if error or not release:
         info["check_error"] = error or "未获取到 release 信息"
-        return info
-
-    tag = release.get("tag_name")
-    latest = _tag_version(tag)
-    cmp_result = _version_cmp(VERSION, latest)
-    info.update(
-        {
-            "latest_version": latest,
-            "latest_tag": tag,
-            "update_available": None if cmp_result is None else cmp_result < 0,
-            "release_notes": _tail(release.get("body")),
-            "release_url": release.get("html_url") or RELEASES_URL,
-            "published_at": release.get("published_at"),
-        }
-    )
-    if cmp_result is None:
-        info["check_error"] = "无法比较版本号，请手动核对 release"
+    else:
+        tag = release.get("tag_name")
+        latest = _tag_version(tag)
+        cmp_result = _version_cmp(VERSION, latest)
+        info.update(
+            {
+                "latest_version": latest,
+                "latest_tag": tag,
+                "update_available": None if cmp_result is None else cmp_result < 0,
+                "release_notes": _tail(release.get("body")),
+                "release_url": release.get("html_url") or RELEASES_URL,
+                "published_at": release.get("published_at"),
+            }
+        )
+        if cmp_result is None:
+            info["check_error"] = "无法比较版本号，请手动核对 release"
+    with _cache_lock:
+        _cached_check = info
     return info
+
+
+# ---- 健康探测用的轻量摘要（带缓存，绝不阻塞） ----
+
+_CHECK_TTL_OK = 6 * 3600  # 检查成功后隔这么久才复查
+_CHECK_TTL_FAIL = 15 * 60  # 失败（断网/限流）后更快重试
+_cache_lock = threading.Lock()
+_cached_check: dict | None = None
+_check_in_flight = False
+
+
+def health_summary() -> dict:
+    """版本与更新摘要，供 /api/health 附带返回（菜单栏 15s 一轮询）。
+
+    GitHub 查询在后台线程完成并写入缓存，本函数只读缓存、立即返回；
+    手动「检查更新」（check_update）也会刷新同一份缓存。
+    """
+    global _check_in_flight
+    with _cache_lock:
+        cached = _cached_check
+        ttl = _CHECK_TTL_FAIL if (cached and cached.get("check_error")) else _CHECK_TTL_OK
+        stale = cached is None or time.time() - (cached.get("checked_at") or 0) > ttl
+        if stale and not _check_in_flight:
+            _check_in_flight = True
+            threading.Thread(target=_refresh_check_cache, name="bosun-update-check", daemon=True).start()
+    summary = {
+        "version": VERSION,
+        "latest_version": None,
+        "update_available": None,
+        "release_url": RELEASES_URL,
+    }
+    if cached and not cached.get("check_error"):
+        summary["latest_version"] = cached.get("latest_version")
+        summary["update_available"] = cached.get("update_available")
+        summary["release_url"] = cached.get("release_url") or RELEASES_URL
+    return summary
+
+
+def _refresh_check_cache() -> None:
+    global _check_in_flight
+    try:
+        check_update()
+    except Exception:  # noqa: BLE001
+        logger.exception("后台检查更新失败")
+    finally:
+        with _cache_lock:
+            _check_in_flight = False
 
 
 # ---- 执行更新 ----

@@ -128,6 +128,10 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var backendUsage = Usage()
     private var cachedBackendPID: pid_t?
     private var taskCounts: [String: Int] = [:]
+    private var backendVersion: String?
+    private var latestVersion: String?
+    private var updateAvailable = false
+    private var releaseURL: String?
 
     /// 独立的短超时会话：不落 cookie、不写缓存，避免后台产生额外 IO。
     private let session: URLSession = {
@@ -218,16 +222,29 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.dataTask(with: request) { [weak self] data, response, _ in
             let ok = (response as? HTTPURLResponse)?.statusCode == 200
             var counts: [String: Int] = [:]
+            var version: String?
+            var latest: String?
+            var available = false
+            var releaseURL: String?
             if ok, let data,
-               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let tasks = object["tasks"] as? [String: Any] {
-                for (key, value) in tasks {
-                    if let number = value as? Int { counts[key] = number }
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let tasks = object["tasks"] as? [String: Any] {
+                    for (key, value) in tasks {
+                        if let number = value as? Int { counts[key] = number }
+                    }
                 }
+                version = object["version"] as? String
+                latest = object["latest_version"] as? String
+                available = object["update_available"] as? Bool ?? false
+                releaseURL = object["release_url"] as? String
             }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.taskCounts = counts
+                self.backendVersion = version
+                self.latestVersion = latest
+                self.updateAvailable = available
+                self.releaseURL = releaseURL
                 self.render(running: ok)
                 if ok { self.sampleUsage() }
             }
@@ -309,7 +326,8 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let status = NSMenuItem(title: isRunning ? "Bosun · 运行中 · :\(BosunConfig.port)" : "Bosun · 已停止",
+        let versionSuffix = backendVersion.map { " v\($0)" } ?? ""
+        let status = NSMenuItem(title: isRunning ? "Bosun\(versionSuffix) · 运行中 · :\(BosunConfig.port)" : "Bosun · 已停止",
                                 action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
@@ -317,6 +335,9 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(infoItem(taskSummary()))
             menu.addItem(infoItem("后端 \(memoryText(backendUsage.rss)) · CPU \(percentText(backendUsage.percent))"))
             menu.addItem(infoItem("图标 \(memoryText(selfUsage.rss)) · CPU \(percentText(selfUsage.percent))"))
+            if updateAvailable, let latest = latestVersion {
+                addItem(to: menu, title: "发现新版本 v\(latest) — 查看发布页", action: #selector(openReleasePage))
+            }
         }
         menu.addItem(.separator())
 
@@ -435,6 +456,13 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// 打开发布页看更新说明；实际更新在工作台「设置 → 检查更新」里做。
+    @objc private func openReleasePage() {
+        let fallback = "https://github.com/thsrite/bosun/releases"
+        guard let url = URL(string: releaseURL ?? fallback) ?? URL(string: fallback) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func toggleAutoOpen() {
