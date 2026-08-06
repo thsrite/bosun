@@ -73,6 +73,9 @@ const tooltipTextStyle = { color: "#e5edf7" };
 const GRID_STROKE = "#1d2a3a";
 const AXIS_STROKE = "#94a3b8";
 const legendStyle = { fontSize: 11, color: "#94a3b8" };
+// recharts v3 起 Tooltip 默认 itemSorter="name"（按名称排序），会把「创建/完成/失败」
+// 打乱成「创建/失败/完成」。返回常量让排序退化为稳定排序，保持声明顺序。
+const keepSeriesOrder = () => 0;
 
 function formatTokenCompact(value: number, fractionDigits = 0): string {
   if (!Number.isFinite(value)) return "—";
@@ -263,7 +266,7 @@ export function HomeView({
               <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
               <XAxis dataKey="date" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
               <YAxis fontSize={11} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} itemSorter={keepSeriesOrder} />
               <Line type="monotone" dataKey="created" name="创建" stroke={CHART.blue} strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="done" name="完成" stroke={CHART.mint} strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="failed" name="失败" stroke={CHART.coral} strokeWidth={2} dot={false} />
@@ -319,7 +322,7 @@ export function HomeView({
                   tickFormatter={(v) => formatTokenCompact(Number(v))}
                 />
                 <YAxis type="category" dataKey="name" fontSize={11} stroke={AXIS_STROKE} width={100} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} itemSorter={keepSeriesOrder} />
                 <Legend wrapperStyle={legendStyle} />
                 <Bar dataKey="task_tokens" name="任务" stackId="a" fill={CHART.blue} />
                 <Bar dataKey="autopilot_tokens" name="自愈" stackId="a" fill={CHART.mint} radius={[0, 4, 4, 0]} />
@@ -343,7 +346,7 @@ export function HomeView({
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} itemSorter={keepSeriesOrder} />
                 <Legend wrapperStyle={legendStyle} />
               </PieChart>
             </ResponsiveContainer>
@@ -364,7 +367,7 @@ export function HomeView({
             <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
             <XAxis dataKey="date" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
             <YAxis fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} tickFormatter={(v) => formatTokenCompact(Number(v))} />
-            <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} />
+            <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} itemSorter={keepSeriesOrder} />
             <Legend wrapperStyle={legendStyle} />
             <Bar dataKey="任务" stackId="a" fill={CHART.blue} />
             <Bar dataKey="自愈" stackId="a" fill={CHART.mint} radius={[4, 4, 0, 0]} />
@@ -437,7 +440,7 @@ export function HomeView({
                   <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
                   <XAxis dataKey="date" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
                   <YAxis fontSize={11} stroke={AXIS_STROKE} allowDecimals={false} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} />
+                  <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} itemSorter={keepSeriesOrder} />
                   <Legend wrapperStyle={legendStyle} />
                   <Bar dataKey="done" name="完成" stackId="a" fill={CHART.mint} />
                   <Bar dataKey="failed" name="失败" stackId="a" fill={CHART.coral} radius={[4, 4, 0, 0]} />
@@ -456,7 +459,7 @@ export function HomeView({
                   <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
                   <XAxis dataKey="date" fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} />
                   <YAxis fontSize={11} stroke={AXIS_STROKE} tickLine={false} axisLine={false} tickFormatter={(v) => formatTokenCompact(Number(v))} />
-                  <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} />
+                  <Tooltip contentStyle={tooltipStyle} itemStyle={tooltipTextStyle} labelStyle={tooltipTextStyle} formatter={formatTokenTooltip} itemSorter={keepSeriesOrder} />
                   <Legend wrapperStyle={legendStyle} />
                   <Bar dataKey="任务" stackId="a" fill={CHART.blue} />
                   <Bar dataKey="自愈" stackId="a" fill={CHART.mint} radius={[4, 4, 0, 0]} />
