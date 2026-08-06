@@ -15,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { api, type HostMetrics } from "../api";
+import { useEngineVisible } from "../installedEngines";
 import { CHART, PIE_COLORS } from "../theme";
 import type { Project } from "../types";
 import { GlowDot } from "./ui";
@@ -152,6 +153,9 @@ export function HomeView({
   const [dashboard, setDashboard] = useState<any>(null);
   const [q, setQ] = useState<any>(null);
   const [host, setHost] = useState<HostMetrics | null>(null);
+  // 没装的引擎不展示配额卡片
+  const showClaude = useEngineVisible("cc");
+  const showCodex = useEngineVisible("codex");
 
   useEffect(() => {
     // 统一 dashboard 是统计/诊断的唯一数据源；概览条也从这里派生，避免重复 SQL/API。
@@ -382,8 +386,8 @@ export function HomeView({
           {/* 配额余量 */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {[
-              ["Claude", q?.claude],
-              ["Codex", q?.codex],
+              ...(showClaude ? [["Claude", q?.claude]] : []),
+              ...(showCodex ? [["Codex", q?.codex]] : []),
             ].map(([name, u]: any) => (
               <div key={name} className="card p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">

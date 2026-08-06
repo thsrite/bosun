@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Finding, Project } from "../types";
+import { AUTO_APPROVE_FLAG } from "../engines";
+import { useAvailableEngines } from "../installedEngines";
 import { useSingleFlight } from "../useSingleFlight";
 import { Modal } from "./Modal";
 
@@ -19,6 +21,7 @@ export function FindingsInbox({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const availableEngines = useAvailableEngines();
   const [findings, setFindings] = useState<Finding[]>([]);
   const [meta, setMeta] = useState<{ last_analyze_at: number | null; audit_skipped: boolean } | null>(null);
   const { busy, run: runAnalyze } = useSingleFlight();
@@ -78,7 +81,7 @@ export function FindingsInbox({
           className={`flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
             autoApprove ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-600"
           }`}
-          title="cc: --dangerously-skip-permissions / codex: --dangerously-bypass-approvals-and-sandbox"
+          title={availableEngines.map((item) => `${item}: ${AUTO_APPROVE_FLAG[item]}`).join(" / ")}
         >
           <input
             type="checkbox"

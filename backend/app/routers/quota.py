@@ -22,6 +22,12 @@ def get_quota(engine: str | None = None):
     return quota.get_usage(engine)
 
 
+@router.get("/engines")
+def get_engines():
+    """各引擎是否已安装；界面据此隐藏未安装引擎的额度/设置/任务分配入口。"""
+    return engine_updates.installed_engines()
+
+
 @router.get("/tools")
 def get_tools():
     return engine_updates.all_version_info()

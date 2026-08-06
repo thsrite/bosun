@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from . import db, quota
+from . import db, engine_updates, quota
 
 _PROVIDER = {"cc": "claude", "codex": "codex"}
 
@@ -51,8 +51,11 @@ def _success_rate(engine: str) -> float:
 
 def pick_engine() -> tuple[str, str]:
     """返回 (engine, reason)。"""
+    # 没装的引擎不参与自动分配；一个都没装时保持原样，交给启动守卫报错
+    cands = [e for e in ("cc", "codex") if engine_updates.is_installed(e)] or ["cc", "codex"]
+    if len(cands) == 1:
+        return cands[0], f"只安装了 {cands[0]}，直接选它"
     usage = quota.get_usage()
-    cands = ["cc", "codex"]
     limit = float(usage.get("block_pct", 90))
     # 任一窗口达到阈值的引擎排除(除非全部超限，交给启动守卫确认)
     ok = [e for e in cands if _blocked_window(usage, e, limit) is None]

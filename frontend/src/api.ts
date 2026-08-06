@@ -359,6 +359,8 @@ export const api = {
   quota: (engine?: string) =>
     fetch(engine ? `/api/quota?engine=${encodeURIComponent(engine)}` : "/api/quota").then((r) => j<any>(r)),
   engineTools: {
+    /** 各引擎是否已安装；轻量探测，不跑 --version。 */
+    installed: () => fetch("/api/quota/engines").then((r) => j<Record<string, boolean>>(r)),
     list: () => fetch("/api/quota/tools").then((r) => j<Record<string, EngineToolInfo>>(r)),
     get: (engine: string) =>
       fetch(`/api/quota/tools/${encodeURIComponent(engine)}`).then((r) => j<EngineToolInfo>(r)),

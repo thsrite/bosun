@@ -6,11 +6,14 @@ export function Modal({
   onClose,
   children,
   wide,
+  xl,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  /** 更宽的弹窗（三栏并排等场景），优先于 wide。 */
+  xl?: boolean;
 }) {
   return createPortal(
     <div
@@ -21,7 +24,7 @@ export function Modal({
       aria-label={title}
     >
       <div
-        className={`w-full ${wide ? "sm:max-w-[720px]" : "sm:max-w-[480px]"} max-h-[calc(100vh-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:p-5`}
+        className={`w-full ${xl ? "sm:max-w-[1080px]" : wide ? "sm:max-w-[720px]" : "sm:max-w-[480px]"} max-h-[calc(100vh-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:p-5`}
       >
         <div className="mb-4 flex items-center">
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>

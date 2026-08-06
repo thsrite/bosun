@@ -7,6 +7,16 @@ const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }
   omp: { name: "Oh My Pi", short: "OMP", badge: "bg-sky-50 text-sky-600" },
 };
 
+/** 界面里引擎的展示顺序。 */
+export const ENGINE_ORDER: Engine[] = ["cc", "codex", "omp"];
+
+/** 各引擎的全权限运行参数，用于提示语。 */
+export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
+  cc: "--dangerously-skip-permissions",
+  codex: "--dangerously-bypass-approvals-and-sandbox",
+  omp: "--auto-approve",
+};
+
 const FALLBACK = { name: "未知引擎", short: "?", badge: "bg-slate-100 text-slate-500" };
 
 function meta(engine: string) {

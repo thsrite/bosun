@@ -281,6 +281,16 @@ def all_version_info() -> dict:
     return {engine: version_info(engine) for engine in _SPECS}
 
 
+def is_installed(engine: str) -> bool:
+    """引擎的可执行文件是否存在。只做 which/文件探测，不跑 --version。"""
+    return bool(_resolve_binary(_spec(engine).binary()))
+
+
+def installed_engines() -> dict[str, bool]:
+    """各引擎是否已安装，供界面按需隐藏与自动路由使用（够轻，可高频调用）。"""
+    return {engine: is_installed(engine) for engine in _SPECS}
+
+
 def check_update(engine: str) -> dict:
     info = version_info(engine)
     package_name = info.get("package_name") or info.get("latest_package_name")

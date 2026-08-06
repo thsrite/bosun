@@ -4,9 +4,10 @@ import { toast } from "../overlay";
 import { guardQuota } from "../quota";
 import type { Engine, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
+import { useAvailableEngines } from "../installedEngines";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { Modal } from "./Modal";
-import { engineName } from "../engines";
+import { AUTO_APPROVE_FLAG, ENGINE_ORDER, engineName } from "../engines";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -76,8 +77,9 @@ export function CreateTaskDialog({
   );
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const selectedProject = availableProjects.find((item) => item.id === selectedProjectId);
+  const availableEngines = useAvailableEngines();
   const [engine, setEngine] = useState<"auto" | Engine>(
-    ["auto", "cc", "codex", "omp"].includes(initialSettings.engine ?? "")
+    ["auto", ...ENGINE_ORDER].includes(initialSettings.engine ?? "")
       ? initialSettings.engine!
       : "auto",
   );
@@ -91,6 +93,17 @@ export function CreateTaskDialog({
   useEffect(() => () => {
     previews.current.forEach((preview) => URL.revokeObjectURL(preview));
   }, []);
+
+  // 记住的引擎没装(或只剩一个引擎时的「自动」)会落到不存在的选项上，纠正回可选项
+  const availableKey = availableEngines.join(",");
+  useEffect(() => {
+    const engines = availableKey ? (availableKey.split(",") as Engine[]) : [];
+    if (engines.length === 0) return;
+    setEngine((current) => {
+      if (engines.length === 1) return engines[0];
+      return current === "auto" || engines.includes(current) ? current : "auto";
+    });
+  }, [availableKey]);
 
   function addAttachments(files: File[]) {
     if (files.length === 0) return;
@@ -223,26 +236,22 @@ export function CreateTaskDialog({
           </label>
         )}
         <div className="flex flex-wrap gap-3">
-          <label className="flex items-center gap-1.5" title="按配额余量+历史成功率自动选">
-            <input type="radio" checked={engine === "auto"} onChange={() => setEngine("auto")} />
-            🤖 自动
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={engine === "cc"} onChange={() => setEngine("cc")} />
-            Claude Code
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={engine === "codex"} onChange={() => setEngine("codex")} />
-            Codex
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={engine === "omp"} onChange={() => setEngine("omp")} />
-            Oh My Pi
-          </label>
+          {availableEngines.length > 1 && (
+            <label className="flex items-center gap-1.5" title="按配额余量+历史成功率自动选">
+              <input type="radio" checked={engine === "auto"} onChange={() => setEngine("auto")} />
+              🤖 自动
+            </label>
+          )}
+          {availableEngines.map((item) => (
+            <label key={item} className="flex items-center gap-1.5">
+              <input type="radio" checked={engine === item} onChange={() => setEngine(item)} />
+              {engineName(item)}
+            </label>
+          ))}
         </div>
         <textarea
           className="h-32 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-xs text-slate-800 focus:border-teal-500 focus:outline-none"
-          placeholder="给 cc/codex/omp 的指令…"
+          placeholder={`给 ${availableEngines.join("/")} 的指令…`}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           autoFocus={!projects}
@@ -316,7 +325,7 @@ export function CreateTaskDialog({
             className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
               autoApprove ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-600"
             }`}
-            title="cc: --dangerously-skip-permissions / codex: --dangerously-bypass-approvals-and-sandbox / omp: --auto-approve"
+            title={availableEngines.map((item) => `${item}: ${AUTO_APPROVE_FLAG[item]}`).join(" / ")}
           >
             <input
               type="checkbox"

@@ -10,6 +10,7 @@ import { LoginView } from "./components/LoginView";
 import { ProposalsDialog } from "./components/ProposalsDialog";
 import { QuotaBadge } from "./components/QuotaBadge";
 import { SettingsView } from "./components/SettingsView";
+import { InstalledEnginesContext, type InstalledEngines } from "./installedEngines";
 import { OverlayHost, confirmDialog, toast } from "./overlay";
 import { guardQuota } from "./quota";
 import type { Engine, Project } from "./types";
@@ -69,8 +70,9 @@ export default function App() {
   const [showProposals, setShowProposals] = useState(false);
   const [hasPendingUpdates, setHasPendingUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [installedEngines, setInstalledEngines] = useState<InstalledEngines>(null);
   // null = 还没探测出结果；未装 claude CLI 时不展示 Claude 管理入口
-  const [claudeInstalled, setClaudeInstalled] = useState<boolean | null>(null);
+  const claudeInstalled = installedEngines ? installedEngines.cc === true : null;
   const [pullDistance, setPullDistance] = useState(0);
   const { busy: startingAll, run: runStartAll } = useSingleFlight();
   const mainRef = useRef<HTMLElement | null>(null);
@@ -194,13 +196,13 @@ export default function App() {
     };
   }, [signedIn, load, applyHash]);
 
-  // Claude 管理只管 ~/.claude 下的资源，没装 claude CLI 时整个页面没有意义
+  // 未安装的引擎不展示额度/设置/任务分配等相关信息，探测一次全局共享
   useEffect(() => {
     if (!signedIn) return;
     api.engineTools
-      .get("cc")
-      .then((info) => setClaudeInstalled(Boolean(info.installed)))
-      .catch(() => setClaudeInstalled(false));
+      .installed()
+      .then(setInstalledEngines)
+      .catch(() => setInstalledEngines(null));
   }, [signedIn, reloadKey]);
 
   // 已经停在 Claude 管理却探测到没装：退回项目页，别留个空页面
@@ -354,143 +356,145 @@ export default function App() {
   if (!signedIn) return <LoginView onSignedIn={refreshAuth} />;
 
   return (
-    <div className="dh-app-shell flex h-full min-w-0 flex-col">
-      <header className="dh-app-header relative z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 lg:gap-3 lg:px-8">
-          <button
-            className="flex min-w-0 items-center gap-2 pr-2 text-left"
-            onClick={() => goTab("projects")}
-          >
-            <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-700 bg-black">
-              <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold leading-tight text-slate-900">Bosun 工作台</span>
-            </span>
-          </button>
-
-          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-            {NAV.filter((n) => n.key !== "claude" || claudeInstalled === true).map((n) => {
-              const active = !inProject && tab === n.key;
-              return (
-                <button
-                  key={n.key}
-                  onClick={() => goTab(n.key)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition lg:px-3 ${
-                    active
-                      ? "bg-black font-medium text-white ring-1 ring-slate-700"
-                      : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  <span className={active ? "text-white" : "text-slate-400"}>{n.icon}</span>
-                  <span>{n.label}</span>
-                  {n.key === "tasks" && activeTotal > 0 && (
-                    <span className="rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      {activeTotal}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="flex w-full items-center gap-2 sm:w-auto lg:gap-3">
-            {totalWaiting > 0 && (
-              <button
-                className="flex animate-pulse items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 md:py-1"
-                onClick={() => goTab("tasks")}
-                title="有任务在等待你输入/介入"
-              >
-                <span className="h-2 w-2 rounded-full bg-amber-500" />
-                {totalWaiting}
-                <span className="hidden sm:inline"> 待输入</span>
-              </button>
-            )}
-            <QuotaBadge onModelOptionsUpdated={updateModelOptions} />
-            {totalDrafts > 0 && (
-              <button
-                className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 lg:px-3"
-                disabled={startingAll}
-                onClick={() =>
-                  runStartAll(async () => {
-                    if (!(await guardQuota())) return;
-                    if (await confirmDialog(`把全部 ${totalDrafts} 个待办任务排入执行？`)) {
-                      await api.startAll();
-                      await refreshAll();
-                    }
-                  })
-                }
-              >
-                ▶ <span className="hidden sm:inline">全部执行 </span>({totalDrafts})
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main
-        ref={mainRef}
-        className="relative min-h-0 flex-1 overflow-auto"
-        onTouchStart={onMainTouchStart}
-        onTouchMove={onMainTouchMove}
-        onTouchEnd={onMainTouchEnd}
-        onTouchCancel={resetPull}
-      >
-        {showPullIndicator && (
-          <div className="pointer-events-none sticky top-0 z-30 flex h-0 justify-center">
-            <div
-              className="mt-2 rounded-full border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-lg"
-              style={{
-                transform: `translateY(${Math.max(0, (refreshing ? 54 : pullDistance) - 48)}px)`,
-              }}
+    <InstalledEnginesContext.Provider value={installedEngines}>
+      <div className="dh-app-shell flex h-full min-w-0 flex-col">
+        <header className="dh-app-header relative z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 lg:gap-3 lg:px-8">
+            <button
+              className="flex min-w-0 items-center gap-2 pr-2 text-left"
+              onClick={() => goTab("projects")}
             >
-              {pullLabel}
+              <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-700 bg-black">
+                <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold leading-tight text-slate-900">Bosun 工作台</span>
+              </span>
+            </button>
+
+            <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              {NAV.filter((n) => n.key !== "claude" || claudeInstalled === true).map((n) => {
+                const active = !inProject && tab === n.key;
+                return (
+                  <button
+                    key={n.key}
+                    onClick={() => goTab(n.key)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition lg:px-3 ${
+                      active
+                        ? "bg-black font-medium text-white ring-1 ring-slate-700"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className={active ? "text-white" : "text-slate-400"}>{n.icon}</span>
+                    <span>{n.label}</span>
+                    {n.key === "tasks" && activeTotal > 0 && (
+                      <span className="rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                        {activeTotal}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="flex w-full items-center gap-2 sm:w-auto lg:gap-3">
+              {totalWaiting > 0 && (
+                <button
+                  className="flex animate-pulse items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 md:py-1"
+                  onClick={() => goTab("tasks")}
+                  title="有任务在等待你输入/介入"
+                >
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  {totalWaiting}
+                  <span className="hidden sm:inline"> 待输入</span>
+                </button>
+              )}
+              <QuotaBadge onModelOptionsUpdated={updateModelOptions} />
+              {totalDrafts > 0 && (
+                <button
+                  className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 lg:px-3"
+                  disabled={startingAll}
+                  onClick={() =>
+                    runStartAll(async () => {
+                      if (!(await guardQuota())) return;
+                      if (await confirmDialog(`把全部 ${totalDrafts} 个待办任务排入执行？`)) {
+                        await api.startAll();
+                        await refreshAll();
+                      }
+                    })
+                  }
+                >
+                  ▶ <span className="hidden sm:inline">全部执行 </span>({totalDrafts})
+                </button>
+              )}
             </div>
           </div>
-        )}
-        {inProject ? (
-          <ProjectView
-            project={current!}
-            reloadKey={reloadKey}
-            onBack={backHome}
-            onDataChanged={loadProjectsAndClearPending}
-            onDeleteProject={deleteProject}
-          />
-        ) : tab === "tasks" ? (
-          <ActiveTasksView
-            projects={projects}
-            reloadKey={reloadKey}
-            onDataChanged={loadProjectsAndClearPending}
-            runningTotal={running}
-            maxConcurrent={maxConcurrent}
-            hasPendingUpdates={hasPendingUpdates}
-            refreshing={refreshing}
-          />
-        ) : tab === "claude" && claudeInstalled !== false ? (
-          <ClaudeManagerView />
-        ) : tab === "settings" ? (
-          <SettingsView
-            settings={settings}
-            onChange={changeSettings}
-            onSettingsPatch={(patch) => setSettings((current) => ({ ...current, ...patch }))}
-            auth={auth}
-            onAuthChanged={refreshAuth}
-          />
-        ) : (
-          <HomeView
-            projects={projects}
-            tab={tab === "claude" ? "projects" : tab}
-            onOpen={openProject}
-            onAddProject={() => setShowAdd(true)}
-            onProposals={() => setShowProposals(true)}
-            onDeleteProject={deleteProject}
-          />
-        )}
-      </main>
+        </header>
 
-      {showAdd && <AddProjectDialog onClose={() => setShowAdd(false)} onDone={loadProjectsAndClearPending} />}
-      {showProposals && <ProposalsDialog onClose={() => setShowProposals(false)} />}
-      <OverlayHost />
-    </div>
+        <main
+          ref={mainRef}
+          className="relative min-h-0 flex-1 overflow-auto"
+          onTouchStart={onMainTouchStart}
+          onTouchMove={onMainTouchMove}
+          onTouchEnd={onMainTouchEnd}
+          onTouchCancel={resetPull}
+        >
+          {showPullIndicator && (
+            <div className="pointer-events-none sticky top-0 z-30 flex h-0 justify-center">
+              <div
+                className="mt-2 rounded-full border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-lg"
+                style={{
+                  transform: `translateY(${Math.max(0, (refreshing ? 54 : pullDistance) - 48)}px)`,
+                }}
+              >
+                {pullLabel}
+              </div>
+            </div>
+          )}
+          {inProject ? (
+            <ProjectView
+              project={current!}
+              reloadKey={reloadKey}
+              onBack={backHome}
+              onDataChanged={loadProjectsAndClearPending}
+              onDeleteProject={deleteProject}
+            />
+          ) : tab === "tasks" ? (
+            <ActiveTasksView
+              projects={projects}
+              reloadKey={reloadKey}
+              onDataChanged={loadProjectsAndClearPending}
+              runningTotal={running}
+              maxConcurrent={maxConcurrent}
+              hasPendingUpdates={hasPendingUpdates}
+              refreshing={refreshing}
+            />
+          ) : tab === "claude" && claudeInstalled !== false ? (
+            <ClaudeManagerView />
+          ) : tab === "settings" ? (
+            <SettingsView
+              settings={settings}
+              onChange={changeSettings}
+              onSettingsPatch={(patch) => setSettings((current) => ({ ...current, ...patch }))}
+              auth={auth}
+              onAuthChanged={refreshAuth}
+            />
+          ) : (
+            <HomeView
+              projects={projects}
+              tab={tab === "claude" ? "projects" : tab}
+              onOpen={openProject}
+              onAddProject={() => setShowAdd(true)}
+              onProposals={() => setShowProposals(true)}
+              onDeleteProject={deleteProject}
+            />
+          )}
+        </main>
+
+        {showAdd && <AddProjectDialog onClose={() => setShowAdd(false)} onDone={loadProjectsAndClearPending} />}
+        {showProposals && <ProposalsDialog onClose={() => setShowProposals(false)} />}
+        <OverlayHost />
+      </div>
+    </InstalledEnginesContext.Provider>
   );
 }

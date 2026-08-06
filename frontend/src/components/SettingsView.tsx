@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type AppSettings, type AuthStatus, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
 import { setToken } from "../auth";
+import { useEngineVisible } from "../installedEngines";
 import { confirmDialog, toast } from "../overlay";
 
 type ModelOption = { value: string; label: string };
@@ -482,6 +483,10 @@ export function SettingsView({
     codex: false,
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
+  // 没装的引擎不显示它的模型/档位设置
+  const showClaude = useEngineVisible("cc");
+  const showCodex = useEngineVisible("codex");
+  const showOmp = useEngineVisible("omp");
   // omp 没有可消费的模型目录接口，设置页直接填模型 ID，这里只服务 cc/codex。
   async function refreshModels(engine: "cc" | "codex") {
     if (refreshingModels[engine]) return;
@@ -536,116 +541,122 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section title="Claude" hint="调用方式、模型与推理档位。">
-        <Field label="调用方式">
-          <select
-            className="w-28"
-            value={settings.claude_invocation}
-            onChange={(e) => void onChange({ claude_invocation: e.target.value as AppSettings["claude_invocation"] })}
-          >
-            <option value="auto">自动</option>
-            <option value="sdk">SDK</option>
-            <option value="cli">CLI</option>
-          </select>
-        </Field>
-        <Field label="模型">
-          <div className="flex items-center gap-2">
-            <ModelCombobox
-              id="claude-model"
-              value={settings.claude_model}
-              options={settings.claude_model_options}
-              onChange={(value) => onSettingsPatch({ claude_model: value })}
-              onCommit={(value) => void onChange({ claude_model: value })}
-            />
-            <button
-              type="button"
-              aria-label="刷新 Claude 模型列表"
-              disabled={refreshingModels.cc}
-              onClick={() => void refreshModels("cc")}
-              className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 transition hover:border-teal-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+      {showClaude && (
+        <Section title="Claude" hint="调用方式、模型与推理档位。">
+          <Field label="调用方式">
+            <select
+              className="w-28"
+              value={settings.claude_invocation}
+              onChange={(e) => void onChange({ claude_invocation: e.target.value as AppSettings["claude_invocation"] })}
             >
-              {refreshingModels.cc ? "刷新中…" : "刷新"}
-            </button>
-          </div>
-        </Field>
-        <Field label="推理档位">
-          <select
-            className="w-28"
-            value={settings.claude_effort}
-            onChange={(e) => void onChange({ claude_effort: e.target.value })}
-          >
-            {settings.claude_effort_options.map((opt) => (
-              <option key={opt.value || "default"} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </Section>
-
-      <Section title="Codex" hint="模型与推理档位。">
-        <Field label="模型">
-          <div className="flex items-center gap-2">
-            <ModelCombobox
-              id="codex-model"
-              value={settings.codex_model}
-              options={settings.codex_model_options}
-              onChange={(value) => onSettingsPatch({ codex_model: value })}
-              onCommit={(value) => void onChange({ codex_model: value })}
-            />
-            <button
-              type="button"
-              aria-label="刷新 Codex 模型列表"
-              disabled={refreshingModels.codex}
-              onClick={() => void refreshModels("codex")}
-              className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 transition hover:border-teal-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              <option value="auto">自动</option>
+              <option value="sdk">SDK</option>
+              <option value="cli">CLI</option>
+            </select>
+          </Field>
+          <Field label="模型">
+            <div className="flex items-center gap-2">
+              <ModelCombobox
+                id="claude-model"
+                value={settings.claude_model}
+                options={settings.claude_model_options}
+                onChange={(value) => onSettingsPatch({ claude_model: value })}
+                onCommit={(value) => void onChange({ claude_model: value })}
+              />
+              <button
+                type="button"
+                aria-label="刷新 Claude 模型列表"
+                disabled={refreshingModels.cc}
+                onClick={() => void refreshModels("cc")}
+                className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 transition hover:border-teal-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {refreshingModels.cc ? "刷新中…" : "刷新"}
+              </button>
+            </div>
+          </Field>
+          <Field label="推理档位">
+            <select
+              className="w-28"
+              value={settings.claude_effort}
+              onChange={(e) => void onChange({ claude_effort: e.target.value })}
             >
-              {refreshingModels.codex ? "刷新中…" : "刷新"}
-            </button>
-          </div>
-        </Field>
-        <Field
-          label="推理档位"
-          hint={settings.codex_effort === "ultra" ? "Ultra 需账号与所选模型支持，会显著增加用量" : undefined}
-        >
-          <select
-            className="w-28"
-            value={settings.codex_effort}
-            onChange={(e) => void onChange({ codex_effort: e.target.value })}
-          >
-            {settings.codex_effort_options.map((opt) => (
-              <option key={opt.value || "default"} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </Section>
+              {settings.claude_effort_options.map((opt) => (
+                <option key={opt.value || "default"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </Section>
+      )}
 
-      <Section title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。">
-        <Field label="模型">
-          <ModelCombobox
-            id="omp-model"
-            value={settings.omp_model}
-            options={settings.omp_model_options}
-            onChange={(value) => onSettingsPatch({ omp_model: value })}
-            onCommit={(value) => void onChange({ omp_model: value })}
-          />
-        </Field>
-        <Field label="思考档位">
-          <select
-            className="w-28"
-            value={settings.omp_thinking}
-            onChange={(e) => void onChange({ omp_thinking: e.target.value })}
+      {showCodex && (
+        <Section title="Codex" hint="模型与推理档位。">
+          <Field label="模型">
+            <div className="flex items-center gap-2">
+              <ModelCombobox
+                id="codex-model"
+                value={settings.codex_model}
+                options={settings.codex_model_options}
+                onChange={(value) => onSettingsPatch({ codex_model: value })}
+                onCommit={(value) => void onChange({ codex_model: value })}
+              />
+              <button
+                type="button"
+                aria-label="刷新 Codex 模型列表"
+                disabled={refreshingModels.codex}
+                onClick={() => void refreshModels("codex")}
+                className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 transition hover:border-teal-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {refreshingModels.codex ? "刷新中…" : "刷新"}
+              </button>
+            </div>
+          </Field>
+          <Field
+            label="推理档位"
+            hint={settings.codex_effort === "ultra" ? "Ultra 需账号与所选模型支持，会显著增加用量" : undefined}
           >
-            {settings.omp_thinking_options.map((opt) => (
-              <option key={opt.value || "default"} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </Section>
+            <select
+              className="w-28"
+              value={settings.codex_effort}
+              onChange={(e) => void onChange({ codex_effort: e.target.value })}
+            >
+              {settings.codex_effort_options.map((opt) => (
+                <option key={opt.value || "default"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </Section>
+      )}
+
+      {showOmp && (
+        <Section title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。">
+          <Field label="模型">
+            <ModelCombobox
+              id="omp-model"
+              value={settings.omp_model}
+              options={settings.omp_model_options}
+              onChange={(value) => onSettingsPatch({ omp_model: value })}
+              onCommit={(value) => void onChange({ omp_model: value })}
+            />
+          </Field>
+          <Field label="思考档位">
+            <select
+              className="w-28"
+              value={settings.omp_thinking}
+              onChange={(e) => void onChange({ omp_thinking: e.target.value })}
+            >
+              {settings.omp_thinking_options.map((opt) => (
+                <option key={opt.value || "default"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </Section>
+      )}
 
       <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
         <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">

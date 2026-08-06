@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { confirmDialog, toast } from "../overlay";
 import type { Project } from "../types";
+import { engineName } from "../engines";
+import { useAvailableEngines } from "../installedEngines";
 import { useSingleFlight } from "../useSingleFlight";
 import { AutopilotTrace } from "./AutopilotTrace";
 import { Modal } from "./Modal";
@@ -14,6 +16,9 @@ const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
 };
 
 export function AutopilotDialog({ project, onClose }: { project: Project; onClose: () => void }) {
+  const availableEngines = useAvailableEngines();
+  // 交叉复审习惯上优先 codex，选项顺序也把它排前面
+  const reviewEngineOrder = [...availableEngines].sort((a, b) => (a === "codex" ? -1 : b === "codex" ? 1 : 0));
   const [maxIter, setMaxIter] = useState(3);
   const [fixEngine, setFixEngine] = useState("cc");
   const [reviewEngine, setReviewEngine] = useState("codex");
@@ -36,6 +41,15 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // 默认的 cc / codex 可能没装，落到可选引擎上
+  const reviewOrderKey = reviewEngineOrder.join(",");
+  useEffect(() => {
+    const engines = reviewOrderKey ? reviewOrderKey.split(",") : [];
+    if (engines.length === 0) return;
+    setFixEngine((current) => (engines.includes(current) ? current : engines[0]));
+    setReviewEngine((current) => (engines.includes(current) ? current : engines[0]));
+  }, [reviewOrderKey]);
 
   // 运行中轮询日志
   useEffect(() => {
@@ -137,9 +151,9 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
                 value={fixEngine}
                 onChange={(e) => setFixEngine(e.target.value)}
               >
-                <option value="cc">Claude Code</option>
-                <option value="codex">Codex</option>
-                <option value="omp">Oh My Pi</option>
+                {availableEngines.map((item) => (
+                  <option key={item} value={item}>{engineName(item)}</option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1">
@@ -149,9 +163,9 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
                 value={reviewEngine}
                 onChange={(e) => setReviewEngine(e.target.value)}
               >
-                <option value="codex">Codex</option>
-                <option value="cc">Claude Code</option>
-                <option value="omp">Oh My Pi</option>
+                {reviewEngineOrder.map((item) => (
+                  <option key={item} value={item}>{engineName(item)}</option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1">

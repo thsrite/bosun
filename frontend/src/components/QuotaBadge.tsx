@@ -7,6 +7,7 @@ import {
   type HostMetrics,
 } from "../api";
 import type { Engine } from "../types";
+import { useInstalledEngines } from "../installedEngines";
 import { Modal } from "./Modal";
 
 type ProviderUsage = {
@@ -36,6 +37,20 @@ type EngineToolState = {
 
 type EngineTools = Record<string, EngineToolInfo | null | undefined>;
 type EngineToolStates = Record<string, EngineToolState | undefined>;
+
+/** 展示顺序与元数据；usageKey 为空表示该引擎没有订阅额度接口。 */
+const PROVIDERS: {
+  engine: Engine;
+  label: string;
+  /** 顶栏徽标用的短名，长名会把状态条撑开。 */
+  chip: string;
+  note: string;
+  usageKey?: keyof Pick<QuotaUsage, "claude" | "codex">;
+}[] = [
+  { engine: "cc", label: "Claude Code", chip: "Claude", note: "Claude CLI", usageKey: "claude" },
+  { engine: "codex", label: "codex", chip: "Codex", note: "Codex CLI", usageKey: "codex" },
+  { engine: "omp", label: "omp", chip: "omp", note: "Oh My Pi" },
+];
 
 function dotColor(pct: number | null): string {
   if (pct == null) return "bg-slate-300";
@@ -401,7 +416,7 @@ function ProviderDetail({
       <div className="mb-2 flex items-center gap-2">
         <span className={`h-2.5 w-2.5 rounded-full ${q?.available ? dotColor(worst) : "bg-slate-300"}`} />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-slate-900">{label}</div>
+          <div className="truncate text-sm font-semibold text-slate-900" title={label}>{label}</div>
           <div className="text-[11px] text-slate-400">{note}</div>
         </div>
         <span className={`rounded-full px-2 py-0.5 text-[11px] ${q?.available ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
@@ -448,6 +463,12 @@ export function QuotaBadge({
   const [q, setQ] = useState<QuotaUsage | null>(null);
   const [host, setHost] = useState<HostMetrics | null>(null);
   const [open, setOpen] = useState(false);
+  const installedEngines = useInstalledEngines();
+  // 探测结果没回来前先按装齐处理，避免正常情况下状态条闪一下
+  const providers = PROVIDERS.filter(
+    (p) => !installedEngines || installedEngines[p.engine] !== false,
+  );
+  const usageProviders = providers.filter((p) => p.usageKey);
   const [tools, setTools] = useState<EngineTools>({});
   const [toolStates, setToolStates] = useState<EngineToolStates>({});
 
@@ -526,71 +547,71 @@ export function QuotaBadge({
     if (open) void loadTools();
   }, [loadTools, open]);
 
+  const statusTitle = `查看 ${providers.map((p) => p.label).join(" / ")} 状态详情`;
+
+  // 一个引擎都没装：只留宿主机指标，别显示空的额度条
+  if (providers.length === 0) {
+    return (
+      <span className="hidden items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs md:flex" title={hostTitle(host)}>
+        <HostMetricStrip host={host} />
+      </span>
+    );
+  }
+
   return (
     <>
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs hover:bg-emerald-100 md:hidden"
         onClick={() => setOpen(true)}
-        title="查看 cc / codex / omp 状态详情"
+        title={statusTitle}
       >
-        <CompactProvider label="cc" q={q?.claude} />
-        <span className="shrink-0 text-emerald-200">|</span>
-        <CompactProvider label="codex" q={q?.codex} />
+        {usageProviders.map((p, i) => (
+          <span key={p.engine} className="flex min-w-0 items-center gap-2">
+            {i > 0 && <span className="shrink-0 text-emerald-200">|</span>}
+            <CompactProvider label={p.chip} q={q?.[p.usageKey!]} />
+          </span>
+        ))}
       </button>
       <button
         type="button"
         className="hidden max-w-full items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs hover:bg-emerald-100 md:flex"
         onClick={() => setOpen(true)}
-        title={`查看 cc / codex / omp 状态详情；${hostTitle(host)}`}
+        title={`${statusTitle}；${hostTitle(host)}`}
       >
-        <Provider label="Claude" q={q?.claude} />
-        <span className="text-emerald-200">|</span>
-        <Provider label="Codex" q={q?.codex} />
+        {usageProviders.map((p, i) => (
+          <span key={p.engine} className="flex items-center gap-3">
+            {i > 0 && <span className="text-emerald-200">|</span>}
+            <Provider label={p.chip} q={q?.[p.usageKey!]} />
+          </span>
+        ))}
         <HostMetricStrip host={host} />
       </button>
       {open && (
-        <Modal title="cc / Codex / omp 状态" onClose={() => setOpen(false)} wide>
+        <Modal title={`${providers.map((p) => p.label).join(" / ")} 状态`} onClose={() => setOpen(false)} xl>
           <div className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2">
-              <ProviderDetail
-                label="cc"
-                note="Claude Code"
-                q={q?.claude}
-                engine="cc"
-                tool={tools.cc}
-                toolState={toolStates.cc}
-                onRefreshTool={loadTool}
-                onCheckUpdate={checkUpdate}
-                onUpdateTool={updateTool}
-              />
-              <ProviderDetail
-                label="codex"
-                note="Codex CLI"
-                q={q?.codex}
-                engine="codex"
-                tool={tools.codex}
-                toolState={toolStates.codex}
-                onRefreshTool={loadTool}
-                onCheckUpdate={checkUpdate}
-                onUpdateTool={updateTool}
-              />
-              <ProviderDetail
-                label="omp"
-                note="Oh My Pi"
-                q={null}
-                quotaUnsupported
-                engine="omp"
-                tool={tools.omp}
-                toolState={toolStates.omp}
-                onRefreshTool={loadTool}
-                onCheckUpdate={checkUpdate}
-                onUpdateTool={updateTool}
-              />
+            <div className={`grid gap-3 ${providers.length >= 3 ? "md:grid-cols-3" : providers.length === 2 ? "md:grid-cols-2" : ""}`}>
+              {providers.map((p) => (
+                <ProviderDetail
+                  key={p.engine}
+                  label={p.label}
+                  note={p.note}
+                  q={p.usageKey ? q?.[p.usageKey] : null}
+                  quotaUnsupported={!p.usageKey}
+                  engine={p.engine}
+                  tool={tools[p.engine]}
+                  toolState={toolStates[p.engine]}
+                  onRefreshTool={loadTool}
+                  onCheckUpdate={checkUpdate}
+                  onUpdateTool={updateTool}
+                />
+              ))}
             </div>
-            <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              周用量执行保护阈值：{q?.block_pct ?? 90}%
-            </div>
+            {usageProviders.length > 0 && (
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                周用量执行保护阈值：{q?.block_pct ?? 90}%
+              </div>
+            )}
           </div>
         </Modal>
       )}
