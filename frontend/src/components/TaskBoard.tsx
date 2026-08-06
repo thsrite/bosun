@@ -114,15 +114,26 @@ function DoneArchiveGroups({
   const todayKey = dateKeyFromDate(new Date());
   const todayArchiveKey = archives.some((archive) => archive.key === todayKey) ? todayKey : null;
   const [openKey, setOpenKey] = useState<string | null>(todayArchiveKey);
+  const [showOlder, setShowOlder] = useState(false);
 
   useEffect(() => {
     if (!todayArchiveKey) return;
     setOpenKey((cur) => cur ?? todayArchiveKey);
   }, [todayArchiveKey]);
 
+  // 默认只显示距最新归档日期 7 天内的分组，更早的点「显示更早」再展示
+  let visibleArchives = archives;
+  let olderArchives: DoneArchive[] = [];
+  if (!showOlder && archives.length > 0) {
+    const cutoffMs = Date.parse(archives[0].key) - 6 * 24 * 60 * 60 * 1000;
+    visibleArchives = archives.filter((archive) => Date.parse(archive.key) >= cutoffMs);
+    olderArchives = archives.slice(visibleArchives.length);
+  }
+  const olderTaskCount = olderArchives.reduce((count, archive) => count + archive.tasks.length, 0);
+
   return (
     <>
-      {archives.map((archive) => (
+      {visibleArchives.map((archive) => (
         <details
           key={archive.key}
           open={openKey === archive.key}
@@ -140,6 +151,15 @@ function DoneArchiveGroups({
           <div className="mt-2 flex flex-col gap-2">{archive.tasks.map(renderTask)}</div>
         </details>
       ))}
+      {olderArchives.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowOlder(true)}
+          className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-2 text-center text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
+        >
+          显示更早的归档 · {olderArchives.length} 天 / {olderTaskCount} 个任务
+        </button>
+      )}
     </>
   );
 }

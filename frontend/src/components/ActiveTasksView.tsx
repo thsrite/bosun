@@ -533,6 +533,7 @@ export function ActiveTasksView({
   const [showCreate, setShowCreate] = useState(false);
   const [archiveQuery, setArchiveQuery] = useState("");
   const [archiveDateOverrides, setArchiveDateOverrides] = useState<Record<string, boolean>>({});
+  const [showOlderArchives, setShowOlderArchives] = useState(false);
   const [archiveProjectId, setArchiveProjectId] = useState("");
   const [completingTaskId, setCompletingTaskId] = useState<number | null>(null);
   const [transitioningTaskId, setTransitioningTaskId] = useState<number | null>(null);
@@ -588,6 +589,17 @@ export function ActiveTasksView({
   const archivedCount = archivedGroups.reduce((count, group) => count + group.tasks.length, 0);
   // 默认只展开最新日期；筛选/搜索时全部展开，用户手动点过的日期以其选择为准
   const archiveFiltering = Boolean(archiveQuery.trim() || archiveProjectId);
+  // 默认只显示距最新归档日期 7 天内的分组，更早的点「显示更早」再展示；筛选/搜索时不设限
+  const { visibleArchivedGroups, olderGroups } = useMemo(() => {
+    if (archiveFiltering || showOlderArchives || archivedGroups.length === 0) {
+      return { visibleArchivedGroups: archivedGroups, olderGroups: [] as typeof archivedGroups };
+    }
+    const latestMs = Date.parse(archivedGroups[0].date);
+    const cutoffMs = latestMs - 6 * 24 * 60 * 60 * 1000;
+    const visible = archivedGroups.filter((group) => Date.parse(group.date) >= cutoffMs);
+    return { visibleArchivedGroups: visible, olderGroups: archivedGroups.slice(visible.length) };
+  }, [archiveFiltering, archivedGroups, showOlderArchives]);
+  const olderTaskCount = olderGroups.reduce((count, group) => count + group.tasks.length, 0);
   const isArchiveDateOpen = (date: string, index: number) =>
     archiveDateOverrides[date] ?? (archiveFiltering || index === 0);
   const toggleArchiveDate = (date: string, index: number) =>
@@ -1069,7 +1081,7 @@ export function ActiveTasksView({
             </div>
           ) : (
             <div className="space-y-3">
-              {archivedGroups.map((group, groupIndex) => {
+              {visibleArchivedGroups.map((group, groupIndex) => {
                 const expanded = isArchiveDateOpen(group.date, groupIndex);
                 return (
                 <div key={group.date} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -1163,6 +1175,15 @@ export function ActiveTasksView({
                 </div>
                 );
               })}
+              {olderGroups.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowOlderArchives(true)}
+                  className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-2.5 text-center text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
+                >
+                  显示更早的归档 · {olderGroups.length} 天 / {olderTaskCount} 个任务
+                </button>
+              )}
             </div>
           )}
         </section>
