@@ -1,53 +1,69 @@
-# <img src="frontend/public/icons/bosun.svg" width="28" alt="Bosun"> Bosun · AI 编码 CLI 工作台
+<div align="center">
 
-Bosun 是一个本地优先的 Web 工作台，用来扫描和管理本机多个项目，并通过可交互终端会话编排 Claude Code、Codex、Oh My Pi、Kimi Code 等 AI 编码 CLI 执行开发任务。
+<img src="frontend/public/icons/bosun.svg" width="108" alt="Bosun logo">
 
-它提供并发上限、优先级调度、任务状态跟踪、人在环的 AI 诊断，以及跨项目的数据统计。设计思路见 [`docs/bosun-design.md`](docs/bosun-design.md)。
+# Bosun
+
+**AI 编码 CLI 工作台** — 在一块看板上编排 Claude Code、Codex 等 AI 编码 CLI，<br>让多个项目的开发任务排队、并行、可插手、可复盘。
+
+[![Release](https://img.shields.io/github/v/release/thsrite/bosun?color=2dd4bf&label=release)](https://github.com/thsrite/bosun/releases)
+[![License](https://img.shields.io/github/license/thsrite/bosun?color=blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-8a94a6)](#-快速开始)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2dd4bf)](#-参与贡献)
+
+[快速开始](#-快速开始) · [界面预览](#-界面预览) · [用法](#-用法) · [配置](#%EF%B8%8F-配置) · [设计文档](docs/bosun-design.md)
+
+![Bosun 项目任务看板，使用虚构演示数据](docs/images/bosun-overview.png)
+
+</div>
+
+Bosun 是一个**本地优先**的 Web 工作台：扫描并集中管理本机的多个代码项目，把开发任务派发给 Claude Code、Codex、Oh My Pi、Kimi Code 等 AI 编码 CLI 的可交互终端会话，由调度器控制并发与优先级，你只在关键决策时介入。
 
 > [!WARNING]
 > Bosun 可以驱动本机终端并访问已导入的代码仓库。服务默认监听 `0.0.0.0`，首次启动后请立即在「设置 → 访问控制」中设置强口令，或通过 `BOSUN_PASSWORD` 配置。请勿在未配置访问控制和 HTTPS 反向代理的情况下暴露到公网。
 
-## 核心能力
+## ✨ 核心能力
 
-- 扫描本机目录并集中管理多个项目
-- 在 Claude Code、Codex、Oh My Pi 和 Kimi Code 之间选择执行引擎，创建、排队和接续任务
-- 通过优先级与并发上限自动调度任务
-- 在浏览器中查看实时终端、输入指令并接管会话
-- 汇总问题、任务趋势、引擎用量与复盘数据
-- 将诊断结果转成修复任务，关键决策保留人工确认
-- 提供适合手机访问的 PWA，以及可选的 macOS 菜单栏应用
+- **多项目看板** — 扫描本机目录批量导入仓库，项目泳道集中管理所有任务
+- **多引擎编排** — 在 Claude Code / Codex / Oh My Pi / Kimi Code 间自由选择，创建、排队、接续任务，支持按订阅额度自动选引擎
+- **自动调度** — 优先级 + 并发上限驱动的任务队列，拖拽改优先级
+- **实时终端** — 浏览器里看 AI 干活的完整终端，随时打字插手、接管会话
+- **人在环诊断** — 整体分析生成问题收件箱，一键转修复任务，关键决策保留人工确认
+- **数据统计** — 跨项目的任务趋势、引擎用量与复盘数据
+- **随处可用** — 手机 PWA + 可选的 macOS 菜单栏常驻应用，二进制发行版开箱即用
 
-## 界面预览
+## 📸 界面预览
 
-### 项目任务看板
-
-![Bosun 项目任务看板，使用虚构演示数据](docs/images/bosun-overview.png)
-
-### 交互终端
+<details open>
+<summary><b>交互终端</b></summary>
 
 ![Bosun 运行中任务的交互终端，使用虚构终端输出](docs/images/bosun-terminal.png)
 
-### 等待用户介入
+</details>
+
+<details>
+<summary><b>等待用户介入</b></summary>
 
 ![Bosun 等待用户输入界面，使用虚构任务数据](docs/images/bosun-waiting-input.png)
 
-### 手机 PWA
+</details>
+
+<details>
+<summary><b>手机 PWA</b></summary>
 
 | 任务操作 | 终端详情 |
 | --- | --- |
 | ![Bosun 手机 PWA 任务操作界面，使用虚构任务数据](docs/images/bosun-pwa-mobile.png) | ![Bosun 手机 PWA 运行中任务的终端详情](docs/images/bosun-pwa-terminal.png) |
 
+</details>
+
 _以上截图使用完全虚构的项目、路径、任务、终端输出和系统指标，不包含真实用户数据。_
 
-## 快速开始
+## 🚀 快速开始
 
-### 环境要求
+### 前置：至少装一个 AI 编码 CLI
 
-- macOS 或 Linux
-- Python 3.10+
-- Node.js 18+ 与 npm
-- Git
-- 下列支持的执行引擎 CLI **至少安装并登录一个**（哪个都行，没有必选项），命令位于 `PATH` 中；未安装的引擎不会出现在界面里
+下列执行引擎 **至少安装并登录一个**（哪个都行，没有必选项），命令位于 `PATH` 中；未安装的引擎不会出现在界面里：
 
 | 引擎 | 命令 | 安装方式 | 说明 |
 |---|---|---|---|
@@ -56,16 +72,22 @@ _以上截图使用完全虚构的项目、路径、任务、终端输出和系�
 | [Oh My Pi](https://github.com/can1357/oh-my-pi) | `omp` | `npm i -g @oh-my-pi/pi-coding-agent` | 自带 provider 凭据；依赖 Bun 运行时，安装体积约 1.1 GB；不做订阅额度查询 |
 | [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) | `kimi` | `npm i -g @moonshot-ai/kimi-code` 或官方 `install.sh` | 自带 provider 凭据；不做订阅额度查询。注意 npm 上裸 `kimi-cli` 是不相干的占名包，旧一代 PyPI 版已淘汰，只适配新版 kimi-code |
 
-### 安装（下载安装包，免源码）
+### 方式一：下载安装包（推荐，免 Python / Node / 源码）
 
-[Releases](https://github.com/thsrite/bosun/releases) 提供开箱即用的二进制产物，不需要 Python / Node / 源码（运行 AI 任务仍需按上表安装引擎 CLI）：
+从 [Releases](https://github.com/thsrite/bosun/releases) 下载对应平台的产物：
 
-- **macOS（Apple Silicon）**：下载 `Bosun-*-macos-arm64.dmg`，拖入「应用程序」。未做 Apple 公证，首次打开被 Gatekeeper 拦截时执行 `xattr -cr /Applications/Bosun.app`
-- **Linux（x86_64）**：下载 `bosun-*-linux-x86_64.tar.gz`，解压后运行 `./bosun/bosun`，浏览器访问 `http://127.0.0.1:8770`
+| 平台 | 产物 | 安装 |
+|---|---|---|
+| macOS（Apple Silicon） | `Bosun-*-macos-arm64.dmg` | 拖入「应用程序」，菜单栏出现「>~」图标即可用 |
+| Linux（x86_64） | `bosun-*-linux-x86_64.tar.gz` | 解压后 `./bosun/bosun`，浏览器访问 `http://127.0.0.1:8770` |
+
+> macOS 产物未做 Apple 公证，首次打开被 Gatekeeper 拦截时执行：`xattr -cr /Applications/Bosun.app`
 
 二进制版同样支持「设置 → Bosun 版本」在线更新（整包替换）。
 
-### 安装（源码运行）
+### 方式二：源码运行
+
+需要 Python 3.10+、Node.js 18+ 与 Git：
 
 ```bash
 git clone https://github.com/thsrite/bosun.git
@@ -73,24 +95,36 @@ cd bosun
 
 python3 -m venv backend/.venv
 backend/.venv/bin/pip install -r backend/requirements.txt
+cd frontend && npm install && cd ..
 
-cd frontend
-npm install
-cd ..
-```
-
-### 一键启动（推荐）
-
-```bash
 ./start.sh            # 开发模式：后端 + Vite dev server（前端热更新）
 ./start.sh --prod     # 生产模式：先构建前端产物，只起后端托管 dist
 ```
 
-开发模式会清理占用 `8770` / `5199` 的旧进程并启动前后端。前端监听 `0.0.0.0:5199`，同一局域网设备可通过脚本输出的局域网地址访问。按 `Ctrl+C` 会同时停止前后端。
+开发模式会清理占用 `8770` / `5199` 的旧进程并启动前后端，前端监听 `0.0.0.0:5199`，同一局域网设备可通过脚本输出的地址访问，`Ctrl+C` 同时停止前后端。生产模式只占用 `8770`，由后端托管 `frontend/dist`，手机/PWA 直接访问后端端口，不再热重载。
 
-生产模式先跑 `npm run build`，只启动后端并由它托管 `frontend/dist`，仅占用 `8770`；手机/PWA 直接访问后端端口即可，不再走 Vite dev，避免总是热重载。
+<details>
+<summary>分步手动启动</summary>
 
-### macOS 状态栏常驻（免终端）
+```bash
+# 后端
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python run.py        # 监听 0.0.0.0:8770
+
+# 前端（开发）
+cd frontend
+npm install
+npm run dev                     # 打开 http://localhost:5199
+
+# 前端（生产，随后端一起服务）
+cd frontend && npm run build    # 产物在 frontend/dist，之后访问 8770 即完整应用
+```
+
+</details>
+
+### 方式三：macOS 菜单栏常驻（源码构建，免终端）
 
 ```bash
 cd frontend && npm run build    # 生产模式需要先有 frontend/dist
@@ -99,7 +133,10 @@ cd frontend && npm run build    # 生产模式需要先有 frontend/dist
 
 菜单栏出现品牌「>~」图标即成功：满色 = 运行中，半透明 = 已停止。菜单提供打开工作台、启动/重启/停止后端、查看日志，以及两个开关。
 
-![MacOS 状态栏](docs/images/bosun-dock.png)
+<img src="docs/images/bosun-dock.png" width="260" alt="macOS 状态栏菜单">
+
+<details>
+<summary>菜单栏应用细节（自启 / 资源占用 / 卸载）</summary>
 
 **启动时打开工作台（默认开启）**：打开 Bosun.app 后会等后端健康检查通过（最多等 20 秒，避免白屏），再自动拉起已安装的 PWA「Bosun 工作台」，省掉手动点一次。找不到 PWA 时退回默认浏览器打开 `http://127.0.0.1:8770`。不需要可在菜单里关掉。
 
@@ -119,53 +156,9 @@ rm -f ~/Library/LaunchAgents/com.thsrite.bosun.*.plist
 pkill -x Bosun; rm -rf /Applications/Bosun.app
 ```
 
-### 手动启动
+</details>
 
-#### 后端
-
-```bash
-cd backend
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python run.py        # 监听 127.0.0.1:8770
-```
-
-#### 前端（开发）
-
-```bash
-cd frontend
-npm install
-npm run dev                     # 打开 http://localhost:5199
-```
-
-#### 前端（生产，随后端一起服务）
-
-```bash
-cd frontend && npm run build    # 产物在 frontend/dist
-# 之后访问后端 http://127.0.0.1:8770 即为完整应用
-```
-
-## 更新
-
-「设置 → Bosun 版本」可以对比本地版本与 GitHub 上最新的 [release](https://github.com/thsrite/bosun/releases)，并一键更新。
-
-**二进制部署**：下载当前平台的最新产物后整包原子替换安装目录，重启后端即生效（macOS 菜单栏图标程序在下次启动 Bosun.app 时更新）。
-
-**源码部署**：一键更新本地代码：
-
-1. `git fetch --tags` 后快进合并到该 release 的 tag（不做 merge，也不会 reset）
-2. 按本次变更的文件决定是否重装后端依赖、前端依赖、重建 `frontend/dist`
-3. 由 Bosun.app 托管的后端会自动重启；`start.sh` 启动的后端需要自己重启
-
-以下情况会拒绝更新，交由你自己处理，不会覆盖本地内容：
-
-- 工作区有未提交改动
-- 本地存在该 release 之外的提交（无法快进）
-- 当前部署不是 git 工作区（例如直接下载的源码包）
-
-发版时需要同步更新 `backend/app/version.py` 的 `VERSION`、`frontend/package.json` 的 `version`，并打上同名 tag（`vX.Y.Z`）；三者不一致会导致版本比对失真。
-
-## 用法
+## 🧭 用法
 
 1. 右上「+ 项目 / 扫描」→ 填一个根目录扫描导入，或手动加单个仓库
 2. 项目泳道里「+ 任务」→ 选 cc/codex/omp/kimi + 写指令 + 优先级 → 自动进调度
@@ -176,7 +169,7 @@ cd frontend && npm run build    # 产物在 frontend/dist
 
 选用 omp 时，「设置 → Oh My Pi」可以填模型与思考档位；选用 kimi 时，「设置 → Kimi Code」可以选模型别名（列表来自 `~/.kimi-code/config.toml`）。设置页按引擎分卡：已安装的引擎卡头显示版本，未安装的显示灰态占位卡（含安装命令），全部支持的 CLI 与本机安装状态一目了然。
 
-## 配置
+## ⚙️ 配置
 
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
@@ -193,7 +186,27 @@ cd frontend && npm run build    # 产物在 frontend/dist
 
 默认数据保存在 `~/.bosun/`。升级或迁移前，建议先备份该目录。
 
-## 安全说明
+## 🔄 更新
+
+「设置 → Bosun 版本」可以对比本地版本与 GitHub 上最新的 [release](https://github.com/thsrite/bosun/releases)，并一键更新。
+
+**二进制部署**：下载当前平台的最新产物后整包原子替换安装目录，重启后端即生效（macOS 菜单栏图标程序在下次启动 Bosun.app 时更新）。
+
+**源码部署**：
+
+1. `git fetch --tags` 后快进合并到该 release 的 tag（不做 merge，也不会 reset）
+2. 按本次变更的文件决定是否重装后端依赖、前端依赖、重建 `frontend/dist`
+3. 由 Bosun.app 托管的后端会自动重启；`start.sh` 启动的后端需要自己重启
+
+以下情况会拒绝更新，交由你自己处理，不会覆盖本地内容：
+
+- 工作区有未提交改动
+- 本地存在该 release 之外的提交（无法快进）
+- 当前部署不是 git 工作区（例如直接下载的源码包）
+
+发版时需要同步更新 `backend/app/version.py` 的 `VERSION`、`frontend/package.json` 的 `version`，并打上同名 tag（`vX.Y.Z`）；三者不一致会导致版本比对失真。
+
+## 🔒 安全说明
 
 - Bosun 会继承本机 Claude Code / Codex / Oh My Pi / Kimi Code 的登录状态和文件访问能力，请只导入可信仓库。
 - Oh My Pi 启动时会自动读取 `~/.claude` 下的配置，包括已配置的 MCP server 和 skills；不希望它接触这些资源时，不要选用该引擎。
@@ -201,32 +214,36 @@ cd frontend && npm run build    # 产物在 frontend/dist
 - 若需跨设备访问，至少启用强口令；若需公网访问，请额外使用 HTTPS、可信反向代理和网络访问控制。
 - 不要把 API Key、访问令牌、数据库或 `~/.bosun/` 中的运行数据提交到 Git。
 
-## 项目结构
+## 🏗️ 项目结构
 
 ```text
 backend/        FastAPI 后端、调度器、终端会话与 SQLite 数据层
 frontend/       React + TypeScript + Vite 前端
 macos/          macOS 菜单栏应用及构建脚本
+packaging/      PyInstaller 打包定义（二进制发行）
 bosun_skills/   随项目提供的 Bosun agent skills
 docs/           设计文档与功能规格
 ```
 
-## 开发与验证
+开发与验证：
 
 ```bash
-# 后端语法检查
-backend/.venv/bin/python -m compileall -q backend/app
-
-# 前端类型检查与生产构建
-cd frontend && npm run build
+backend/.venv/bin/python -m compileall -q backend/app   # 后端语法检查
+cd frontend && npm run build                            # 前端类型检查与生产构建
 ```
 
 提交改动前，请至少运行与改动范围对应的检查和前端构建。
 
-## 参与贡献
+## 🤝 参与贡献
 
 欢迎提交 Issue 和 Pull Request。请在 PR 中说明改动目的、验证命令与结果；行为变更和缺陷修复应同时提供对应测试。安全问题请不要公开披露利用细节，先通过仓库维护者的私密联系方式报告。
 
-## 开源许可
+## 📄 开源许可
 
 Bosun 采用 [GNU General Public License v3.0](LICENSE)（`GPL-3.0-only`）开源。你可以使用、修改和分发本项目；分发本项目或其衍生作品时，需要遵守 GPL v3 的源代码开放及同许可证分发要求。
+
+---
+
+<div align="center">
+<sub>如果 Bosun 对你有帮助，欢迎点一颗 ⭐ Star 支持项目发展。</sub>
+</div>
