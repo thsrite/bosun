@@ -1396,8 +1396,8 @@ export function TerminalPanel({
 }) {
   const [detail, setDetail] = useState<Task>(task);
   const { busy, run } = useSingleFlight();
-  // 移动端(小于 lg)默认折叠指令+元信息面板，给终端腾显示空间
-  const [metaCollapsed, setMetaCollapsed] = useState(() => embedded || window.innerWidth < 1024);
+  // 默认折叠指令+元信息面板，给终端腾显示空间；点「详情 ▾」再展开
+  const [metaCollapsed, setMetaCollapsed] = useState(true);
   // 移动端顶部精简：默认只留 编号/状态 + 详情 + 关闭，其余操作与任务信息收进「详情」
   const [showDetails, setShowDetails] = useState(false);
   const [editing, setEditing] = useState(false);
