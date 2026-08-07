@@ -24,6 +24,10 @@ import { engineBadgeClass, engineName, engineShort } from "../engines";
 const ACTIVE_STATUSES = new Set(["queued", "running", "waiting_input"]);
 const ARCHIVED_STATUSES = new Set(["done", "failed", "cancelled", "interrupted"]);
 
+// 任务行主操作（继续执行）的统一按钮样式：等待执行区与归档区共用，跟随全站品牌主色
+const RESUME_BTN_CLS =
+  "rounded-md bg-teal-600 px-2.5 py-1.5 text-white hover:bg-teal-500 disabled:opacity-50";
+
 function isActiveTask(t: Task): boolean {
   return ACTIVE_STATUSES.has(t.status);
 }
@@ -693,6 +697,28 @@ export function ActiveTasksView({
     }
   }
 
+  // 归档任务原地继续：走 /continue 恢复原会话（同一张卡拉回执行中），流程与等待执行的继续一致
+  async function continueArchivedTask(task: Task) {
+    if (transitioningTaskId !== null) return;
+    const prompt = await promptDialog("追加指令（留空=只加载上下文继续）", "", {
+      attachToTaskId: task.id,
+    });
+    if (prompt === null) return; // 取消弹窗=不继续
+    if (!(await guardQuota(task.engine))) return;
+    setTransitioningTaskId(task.id);
+    try {
+      await api.continueTask(task.id, { prompt, start: true });
+      await load();
+      onDataChanged();
+      toast(`任务 #${task.id} 已加入执行队列`, "success");
+    } catch (error) {
+      await load();
+      toast(`继续任务失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    } finally {
+      setTransitioningTaskId(null);
+    }
+  }
+
 
   async function restorePausedTask(task: Task) {
     if (transitioningTaskId !== null) return;
@@ -946,7 +972,7 @@ export function ActiveTasksView({
                   <>
                     <button
                       type="button"
-                      className="rounded-md bg-teal-600 px-2.5 py-1.5 text-white hover:bg-teal-500 disabled:opacity-50"
+                      className={RESUME_BTN_CLS}
                       disabled={busy}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -1105,6 +1131,22 @@ export function ActiveTasksView({
                       const actions = (
                         <>
                           <span className="text-dh-tsoft">查看记录</span>
+                          <button
+                            type="button"
+                            className={RESUME_BTN_CLS}
+                            disabled={transitioningTaskId !== null || !task.session_uid}
+                            title={
+                              task.session_uid
+                                ? "恢复原会话继续执行（可追加指令）"
+                                : "该任务没有可恢复的会话，无法原地继续"
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void continueArchivedTask(task);
+                            }}
+                          >
+                            {transitioningTaskId === task.id ? "处理中…" : "继续执行"}
+                          </button>
                           <button
                             type="button"
                             className="rounded-md px-1.5 py-1 text-[11px] font-normal text-violet-300 hover:bg-violet-500/20 hover:text-violet-300 disabled:opacity-50"
