@@ -25,7 +25,8 @@ import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Engine, Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { taskPromptText } from "../taskText";
-import { engineShort } from "../engines";
+import { engineName, engineShort } from "../engines";
+import { useAvailableEngines } from "../installedEngines";
 
 // 「其他任务需要处理」提醒：同一轮等待只弹一次，关闭或跳转后不再打扰。
 // 用 任务id + 该轮等待起点 作 key（waiting_since 在任务离开 waiting_input 时清空，
@@ -525,8 +526,8 @@ function TerminalView({
       // 所以造一个临时 readonly textarea 选区(readonly 避免 iOS 弹键盘)承载要复制的文本。
       const legacyCopy = () => {
         const prevActive = document.activeElement;
-        ta.value = selection;
         const ta = document.createElement("textarea");
+        ta.value = selection;
         ta.setAttribute("readonly", "");
         ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
         document.body.appendChild(ta);
@@ -1196,8 +1197,8 @@ function TerminalView({
             if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
             term.focus();
           }}
-      )}
         />
+      )}
     </div>
   );
 }
@@ -1208,14 +1209,14 @@ function TerminalMobileComposer({
   onSend,
   onPaste,
   onFocusTerminal,
-  taskId: number;
 }: {
+  taskId: number;
   connected: boolean;
   onSend: (data: string) => void;
   onPaste: (data: string) => void;
   onFocusTerminal: () => void;
-  const [uploading, setUploading] = useState(false);
 }) {
+  const [uploading, setUploading] = useState(false);
 
   const sendKey = (data: string) => {
     if (!connected) return;
@@ -1328,6 +1329,7 @@ export function TerminalPanel({
 }) {
   const [detail, setDetail] = useState<Task>(task);
   const { busy, run } = useSingleFlight();
+  const availableEngines = useAvailableEngines();
   // 默认折叠指令+元信息面板，给终端腾显示空间；点「详情 ▾」再展开
   const [metaCollapsed, setMetaCollapsed] = useState(true);
   // 移动端顶部精简：默认只留 编号/状态 + 详情 + 关闭，其余操作与任务信息收进「详情」
@@ -1696,15 +1698,22 @@ export function TerminalPanel({
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
           <span className="shrink-0 font-mono text-sm text-slate-400">#{detail.id}</span>
           <select
-            className="shrink-0 rounded border border-dh-bsoft bg-dh-s2 px-1.5 py-0.5 text-xs font-medium uppercase text-dh-tsoft disabled:opacity-50"
+            className="shrink-0 rounded border border-dh-bsoft bg-dh-s2 px-1.5 py-0.5 text-xs font-medium text-dh-tsoft disabled:opacity-50"
             value={detail.engine}
             disabled={busy}
             onChange={(e) => void switchEngine(e.target.value as Engine)}
             title={detail.status === "draft" ? "切换任务执行器" : "切换执行器并创建接力任务"}
           >
-            <option value="cc">CC</option>
-            <option value="codex">Codex</option>
-            <option value="omp">omp</option>
+            {/* 当前任务的引擎即使已卸载也要保留选项，否则 select 显示会落空 */}
+            {(availableEngines.includes(detail.engine)
+              ? availableEngines
+              : [detail.engine, ...availableEngines]
+            ).map((item) => (
+              <option key={item} value={item}>
+                {/* 顶栏空间紧张：cc 用短称 Claude，其余仍用官方全名 */}
+                {item === "cc" ? "Claude" : engineName(item)}
+              </option>
+            ))}
           </select>
           <span className={`shrink-0 whitespace-nowrap text-sm font-medium ${s.text}`}>{s.label}</span>
           {canSwitch && (
