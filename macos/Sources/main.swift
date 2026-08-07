@@ -300,16 +300,35 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func render(running: Bool) {
         isRunning = running
         guard let button = statusItem.button else { return }
-        let symbol = running ? "sailboat.fill" : "sailboat"
-        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Bosun") {
-            image.isTemplate = true  // 跟随浅色/深色菜单栏自动反色
-            button.image = image
-            button.title = ""
-        } else {
-            button.image = nil
-            button.title = running ? "⚓︎" : "⚓"
-        }
+        button.image = Self.statusGlyph(dimmed: !running)
+        button.title = ""
         button.toolTip = running ? "Bosun · 运行中 · :\(BosunConfig.port)" : "Bosun · 已停止"
+    }
+
+    /// 品牌「>~」图形（与 frontend/public/icons/bosun.svg 同一套路径坐标）。
+    /// 模板图跟随浅色/深色菜单栏自动反色；停止态降透明度替代原 fill/outline 区分。
+    private static func statusGlyph(dimmed: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.scaleBy(x: rect.width / 512, y: rect.height / 512)
+            ctx.translateBy(x: -26, y: 0)  // 图形在 512 画布上偏右，平移做光学居中
+            ctx.setStrokeColor(NSColor.black.withAlphaComponent(dimmed ? 0.45 : 1.0).cgColor)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.setLineWidth(52)
+            ctx.move(to: CGPoint(x: 148, y: 138))
+            ctx.addLine(to: CGPoint(x: 294, y: 256))
+            ctx.addLine(to: CGPoint(x: 148, y: 374))
+            ctx.strokePath()
+            ctx.setLineWidth(38)
+            ctx.move(to: CGPoint(x: 300, y: 374))
+            ctx.addQuadCurve(to: CGPoint(x: 358, y: 374), control: CGPoint(x: 329, y: 338))
+            ctx.addQuadCurve(to: CGPoint(x: 416, y: 374), control: CGPoint(x: 387, y: 410))
+            ctx.strokePath()
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     // MARK: 菜单
