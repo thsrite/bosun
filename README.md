@@ -88,7 +88,7 @@ cd frontend && npm run build    # 生产模式需要先有 frontend/dist
 ./macos/build.sh --install      # 构建 Bosun.app 并安装到 /Applications
 ```
 
-菜单栏出现 ⛵ 图标即成功：实心 = 运行中，空心 = 已停止。菜单提供打开工作台、启动/重启/停止后端、查看日志，以及两个开关。
+菜单栏出现品牌「>~」图标即成功：满色 = 运行中，半透明 = 已停止。菜单提供打开工作台、启动/重启/停止后端、查看日志，以及两个开关。
 
 ![MacOS 状态栏](docs/images/bosun-dock.png)
 
