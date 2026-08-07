@@ -180,9 +180,9 @@ parse_args "$@"
 trap cleanup EXIT
 trap on_signal INT TERM
 require_dependencies
-clear_port "$BACKEND_PORT" || fail "无法清理后端端口 $BACKEND_PORT。"
+clear_port "$BACKEND_PORT" || fail "无法清理后端端口 ${BACKEND_PORT}。"
 if [[ "$MODE" == "dev" ]]; then
-  clear_port "$FRONTEND_PORT" || fail "无法清理前端端口 $FRONTEND_PORT。"
+  clear_port "$FRONTEND_PORT" || fail "无法清理前端端口 ${FRONTEND_PORT}。"
 fi
 
 # 生产模式：先构建前端产物，backend 启动时会自动挂载 frontend/dist。
