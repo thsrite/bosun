@@ -16,8 +16,10 @@ ENGINES = {"cc", "codex", "omp"}
 REPORT_DIRECTIVE = (
     "\n\n---\n"
     "[Bosun 收尾约定] 本轮工作结束前——无论是任务完成、失败无法继续，"
-    "还是需要反问用户才能往下走——都必须先调用 bosun-report skill 回报状态"
-    "(done / failed / needs_input)，未回报不算收尾。"
+    "还是需要反问用户才能往下走——都必须收尾：先把本轮的完整结论/分析正文"
+    "打印到终端（用户只看终端输出，不要只说「见上」或把结论只塞进汇报参数里），"
+    "再调用 bosun-report skill 回报状态(done / failed / needs_input)；"
+    "summary 只是一句话摘要，不能替代正文。未打印正文或未回报都不算收尾。"
 )
 
 
