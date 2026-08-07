@@ -27,3 +27,6 @@ frontend/dist/
 # PyInstaller 打包产物（packaging/bosun.spec）
 /build/
 /dist/
+
+# git worktrees created by branch-flow
+.worktrees/
