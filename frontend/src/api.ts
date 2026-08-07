@@ -1,5 +1,5 @@
 import { authHeaders, setToken } from "./auth";
-import type { Engine, Finding, IssueSource, LocalSession, Project, ReplySuggestion, Task } from "./types";
+import type { Engine, Finding, IssueSource, LocalSession, Project, Task } from "./types";
 
 export type AppSettings = {
   max_concurrent: number;
@@ -340,10 +340,6 @@ export const api = {
     fetch(`/api/tasks/${id}/permission`).then((r) => j<{ permission: { tool: string; input: string } | null }>(r)),
   respondPermission: (id: number, allow: boolean) =>
     write("POST", `/api/tasks/${id}/permission`, { allow }),
-  replySuggestion: (id: number) =>
-    fetch(`/api/tasks/${id}/reply-suggestion`).then((r) => j<ReplySuggestion>(r)),
-  smartReplySuggestion: (id: number) =>
-    fetch(`/api/tasks/${id}/reply-suggestion/smart`, { method: "POST" }).then((r) => j<ReplySuggestion>(r)),
   deleteTask: (id: number) =>
     write("DELETE", `/api/tasks/${id}`),
 

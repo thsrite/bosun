@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useRef, useState, type TouchEvent } from 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { WS_UNAUTHORIZED, setToken, wsProtocols } from "../auth";
-import type { ReplySuggestion } from "../types";
 
 /** SDK(结构化 cc)会话的对话面板：解析后端 NDJSON 事件流，替代 xterm。
  *  实时流 + 断线重连 + 结束后回放 backlog，逻辑对齐 TerminalView。 */
@@ -91,19 +90,7 @@ function parseLines(buf: string): { events: ChatEvent[]; rest: string } {
   return { events, rest };
 }
 
-export function ChatView({
-  taskId,
-  live,
-  suggestion,
-  onSmartGenerate,
-  smartLoading,
-}: {
-  taskId: number;
-  live: boolean;
-  suggestion?: ReplySuggestion | null;
-  onSmartGenerate?: () => void;
-  smartLoading?: boolean;
-}) {
+export function ChatView({ taskId, live }: { taskId: number; live: boolean }) {
   const [events, setEvents] = useState<ChatEvent[]>([]);
   // Long SDK conversations can contain hundreds of expensive Markdown trees. Keep
   // the full transcript in memory, but mount only a bounded tail until requested.
@@ -314,16 +301,7 @@ export function ChatView({
           </div>
         </div>
       </div>
-      {live && (
-        <Composer
-          ws={wsRef}
-          suggestion={suggestion}
-          onSend={scrollToLatest}
-          onFocusInput={scrollToLatest}
-          onSmartGenerate={onSmartGenerate}
-          smartLoading={smartLoading}
-        />
-      )}
+      {live && <Composer ws={wsRef} onSend={scrollToLatest} onFocusInput={scrollToLatest} />}
     </div>
   );
 }
@@ -382,39 +360,15 @@ const EventBubble = memo(function EventBubble({ ev }: { ev: ChatEvent }) {
 
 function Composer({
   ws,
-  suggestion,
   onSend,
   onFocusInput,
-  onSmartGenerate,
-  smartLoading,
 }: {
   ws: React.MutableRefObject<WebSocket | null>;
-  suggestion?: ReplySuggestion | null;
   onSend: () => void;
   onFocusInput: () => void;
-  onSmartGenerate?: () => void;
-  smartLoading?: boolean;
 }) {
   const [text, setText] = useState("");
-  const [dismissedSuggestion, setDismissedSuggestion] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const canShowSuggestion =
-    !!suggestion?.available &&
-    !!suggestion.text.trim() &&
-    !text.trim() &&
-    dismissedSuggestion !== suggestion.text;
-  const visibleSuggestion = canShowSuggestion ? suggestion : null;
-
-  useEffect(() => {
-    setDismissedSuggestion("");
-  }, [suggestion?.text]);
-
-  const acceptSuggestion = () => {
-    if (!suggestion?.text.trim()) return;
-    setText(suggestion.text);
-    setDismissedSuggestion(suggestion.text);
-    window.setTimeout(() => focusTextareaWithoutScroll(inputRef.current), 0);
-  };
 
   const send = () => {
     const t = text.trim();
@@ -430,53 +384,6 @@ function Composer({
   };
   return (
     <div className="dh-safe-bottom-pad flex flex-col gap-2 border-t border-slate-700/50 bg-[#0b0f17] px-3 pt-2">
-      {visibleSuggestion && (
-        <div className="rounded-lg border border-teal-500/25 bg-teal-500/10 px-2.5 py-2 text-xs text-teal-50">
-          <div className="mb-1 flex items-center gap-2">
-            <span className="font-medium text-teal-200">
-              {visibleSuggestion.source === "llm" ? "✨ 智能建议" : "建议回复"}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-teal-100/70" title={visibleSuggestion.reason}>
-              {visibleSuggestion.reason}
-            </span>
-            {onSmartGenerate && (
-              <button
-                type="button"
-                className="rounded px-1.5 py-0.5 text-[11px] font-medium text-teal-100 hover:bg-teal-400/15 disabled:opacity-50"
-                onClick={onSmartGenerate}
-                disabled={smartLoading}
-                title="让 Claude 读取当前任务日志，生成更贴合上下文的回复"
-              >
-                {smartLoading ? "生成中…" : visibleSuggestion.source === "llm" ? "✨ 重新生成" : "✨ 智能生成"}
-              </button>
-            )}
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-[11px] font-medium text-teal-100 hover:bg-teal-400/15"
-              onClick={acceptSuggestion}
-              title="填入输入框，不会自动发送"
-            >
-              Tab 采用
-            </button>
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-[11px] text-teal-100/70 hover:bg-teal-400/15 hover:text-teal-50"
-              onClick={() => setDismissedSuggestion(visibleSuggestion.text)}
-              title="关闭建议"
-            >
-              ✕
-            </button>
-          </div>
-          <button
-            type="button"
-            className="block w-full text-left leading-relaxed text-teal-50"
-            onClick={acceptSuggestion}
-            title="填入输入框，不会自动发送"
-          >
-            {visibleSuggestion.text}
-          </button>
-        </div>
-      )}
       <div className="flex items-end gap-2">
         <textarea
           ref={inputRef}
@@ -491,16 +398,6 @@ function Composer({
           onFocus={() => window.setTimeout(onFocusInput, 50)}
           onTouchStart={onInputTouchStart}
           onKeyDown={(e) => {
-            if (e.key === "Tab" && canShowSuggestion) {
-              e.preventDefault();
-              acceptSuggestion();
-              return;
-            }
-            if (e.key === "Escape" && visibleSuggestion) {
-              e.preventDefault();
-              setDismissedSuggestion(visibleSuggestion.text);
-              return;
-            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               send();

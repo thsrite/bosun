@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .. import auth, db, events, log_archive, nesting, reply_assist, routing, scheduler, sessions
+from .. import auth, db, events, log_archive, nesting, routing, scheduler, sessions
 from ..engines import ENGINES
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -537,16 +537,6 @@ def get_permission(task_id: int):
 def respond_permission(task_id: int, body: PermissionBody):
     ok = scheduler.respond_permission(task_id, body.allow)
     return {"ok": ok}
-
-
-@router.get("/{task_id}/reply-suggestion")
-def reply_suggestion(task_id: int):
-    return reply_assist.suggest_reply(task_id)
-
-
-@router.post("/{task_id}/reply-suggestion/smart")
-def smart_reply_suggestion(task_id: int):
-    return reply_assist.smart_suggest_reply(task_id)
 
 
 @router.delete("/{task_id}")

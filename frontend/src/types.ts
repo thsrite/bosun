@@ -71,15 +71,6 @@ export interface Task {
   report_summary?: string | null;
 }
 
-export interface ReplySuggestion {
-  available: boolean;
-  text: string;
-  reason: string;
-  source: "none" | "permission" | "confirm" | "clarify" | "tests" | "blocked" | "default" | "llm";
-  confidence: number;
-  updated_at: number;
-}
-
 export interface SessionHistoryMessage {
   role: "user" | "assistant";
   text: string;

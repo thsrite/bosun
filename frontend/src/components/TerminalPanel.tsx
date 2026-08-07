@@ -22,7 +22,7 @@ import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
-import type { Engine, ReplySuggestion, Task } from "../types";
+import type { Engine, Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { taskPromptText } from "../taskText";
 import { engineShort } from "../engines";
@@ -32,13 +32,6 @@ import { engineShort } from "../engines";
 // 下一轮等待会换新值，所以是新一轮才会再弹）。放模块级是因为面板在任务间
 // 切换时会按 key 重挂载，组件内 state 会丢。
 const seenAttention = new Set<string>();
-
-// 智能建议自动生成的去重（同一轮等待只生成一次）。与 seenAttention 同理放模块级：
-// 面板在任务间切换会重挂载，组件内 state 会丢，重挂载即重新生成会白烧一次额度。
-const autoSmartGenerated = new Set<string>();
-// 只有「真提问」才自动烧一次 LLM 生成；「回合结束待核对」(review) 是最高频的等待，
-// 不自动触发，保留手动按钮。
-const AUTO_SMART_KINDS = new Set(["permission", "choice", "input"]);
 
 function attentionKey(t: Task): string {
   return `${t.id}:${t.waiting_since ?? 0}`;
@@ -360,15 +353,9 @@ function terminalPanelBodyStyle(): CSSProperties {
 function TerminalView({
   taskId,
   live,
-  suggestion,
-  onSmartGenerate,
-  smartLoading,
 }: {
   taskId: number;
   live: boolean;
-  suggestion?: ReplySuggestion | null;
-  onSmartGenerate?: () => void;
-  smartLoading?: boolean;
 }) {
   const elRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -1238,12 +1225,8 @@ function TerminalView({
         <TerminalMobileComposer
           taskId={taskId}
           connected={connected}
-          suggestion={suggestion}
           onSend={sendTerminalData}
           onPaste={pasteTerminalData}
-          onFocusTerminal={() => termRef.current?.focus()}
-          onSmartGenerate={onSmartGenerate}
-          smartLoading={smartLoading}
         />
       )}
     </div>
@@ -1253,40 +1236,15 @@ function TerminalView({
 function TerminalMobileComposer({
   taskId,
   connected,
-  suggestion,
   onSend,
   onPaste,
-  onFocusTerminal,
-  onSmartGenerate,
-  smartLoading,
 }: {
   taskId: number;
   connected: boolean;
-  suggestion?: ReplySuggestion | null;
   onSend: (data: string) => void;
   onPaste: (data: string) => void;
-  onFocusTerminal: () => void;
-  onSmartGenerate?: () => void;
-  smartLoading?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
-  const [dismissedSuggestion, setDismissedSuggestion] = useState("");
-  const visibleSuggestion =
-    suggestion?.available && suggestion.text.trim() && dismissedSuggestion !== suggestion.text
-      ? suggestion
-      : null;
-
-  useEffect(() => {
-    setDismissedSuggestion("");
-  }, [suggestion?.text]);
-
-  const acceptSuggestion = () => {
-    if (!suggestion?.text.trim()) return;
-    // 粘贴到终端输入行（不自动发送），并聚焦终端方便继续编辑后回车
-    onPaste(suggestion.text);
-    setDismissedSuggestion(suggestion.text);
-    onFocusTerminal();
-  };
 
   const sendKey = (data: string) => {
     if (!connected) return;
@@ -1343,53 +1301,6 @@ function TerminalMobileComposer({
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[C")} label="→" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey(TERMINAL_SUBMIT_KEY)} label="Enter" />
       </div>
-      {visibleSuggestion && (
-        <div className="rounded-lg border border-teal-500/25 bg-teal-500/10 px-2.5 py-2 text-xs text-teal-50">
-          <div className="mb-1 flex items-center gap-2">
-            <span className="font-medium text-teal-200">
-              {visibleSuggestion.source === "llm" ? "✨ 智能建议" : "建议回复"}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-teal-100/70" title={visibleSuggestion.reason}>
-              {visibleSuggestion.reason}
-            </span>
-            {onSmartGenerate && (
-              <button
-                type="button"
-                className="rounded px-1.5 py-0.5 text-[11px] font-medium text-teal-100 hover:bg-teal-400/15 disabled:opacity-50"
-                onClick={onSmartGenerate}
-                disabled={smartLoading}
-                title="让 Claude 读取当前任务日志，生成更贴合上下文的回复"
-              >
-                {smartLoading ? "生成中…" : visibleSuggestion.source === "llm" ? "✨ 重新生成" : "✨ 智能生成"}
-              </button>
-            )}
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-[11px] font-medium text-teal-100 hover:bg-teal-400/15"
-              onClick={acceptSuggestion}
-              title="粘贴到终端输入行，不会自动发送"
-            >
-              采用建议
-            </button>
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-[11px] text-teal-100/70 hover:bg-teal-400/15 hover:text-teal-50"
-              onClick={() => setDismissedSuggestion(visibleSuggestion.text)}
-              title="关闭建议"
-            >
-              ✕
-            </button>
-          </div>
-          <button
-            type="button"
-            className="block w-full text-left leading-relaxed text-teal-50"
-            onClick={acceptSuggestion}
-            title="粘贴到终端输入行，不会自动发送"
-          >
-            {visibleSuggestion.text}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -1445,8 +1356,6 @@ export function TerminalPanel({
   const [editTitle, setEditTitle] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
   const [perm, setPerm] = useState<{ tool: string; input: string } | null>(null);
-  const [suggestion, setSuggestion] = useState<ReplySuggestion | null>(null);
-  const [smartLoading, setSmartLoading] = useState(false);
   const [, bumpAttention] = useReducer((n: number) => n + 1, 0);
   const [historyMode, setHistoryMode] = useState<"history" | "terminal">("history");
   // 抽屉全屏：桌面端把 48% 宽的抽屉铺满整屏，终端由 ResizeObserver 自动重新 fit
@@ -1493,69 +1402,8 @@ export function TerminalPanel({
   // 运行中：每秒重渲染(时长跳动) + 每3秒拉取(token/状态)
   const [, setTick] = useState(0);
   const active = ["running", "waiting_input"].includes(detail.status);
-  const permissionSig = perm ? `${perm.tool}:${perm.input}` : "";
   // 未结束(含 queued/draft)都轮询: 排队任务转为运行时能刷新出终端
   const polling = !["done", "failed", "cancelled", "interrupted"].includes(detail.status);
-  // 记录 LLM 建议是为哪一轮等待生成的：换轮后它已是对上一个问题的回答，要让位
-  const smartRoundRef = useRef<string>("");
-  useEffect(() => {
-    let cancelled = false;
-    if (!active) {
-      setSuggestion(null);
-      return;
-    }
-    api.replySuggestion(detail.id)
-      .then((s) => {
-        if (cancelled) return;
-        setSuggestion((prev) => {
-          if (!s.available) return null;
-          // 规则建议不覆盖同一轮等待里的 LLM 建议；但换了等待轮后 LLM 建议已是
-          // 对上一个问题的回答，必须让位，否则比模板更危险（答非所问还像模像样）。
-          if (
-            prev?.source === "llm" &&
-            s.source !== "llm" &&
-            smartRoundRef.current === attentionKey(detail)
-          ) {
-            return prev;
-          }
-          return s;
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setSuggestion(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active, detail.id, detail.status, detail.started_at, detail.waiting_since, permissionSig]);
-
-  // 按需让 Claude 读当前任务上下文生成针对性回复（覆盖规则建议）
-  const generateSmartSuggestion = useCallback(async () => {
-    setSmartLoading(true);
-    const round = attentionKey(detail);
-    try {
-      const s = await api.smartReplySuggestion(detail.id);
-      if (s.available && s.text.trim()) {
-        smartRoundRef.current = round;
-        setSuggestion(s);
-      }
-    } catch {
-      /* 生成失败保留现有建议 */
-    } finally {
-      setSmartLoading(false);
-    }
-  }, [detail.id, detail.waiting_since]);
-
-  // 真提问（权限/选择/要信息）进入等待时自动生成一次智能建议，替换掉规则模板；
-  // review 类等待不触发（频次太高），仍走手动「智能生成」按钮。
-  useEffect(() => {
-    if (detail.status !== "waiting_input") return;
-    if (!AUTO_SMART_KINDS.has(detail.waiting_kind ?? "")) return;
-    const key = attentionKey(detail);
-    if (autoSmartGenerated.has(key)) return;
-    autoSmartGenerated.add(key);
-    void generateSmartSuggestion();
-  }, [detail.status, detail.waiting_kind, detail.id, detail.waiting_since, generateSmartSuggestion]);
 
   useEffect(() => {
     if (!polling) return;
@@ -2171,14 +2019,7 @@ export function TerminalPanel({
         >
           {hasSession ? (
             isChat ? (
-              <ChatView
-                key={`chat-${detail.id}`}
-                taskId={detail.id}
-                live={active}
-                suggestion={suggestion}
-                onSmartGenerate={generateSmartSuggestion}
-                smartLoading={smartLoading}
-              />
+              <ChatView key={`chat-${detail.id}`} taskId={detail.id} live={active} />
             ) : hasStoredHistory ? (
               <div className="flex h-full min-h-0 flex-col">
                 <div className="flex shrink-0 items-center gap-1 border-b border-slate-700 bg-[#101722] px-2 py-1.5">
@@ -2219,14 +2060,7 @@ export function TerminalPanel({
                 </div>
               </div>
             ) : (
-              <TerminalView
-                key={`terminal-${detail.id}`}
-                taskId={detail.id}
-                live={active}
-                suggestion={suggestion}
-                onSmartGenerate={generateSmartSuggestion}
-                smartLoading={smartLoading}
-              />
+              <TerminalView key={`terminal-${detail.id}`} taskId={detail.id} live={active} />
             )
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-400">
