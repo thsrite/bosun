@@ -8,7 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/thsrite/bosun?color=2dd4bf&label=release)](https://github.com/thsrite/bosun/releases)
 [![License](https://img.shields.io/github/license/thsrite/bosun?color=blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-8a94a6)](#-快速开始)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-8a94a6)](#-快速开始)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2dd4bf)](#-参与贡献)
 
 [快速开始](#-快速开始) · [界面预览](#-界面预览) · [用法](#-用法) · [配置](#%EF%B8%8F-配置) · [设计文档](docs/bosun-design.md)
@@ -78,12 +78,13 @@ _以上截图使用完全虚构的项目、路径、任务、终端输出和系�
 
 | 平台 | 产物 | 安装 |
 |---|---|---|
-| macOS（Apple Silicon） | `Bosun-*-macos-arm64.dmg` | 拖入「应用程序」，菜单栏出现「>~」图标即可用 |
+| macOS（Apple Silicon / Intel） | `Bosun-*-macos-arm64.dmg` / `…-x86_64.dmg` | 按芯片选对应 DMG，拖入「应用程序」，菜单栏出现「>~」图标即可用 |
 | Linux（x86_64） | `bosun-*-linux-x86_64.tar.gz` | 解压后 `./bosun/bosun`，浏览器访问 `http://127.0.0.1:8770` |
+| Windows（x86_64，beta） | `bosun-*-windows-x86_64.zip` | 解压后运行 `bosun\bosun.exe`，浏览器访问 `http://127.0.0.1:8770` |
 
 > macOS 产物未做 Apple 公证，首次打开被 Gatekeeper 拦截时执行：`xattr -cr /Applications/Bosun.app`
 
-二进制版同样支持「设置 → Bosun 版本」在线更新（整包替换）。
+macOS / Linux 二进制版同样支持「设置 → Bosun 版本」在线更新（整包替换）；Windows 版暂需手动下载新版替换。Windows 属 beta：等待/接管的识别启发式在 ConPTY 下仍在打磨，源码运行方式暂只支持 macOS / Linux（`start.sh` 依赖 bash）。
 
 ### 方式二：源码运行
 

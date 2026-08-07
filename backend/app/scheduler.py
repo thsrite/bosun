@@ -7,11 +7,16 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import os
+import sys
 import threading
 import time
 from pathlib import Path
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 from . import db, engine_settings, events, sessions
 from .config import DATA_DIR, LOG_DIR
@@ -49,8 +54,13 @@ def _try_acquire_scheduler_file_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = open(path, "a+", encoding="utf-8")
     try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        if sys.platform == "win32":
+            # Windows 无 flock：锁文件头 1 字节，进程退出由系统释放，语义等价
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
         lock_file.close()
         return None
     return lock_file

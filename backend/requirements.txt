@@ -1,6 +1,7 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
-ptyprocess>=0.7
+ptyprocess>=0.7; sys_platform != "win32"
+pywinpty>=2.0; sys_platform == "win32"
 certifi>=2024.0
 claude-agent-sdk>=0.2
 openai>=2.0

@@ -21,9 +21,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
-import ptyprocess
-
 from .config import IDLE_SECONDS
+from .pty_compat import PtyProcess
 
 # PTY logs contain every TUI repaint. A long Codex/Claude session can therefore
 # grow to tens of megabytes even though xterm only needs the latest screen and
@@ -326,7 +325,7 @@ class PtySession:
         self.on_exit = on_exit      # (task_id, exit_code)
         self.script_log_path: str | None = None
 
-        self.proc: ptyprocess.PtyProcess | None = None
+        self.proc: PtyProcess | None = None
         self.subscribers: set[asyncio.Queue] = set()
         self.last_output = time.time()
         self._busy_until = 0.0
@@ -368,7 +367,7 @@ class PtySession:
                 Path(script_log_path).unlink(missing_ok=True)
             except OSError:
                 pass
-        self.proc = ptyprocess.PtyProcess.spawn(
+        self.proc = PtyProcess.spawn(
             spawn_argv, cwd=self.cwd, env=env, dimensions=(30, 100)
         )
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
