@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type TouchEvent,
 } from "react";
 import { api } from "../api";
@@ -468,26 +469,19 @@ function TerminalView({
     const isDesktopLayout = () => window.matchMedia("(min-width: 768px)").matches;
     if (isDesktopLayout()) term.focus();
     // 触屏 + 移动布局：xterm 在 mousedown 里会自行 focus 隐藏 textarea，轻点正文经
-    // 合成 mousedown 就把输入法弹出来。textarea 置 inputmode=none —— 聚焦照常（硬件
-    // 键盘、按键栏键入不受影响），但不召唤软键盘；软键盘唯一从按键栏「键盘」键唤起
-    // （onFocusTerminal 里临时恢复 inputmode 再聚焦），失焦后复原为 none。
-    // 桌面布局（含横屏 iPad）没有按键栏，不能封死软键盘，转屏切换布局时同步解除/恢复。
-    const syncSoftKeyboardGate = () => {
-      const ta = term.textarea;
-      if (!ta || !isTouchDevice()) return;
-      if (isDesktopLayout()) {
-        if (ta.inputMode === "none") ta.inputMode = "";
-      } else if (document.activeElement !== ta) {
-        ta.inputMode = "none";
-      }
+    // 合成 mousedown 就把输入法弹出来。曾试过 textarea 置 inputmode=none 拦软键盘，
+    // 但那会留下「textarea 已聚焦却无键盘」的状态，「键盘」键的同 tick blur→focus
+    // 被 iOS 合并成无变化，得连点多次才弹得出。改为捕获阶段直接拦掉这次 mousedown：
+    // xterm 的自聚焦不执行，textarea 不进入怪状态；preventDefault 同时挡住浏览器
+    // 「点击非可聚焦区域使输入框失焦」的默认行为——打字中轻点正文滚动不收起键盘。
+    // click 不受 mousedown 拦截影响，链接照常可点。软键盘唯一由按键栏「键盘」键唤起。
+    // 桌面布局（含横屏 iPad）没有按键栏，不拦，转屏后按事件时的布局即时生效。
+    const blockTapFocus = (e: MouseEvent) => {
+      if (!isTouchDevice() || isDesktopLayout()) return;
+      e.preventDefault();
+      e.stopPropagation();
     };
-    const restoreInputModeOnBlur = () => {
-      if (!isDesktopLayout() && term.textarea) term.textarea.inputMode = "none";
-    };
-    if (isTouchDevice() && term.textarea) {
-      syncSoftKeyboardGate();
-      term.textarea.addEventListener("blur", restoreInputModeOnBlur);
-    }
+    terminalHost.addEventListener("mousedown", blockTapFocus, true);
 
     let ws: WebSocket | null = null;
     let retry: number | null = null;
@@ -1128,7 +1122,6 @@ function TerminalView({
     const onResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
-      syncSoftKeyboardGate(); // 转屏跨过 768px 断点时，软键盘闸门随布局解除/恢复
       fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
@@ -1172,7 +1165,7 @@ function TerminalView({
       applicationScrollActive = false;
       deferredWrites.splice(0);
       deferredBytes = 0;
-      term.textarea?.removeEventListener("blur", restoreInputModeOnBlur);
+      terminalHost.removeEventListener("mousedown", blockTapFocus, true);
       disposeAltBufferWorkaround();
       disposeImeFix();
       hardWrappedLinks.dispose();
@@ -1218,9 +1211,6 @@ function TerminalView({
             // iOS 残留态：textarea 仍是 activeElement 但键盘已收起时 focus() 是空操作，
             // 先 blur 再 focus 强制重新召唤键盘。
             if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
-            // blur 复原了 inputmode=none（轻点正文不弹键盘的闸门），这里是软键盘唯一
-            // 入口，聚焦前恢复成默认输入模式让键盘弹出
-            if (term.textarea) term.textarea.inputMode = "text";
             term.focus();
           }}
         />
@@ -1288,7 +1278,7 @@ function TerminalMobileComposer({
         >
           {uploading ? "…" : "File"}
         </AttachmentPicker>
-        <TerminalKeyButton disabled={!connected} onSend={onFocusTerminal} label="键盘" />
+        <TerminalKeyButton disabled={!connected} onSend={onFocusTerminal} label={<KeyboardIcon />} />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey(" ")} label="Space" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[D")} label="←" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[B")} label="↓" />
@@ -1299,6 +1289,25 @@ function TerminalMobileComposer({
   );
 }
 
+function KeyboardIcon() {
+  return (
+    <svg
+      role="img"
+      aria-label="唤起键盘"
+      className="mx-auto h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2.5" y="6" width="19" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6" />
+    </svg>
+  );
+}
+
 function TerminalKeyButton({
   disabled,
   onSend,
@@ -1306,7 +1315,7 @@ function TerminalKeyButton({
 }: {
   disabled: boolean;
   onSend: () => void;
-  label: string;
+  label: ReactNode;
 }) {
   return (
     <button
