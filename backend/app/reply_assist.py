@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException
 
-from . import db, scheduler, sdk_run, sessions
+from . import db, log_archive, scheduler, sdk_run, sessions
 
 MAX_LOG_BYTES = 16 * 1024
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -67,13 +67,8 @@ def _strip_ansi(text: str) -> str:
 def _read_recent_log(log_path: str | None) -> str:
     if not log_path:
         return ""
-    path = Path(log_path)
-    try:
-        with path.open("rb") as f:
-            if path.stat().st_size > MAX_LOG_BYTES:
-                f.seek(-MAX_LOG_BYTES, 2)
-            data = f.read()
-    except OSError:
+    data = log_archive.read_tail(log_path, MAX_LOG_BYTES)
+    if data is None:
         return ""
     return _normalize_log(data.decode("utf-8", errors="replace"))
 

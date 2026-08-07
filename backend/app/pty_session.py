@@ -233,13 +233,15 @@ def script_log_path_for(log_path: str) -> str:
 
 
 def remove_terminal_log_files(log_path: str) -> None:
-    for path in (Path(log_path), Path(script_log_path_for(log_path))):
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            pass
+    # 连同「压缩历史日志」产生的 .gz 归档一并删除
+    for base in (log_path, script_log_path_for(log_path)):
+        for path in (Path(base), Path(f"{base}.gz")):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
 
 
 def _script_mode_enabled() -> bool:

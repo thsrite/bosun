@@ -1,10 +1,14 @@
 """全局设置。"""
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from .. import backend_control, config, db, engine_models, engine_settings, scheduler
+from .. import backend_control, config, db, engine_models, engine_settings, log_archive, scheduler
+from ..pty_session import script_log_path_for
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -41,6 +45,82 @@ def get_settings():
         "kimi_model": engine_settings.kimi_model(),
         "kimi_model_options": engine_settings.kimi_model_options(),
     }
+
+
+def _tree_stats(path: Path) -> tuple[int, int]:
+    """递归统计目录（或单文件）的总字节数与文件数；文件在统计中途消失时跳过。"""
+    if path.is_file():
+        return path.stat().st_size, 1
+    size = 0
+    count = 0
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for name in filenames:
+            try:
+                size += os.path.getsize(os.path.join(dirpath, name))
+                count += 1
+            except OSError:
+                continue
+    return size, count
+
+
+@router.get("/storage")
+def get_storage():
+    """数据目录占用概览：数据库（含 -wal/-shm）、任务日志、其余文件。"""
+    db_size = sum(
+        p.stat().st_size
+        for suffix in ("", "-wal", "-shm")
+        if (p := Path(f"{config.DB_PATH}{suffix}")).exists()
+    )
+    log_size, log_count = _tree_stats(config.LOG_DIR)
+    total_size, total_count = _tree_stats(config.DATA_DIR)
+    archived = [p for p in config.LOG_DIR.iterdir() if p.is_file() and p.suffix == ".gz"]
+    return {
+        "archived_count": len(archived),
+        "archived_size": sum(p.stat().st_size for p in archived),
+        "data_dir": str(config.DATA_DIR),
+        "db_path": str(config.DB_PATH),
+        "db_size": db_size,
+        "log_dir": str(config.LOG_DIR),
+        "log_size": log_size,
+        "log_count": log_count,
+        "other_size": max(0, total_size - db_size - log_size),
+        "total_size": total_size,
+        "total_count": total_count,
+    }
+
+
+@router.post("/storage/compress")
+def compress_storage():
+    """压缩历史任务日志：已终结任务（done/failed/cancelled）的日志 gzip 归档并删原文件；
+
+    进行中或可恢复的任务（queued/running/waiting_input/paused/interrupted）与
+    运行中的 autopilot 日志不动。查看历史日志时会自动从压缩包读取。
+    """
+    protected: set[str] = set()
+    for row in db.query(
+        "SELECT log_path FROM task "
+        "WHERE log_path IS NOT NULL AND status NOT IN ('done','failed','cancelled')"
+    ):
+        protected.add(row["log_path"])
+        protected.add(script_log_path_for(row["log_path"]))
+    for row in db.query(
+        "SELECT log_path FROM autopilot_run "
+        "WHERE log_path IS NOT NULL AND status='running'"
+    ):
+        protected.add(row["log_path"])
+    compressed_count = 0
+    saved_size = 0
+    for path in config.LOG_DIR.iterdir():
+        if not path.is_file() or path.suffix == ".gz" or str(path) in protected:
+            continue
+        try:
+            if path.stat().st_size == 0:
+                continue
+            saved_size += log_archive.compress(path)
+        except OSError:
+            continue
+        compressed_count += 1
+    return {"compressed_count": compressed_count, "saved_size": saved_size, **get_storage()}
 
 
 @router.post("/models/{engine}/refresh")

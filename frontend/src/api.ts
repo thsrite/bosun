@@ -20,6 +20,25 @@ export type AppSettings = {
   kimi_model_options: { value: string; label: string }[];
 };
 
+export type StorageInfo = {
+  data_dir: string;
+  db_path: string;
+  db_size: number;
+  log_dir: string;
+  log_size: number;
+  log_count: number;
+  other_size: number;
+  total_size: number;
+  total_count: number;
+  archived_count: number;
+  archived_size: number;
+};
+
+export type StorageCompressResult = StorageInfo & {
+  compressed_count: number;
+  saved_size: number;
+};
+
 export type ClaudeResourceCategory =
   | "memory"
   | "settings"
@@ -411,6 +430,10 @@ export const api = {
     }>("POST", `/api/settings/models/${engine}/refresh`),
   restartBackend: () =>
     write<{ accepted: boolean }>("POST", "/api/settings/restart"),
+  getStorageInfo: () =>
+    fetch("/api/settings/storage").then((r) => j<StorageInfo>(r)),
+  compressStorage: () =>
+    write<StorageCompressResult>("POST", "/api/settings/storage/compress"),
 
   claude: {
     list: () =>

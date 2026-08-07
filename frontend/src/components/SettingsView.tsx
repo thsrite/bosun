@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
+import { api, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfUpdateInfo, type SelfUpdateResult, type StorageInfo } from "../api";
 import { setToken } from "../auth";
 import { engineName } from "../engines";
 import { useEngineVisible } from "../installedEngines";
@@ -330,6 +330,103 @@ function BosunVersion() {
           ))}
           {result.error && <div className="text-rose-500">{result.error}</div>}
         </div>
+      )}
+    </Section>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/** 数据与存储：数据目录、数据库与日志的路径和占用空间，只读展示。 */
+function StorageOverview() {
+  const [info, setInfo] = useState<StorageInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+
+  async function load() {
+    if (loading) return;
+    setLoading(true);
+    try {
+      setInfo(await api.getStorageInfo());
+    } catch (err) {
+      toast(`读取存储信息失败：${readDetail(err)}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function compress() {
+    if (cleaning) return;
+    const confirmed = await confirmDialog(
+      "将把已结束任务（完成 / 失败 / 已取消）的历史日志压缩为 .gz 归档；压缩后仍可正常查看（自动从压缩包读取），进行中和可恢复的任务不受影响。确定压缩？",
+    );
+    if (!confirmed) return;
+    setCleaning(true);
+    try {
+      const result = await api.compressStorage();
+      setInfo(result);
+      toast(`已压缩 ${result.compressed_count} 个日志文件，节省 ${formatBytes(result.saved_size)}`, "success");
+    } catch (err) {
+      toast(`压缩失败：${readDetail(err)}`, "error");
+    } finally {
+      setCleaning(false);
+    }
+  }
+
+  useEffect(() => {
+    let alive = true;
+    api.getStorageInfo()
+      .then((next) => { if (alive) setInfo(next); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  return (
+    <Section
+      title="数据与存储"
+      hint="Bosun 的配置和数据都存放在数据目录下，可用 BOSUN_DATA 环境变量迁移。"
+      aside={
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void load()}
+          className="rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+        >{loading ? "统计中…" : "刷新"}</button>
+      }
+    >
+      {!info ? (
+        <p className="text-xs text-slate-400">读取中…</p>
+      ) : (
+        <>
+          <Field label="数据目录" hint={info.data_dir}>
+            <span className="text-sm text-dh-text">{formatBytes(info.total_size)}</span>
+          </Field>
+          <Field label="数据库" hint={`${info.db_path}（含 -wal/-shm，任务与设置都存在这里）`}>
+            <span className="text-sm text-dh-text">{formatBytes(info.db_size)}</span>
+          </Field>
+          <Field
+            label="任务日志"
+            hint={`${info.log_dir} · ${info.log_count} 个文件${info.archived_count > 0 ? `（含 ${info.archived_count} 个压缩包）` : ""}`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-dh-text">{formatBytes(info.log_size)}</span>
+              <button
+                type="button"
+                disabled={cleaning}
+                onClick={() => void compress()}
+                className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >{cleaning ? "压缩中…" : "压缩历史日志"}</button>
+            </div>
+          </Field>
+          <Field label="其它文件" hint="后端 / 前端运行日志等">
+            <span className="text-sm text-dh-text">{formatBytes(info.other_size)}</span>
+          </Field>
+        </>
       )}
     </Section>
   );
@@ -782,6 +879,7 @@ export function SettingsView({
             >重启后端</button>
           </Field>
         </Section>
+        <StorageOverview />
       </SettingsGroup>
 
       <SettingsGroup label="维护与安全">

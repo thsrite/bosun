@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .. import auth, db, events, nesting, reply_assist, routing, scheduler, sessions
+from .. import auth, db, events, log_archive, nesting, reply_assist, routing, scheduler, sessions
 from ..engines import ENGINES
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -192,9 +192,8 @@ def _last_user_instruction(task) -> str | None:
     """
     if not task["log_path"]:
         return None
-    try:
-        raw = Path(task["log_path"]).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    raw = log_archive.read_text(task["log_path"])
+    if raw is None:
         return None
     last: str | None = None
     for line in raw.splitlines():
@@ -215,13 +214,9 @@ def _handoff_log_context(task) -> str:
         return "（没有可用的执行日志，请先检查当前工作区状态。）"
     log_path = Path(task["log_path"])
     script_path = Path(script_log_path_for(task["log_path"]))
-    try:
-        source = script_path if script_path.exists() and script_path.stat().st_size else log_path
-    except OSError:
-        source = log_path
-    try:
-        raw = source.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    source = script_path if log_archive.has_content(script_path) else log_path
+    raw = log_archive.read_text(source)
+    if raw is None:
         return "（没有可用的执行日志，请先检查当前工作区状态。）"
 
     # CC SDK 日志是 NDJSON，只保留对接力有意义的文字、工具与错误事件。
@@ -673,21 +668,16 @@ def get_log(task_id: int, source: str = "auto"):
     chosen = log_path
     chosen_source = "terminal"
     if source == "script":
-        if script_path.exists():
+        if log_archive.has_log(script_path):
             chosen = script_path
             chosen_source = "script"
-    elif source == "auto" and script_path.exists():
-        try:
-            if script_path.stat().st_size > 0:
-                chosen = script_path
-                chosen_source = "script"
-        except OSError:
-            chosen = log_path
-    try:
-        with open(chosen, "r", errors="replace") as f:
-            return {"log": f.read(), "source": chosen_source}
-    except FileNotFoundError:
+    elif source == "auto" and log_archive.has_content(script_path):
+        chosen = script_path
+        chosen_source = "script"
+    text = log_archive.read_text(chosen)
+    if text is None:
         return {"log": ""}
+    return {"log": text, "source": chosen_source}
 
 
 @router.get("/{task_id}/history")
