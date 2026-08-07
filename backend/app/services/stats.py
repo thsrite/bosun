@@ -230,10 +230,25 @@ def _cpu_temp_c() -> float | None:
     )
 
 
+# (采样时刻 monotonic, 采样值)。cpu_percent(interval=None) 返回距上次调用以来的均值，
+# 借助前端 ~10s 的轮询节奏得到真实窗口均值；瞬时短窗口(50ms 级)噪声大到会返回 0。
+_cpu_sample: tuple[float, float] | None = None
+
+
 def _cpu_load_pct() -> float | None:
+    global _cpu_sample
     if psutil is not None:
         try:
-            return _metric_pct(psutil.cpu_percent(interval=0.05))
+            now = time.monotonic()
+            if _cpu_sample is not None and now - _cpu_sample[0] < 1.0:
+                return _metric_pct(_cpu_sample[1])
+            if _cpu_sample is not None and now - _cpu_sample[0] <= 600:
+                value = psutil.cpu_percent(interval=None)
+            else:
+                psutil.cpu_percent(interval=None)  # 首次/窗口过期: 重置采样起点
+                value = psutil.cpu_percent(interval=0.5)
+            _cpu_sample = (time.monotonic(), float(value))
+            return _metric_pct(value)
         except Exception:
             pass
     try:
@@ -244,15 +259,17 @@ def _cpu_load_pct() -> float | None:
 
 
 def _memory_load_pct() -> float | None:
+    # macOS 优先用 vm_stat 的活动监视器口径; psutil 的 total-available 不含压缩内存, 明显偏低
+    if sys.platform == "darwin":
+        darwin = _darwin_memory_load_pct()
+        if darwin is not None:
+            return darwin
     if psutil is not None:
         try:
             return _metric_pct(psutil.virtual_memory().percent)
         except Exception:
             pass
-    linux = _linux_memory_load_pct()
-    if linux is not None:
-        return linux
-    return _darwin_memory_load_pct()
+    return _linux_memory_load_pct()
 
 
 def _linux_memory_load_pct() -> float | None:
@@ -288,6 +305,17 @@ def _parse_vm_stat_memory_pct(vm_stat_text: str, total_bytes: int | float) -> fl
         if not match:
             continue
         pages[key.strip().strip('"').lower()] = float(match.group(1))
+    # 活动监视器口径: 已用 = App 内存(匿名页 - 可清除) + 联动(wired) + 压缩包占用
+    anonymous = pages.get("anonymous pages")
+    wired = pages.get("pages wired down")
+    if anonymous is not None and wired is not None:
+        used_pages = (
+            max(0.0, anonymous - pages.get("pages purgeable", 0.0))
+            + wired
+            + pages.get("pages occupied by compressor", 0.0)
+        )
+        return _metric_pct((used_pages * page_size / float(total_bytes)) * 100)
+    # 兜底(老系统 vm_stat 缺字段): 已用 = 总量 - (free + inactive + speculative)
     available_pages = (
         pages.get("pages free", 0.0)
         + pages.get("pages inactive", 0.0)
