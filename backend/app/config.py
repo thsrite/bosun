@@ -81,6 +81,29 @@ DEFAULT_MAX_CONCURRENT = 3
 # 低置信 waiting_input 判定：静默超过该秒数后，还必须看到输入提示形态
 IDLE_SECONDS = 8.0
 
+def _augment_path_env() -> None:
+    """把常见的用户级 bin 目录补进本进程 PATH。
+
+    launchd / 服务方式启动时不读 shell rc，bun、uv 等安装器的目录（如 ~/.bun/bin）
+    会缺失，导致装好的引擎被误判为未安装、PTY 子进程也找不到命令。
+    只追加确实存在且尚未在 PATH 中的目录，不改动已有顺序。
+    """
+    extras = [
+        Path.home() / ".bun" / "bin",
+        Path.home() / ".local" / "bin",
+        Path("/opt/homebrew/bin"),
+        Path("/usr/local/bin"),
+    ]
+    current = os.environ.get("PATH", "")
+    parts = current.split(os.pathsep) if current else []
+    added = [str(d) for d in extras if d.is_dir() and str(d) not in parts]
+    if added:
+        os.environ["PATH"] = os.pathsep.join(parts + added)
+
+
+_augment_path_env()
+
+
 def _resolve_bin(env_name: str, default: str, candidates: list[Path]) -> str:
     configured = os.environ.get(env_name)
     if configured:
@@ -108,6 +131,7 @@ CLAUDE_BIN = _resolve_bin(
     "claude",
     [
         Path.home() / ".local" / "bin" / "claude",
+        Path.home() / ".bun" / "bin" / "claude",
         Path("/opt/homebrew/bin/claude"),
         Path("/usr/local/bin/claude"),
     ],
@@ -117,6 +141,7 @@ CODEX_BIN = _resolve_bin(
     "codex",
     [
         Path.home() / ".local" / "bin" / "codex",
+        Path.home() / ".bun" / "bin" / "codex",
         Path("/opt/homebrew/bin/codex"),
         Path("/usr/local/bin/codex"),
     ],
@@ -126,6 +151,7 @@ OMP_BIN = _resolve_bin(
     "omp",
     [
         Path.home() / ".local" / "bin" / "omp",
+        Path.home() / ".bun" / "bin" / "omp",
         Path("/opt/homebrew/bin/omp"),
         Path("/usr/local/bin/omp"),
     ],
@@ -135,6 +161,7 @@ KIMI_BIN = _resolve_bin(
     "kimi",
     [
         Path.home() / ".local" / "bin" / "kimi",
+        Path.home() / ".bun" / "bin" / "kimi",
         Path.home() / ".kimi-code" / "bin" / "kimi",
         Path("/opt/homebrew/bin/kimi"),
         Path("/usr/local/bin/kimi"),

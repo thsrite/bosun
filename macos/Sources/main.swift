@@ -71,7 +71,7 @@ func backendPlistDict(runAtLoad: Bool) -> [String: Any] {
     if BosunConfig.bundledBackend, let resources = Bundle.main.resourcePath {
         program = [resources + "/backend/bosun"]
         workDir = resources + "/backend"
-        envPath = "\(homeDir.path)/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        envPath = "\(homeDir.path)/.local/bin:\(homeDir.path)/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     } else {
         program = [BosunConfig.python, "run.py"]
         workDir = BosunConfig.backendDir
@@ -655,7 +655,9 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let desired = backendPlistDict(runAtLoad: runAtLoad)
         if let existing,
            existing["ProgramArguments"] as? [String] == desired["ProgramArguments"] as? [String],
-           existing["WorkingDirectory"] as? String == desired["WorkingDirectory"] as? String {
+           existing["WorkingDirectory"] as? String == desired["WorkingDirectory"] as? String,
+           (existing["EnvironmentVariables"] as? [String: String])?["PATH"]
+               == (desired["EnvironmentVariables"] as? [String: String])?["PATH"] {
             return
         }
         try? writePlist(desired, to: backendPlistURL)

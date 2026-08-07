@@ -41,9 +41,9 @@ else
 fi
 
 # launchd 不读 shell 配置，这里把后端真正需要的目录固化进 plist。
-# ~/.local/bin 提供 claude，homebrew 提供 node/npm/git。
+# ~/.local/bin 提供 claude，~/.bun/bin 覆盖 bun 全局安装的引擎，homebrew 提供 node/npm/git。
 BREW_PREFIX="$( [[ -d /opt/homebrew/bin ]] && echo /opt/homebrew || echo /usr/local )"
-BAKED_PATH="$HOME/.local/bin:$BREW_PREFIX/bin:$BREW_PREFIX/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+BAKED_PATH="$HOME/.local/bin:$HOME/.bun/bin:$BREW_PREFIX/bin:$BREW_PREFIX/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 printf '构建配置：\n'
 printf '  python : %s\n' "$PYTHON_BIN"
