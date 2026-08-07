@@ -481,6 +481,16 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
   );
 }
 
+/** 设置分组：小节标题 + 桌面端两列网格(卡片各自高度，不互相拉伸)。 */
+function SettingsGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="px-1 text-[11px] font-semibold uppercase tracking-wider text-dh-muted">{label}</h3>
+      <div className="grid items-start gap-4 lg:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
 /** 引擎卡头上的安装状态胶囊：已安装显示版本号，探测未回来时不占位。 */
 function EngineVersionChip({ tool }: { tool: EngineToolInfo | undefined }) {
   if (!tool?.installed) return null;
@@ -596,19 +606,8 @@ export function SettingsView({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 p-4 lg:p-6">
-      <Section title="运行" hint="控制同时执行的任务数量。">
-        <Field label="并发上限">
-          <input
-            type="number"
-            min={1}
-            className="w-20 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
-            value={settings.max_concurrent}
-            onChange={(e) => void onChange({ max_concurrent: Number(e.target.value) })}
-          />
-        </Field>
-      </Section>
-
+    <div className="mx-auto w-full max-w-5xl space-y-7 p-4 lg:p-6">
+      <SettingsGroup label="执行引擎">
       {!showClaude && <UninstalledEngineCard engine="cc" />}
       {showClaude && (
         <Section title="Claude" hint="调用方式、模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.cc} />}>
@@ -755,20 +754,36 @@ export function SettingsView({
         </Section>
       )}
 
-      <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
-        <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">
-          <button
-            type="button"
-            disabled={restartingBackend}
-            onClick={() => void restartBackend()}
-            className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-500 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >重启后端</button>
-        </Field>
-      </Section>
+      </SettingsGroup>
 
-      <BosunVersion />
+      <SettingsGroup label="运行与系统">
+        <Section title="运行" hint="控制同时执行的任务数量。">
+          <Field label="并发上限">
+            <input
+              type="number"
+              min={1}
+              className="w-20 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
+              value={settings.max_concurrent}
+              onChange={(e) => void onChange({ max_concurrent: Number(e.target.value) })}
+            />
+          </Field>
+        </Section>
+        <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
+          <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">
+            <button
+              type="button"
+              disabled={restartingBackend}
+              onClick={() => void restartBackend()}
+              className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-500 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >重启后端</button>
+          </Field>
+        </Section>
+      </SettingsGroup>
 
-      <AccessControl auth={auth} onAuthChanged={onAuthChanged} />
+      <SettingsGroup label="维护与安全">
+        <BosunVersion />
+        <AccessControl auth={auth} onAuthChanged={onAuthChanged} />
+      </SettingsGroup>
     </div>
   );
 }
