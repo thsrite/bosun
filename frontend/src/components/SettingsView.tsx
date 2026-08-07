@@ -178,7 +178,7 @@ function ModelCombobox({
 
 function Section({ title, hint, aside, children }: { title: string; hint?: string; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="card p-4 lg:p-5">
+    <section className="card h-full p-4 lg:p-5">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h2 className="text-sm font-semibold text-dh-text">{title}</h2>
         {aside}
@@ -481,12 +481,12 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
   );
 }
 
-/** 设置分组：小节标题 + 桌面端两列网格(卡片各自高度，不互相拉伸)。 */
+/** 设置分组：小节标题 + 桌面端两列网格(默认 stretch，配合卡片 h-full 同行等高)。 */
 function SettingsGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
       <h3 className="px-1 text-[11px] font-semibold uppercase tracking-wider text-dh-muted">{label}</h3>
-      <div className="grid items-start gap-4 lg:grid-cols-2">{children}</div>
+      <div className="grid gap-4 lg:grid-cols-2">{children}</div>
     </section>
   );
 }
@@ -514,7 +514,7 @@ const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
 function UninstalledEngineCard({ engine }: { engine: Engine }) {
   const intro = ENGINE_INTRO[engine];
   return (
-    <section className="card border-dashed p-4 opacity-70 lg:p-5">
+    <section className="card h-full border-dashed p-4 opacity-70 lg:p-5">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-dh-tsoft">{engineName(engine)}</h2>
