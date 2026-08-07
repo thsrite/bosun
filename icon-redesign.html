@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bosun Icon 重设计对比</title>
+<style>
+  :root{
+    --bg:#070a0f; --panel:#101722; --panel-2:#151f2e;
+    --line:#253448; --text:#e5edf7; --muted:#94a3b8; --accent:#14b8a6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;padding:48px 24px 80px}
+  .wrap{max-width:1120px;margin:0 auto}
+  h1{font-size:24px;font-weight:650;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 40px;line-height:1.7}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px}
+  .card.cur{opacity:.8}
+  .badge{align-self:flex-start;font-size:11px;padding:3px 10px;border-radius:999px;background:var(--panel-2);color:var(--muted);border:1px solid var(--line)}
+  .badge.pick{color:var(--accent);border-color:rgba(20,184,166,.4);background:rgba(20,184,166,.1)}
+  .name{font-size:16px;font-weight:600}
+  .desc{font-size:13px;color:var(--muted);line-height:1.7;margin:0}
+  .stage{display:flex;align-items:center;gap:22px}
+  .big{width:120px;height:120px;flex:0 0 auto}
+  .big svg{width:100%;height:100%;display:block;border-radius:26px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  .minis{display:flex;align-items:flex-end;gap:16px}
+  .mini{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .mini svg{display:block;border-radius:7px}
+  .mini span{font-size:10px;color:var(--muted)}
+  .m48{width:48px;height:48px}
+  .m32{width:32px;height:32px}
+  .m16{width:16px;height:16px}
+  .note{margin-top:44px;color:var(--muted);font-size:13px;line-height:1.8;border-top:1px solid var(--line);padding-top:24px}
+  .note b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Bosun · Icon 重设计对比</h1>
+  <p class="sub">不局限于舵轮。底座统一用应用同款深海军蓝渐变，强调色用主按钮同款 teal。每张卡含 120 / 48 / 32 / 16 px 实尺寸预览——App 图标好不好看，16px 那格最诚实。</p>
+
+  <div class="grid">
+
+    <!-- 现状 -->
+    <div class="card cur">
+      <span class="badge">现状</span>
+      <div class="name">细线辐条轮</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <g id="cur-src">
+              <rect width="512" height="512" rx="112" fill="#000"/>
+              <g fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round">
+                <circle cx="256" cy="256" r="108"/>
+                <path d="M256 80V432"/>
+                <path d="M256 80V432" transform="rotate(45 256 256)"/>
+                <path d="M256 80V432" transform="rotate(90 256 256)"/>
+                <path d="M256 80V432" transform="rotate(135 256 256)"/>
+              </g>
+              <circle cx="256" cy="256" r="30" fill="#fff"/>
+              <circle cx="256" cy="256" r="30" fill="none" stroke="#000" stroke-width="8"/>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#cur-src"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#cur-src"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#cur-src"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">辐条两端等长没有握把，小尺寸像时钟/雪花；纯黑底和应用海军蓝主题脱节。</p>
+    </div>
+
+    <!-- F 终端浪 -->
+    <div class="card">
+      <span class="badge pick">方案 F（推荐）</span>
+      <div class="name">「&gt;~」终端浪</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgF" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1b283a"/><stop offset="1" stop-color="#070a0f"/>
+              </linearGradient>
+            </defs>
+            <g id="ic-f">
+              <rect width="512" height="512" rx="112" fill="url(#bgF)"/>
+              <path d="M148 138 L294 256 L148 374" fill="none" stroke="#eef4fb"
+                    stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M300 374 q29 -36 58 0 t58 0" fill="none" stroke="#2dd4bf"
+                    stroke-width="38" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#ic-f"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#ic-f"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#ic-f"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">终端提示符 <b>&gt;_</b> 的下划线换成一道 teal 海浪：CLI 工作台 × 航海，一个图形把产品说完。几何极简，16px 依旧锋利，在一排 App 图标里辨识度最高。</p>
+    </div>
+
+    <!-- G 帆 -->
+    <div class="card">
+      <span class="badge">方案 G</span>
+      <div class="name">启航之帆</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgG" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1b283a"/><stop offset="1" stop-color="#070a0f"/>
+              </linearGradient>
+              <linearGradient id="sailG" gradientUnits="userSpaceOnUse" x1="256" y1="90" x2="256" y2="330">
+                <stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#0d9488"/>
+              </linearGradient>
+            </defs>
+            <g id="ic-g">
+              <rect width="512" height="512" rx="112" fill="url(#bgG)"/>
+              <path d="M226 96 L226 322 L398 322 Z" fill="url(#sailG)"/>
+              <path d="M196 322 L196 128 Q160 230 108 300 Z" fill="#eef4fb" opacity=".92"/>
+              <path d="M120 372 H392" stroke="#eef4fb" stroke-width="34" stroke-linecap="round" fill="none"/>
+              <path d="M132 432 q31 -30 62 0 t62 0 t62 0 t62 0" fill="none" stroke="#2dd4bf"
+                    stroke-width="22" stroke-linecap="round" opacity=".9"/>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#ic-g"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#ic-g"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#ic-g"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">双帆小艇：teal 主帆 + 白色前帆 + 船体 + 一线波浪。主帆三角天然带「播放/前进」的方向感，气质轻快，适合想要具象一点的话。</p>
+    </div>
+
+    <!-- H 罗盘 -->
+    <div class="card">
+      <span class="badge">方案 H</span>
+      <div class="name">罗盘玫瑰</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgH" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1b283a"/><stop offset="1" stop-color="#070a0f"/>
+              </linearGradient>
+            </defs>
+            <g id="ic-h">
+              <rect width="512" height="512" rx="112" fill="url(#bgH)"/>
+              <circle cx="256" cy="256" r="168" fill="none" stroke="#eef4fb" stroke-width="18" opacity=".9"/>
+              <path d="M124 256 L256 218 L388 256 L256 294 Z" fill="#eef4fb" opacity=".55"/>
+              <path d="M256 124 L294 256 L256 388 L218 256 Z" fill="#eef4fb"/>
+              <path d="M256 124 L294 256 H218 Z" fill="#2dd4bf"/>
+              <circle cx="256" cy="256" r="26" fill="#0b111a" stroke="#eef4fb" stroke-width="12"/>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#ic-h"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#ic-h"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#ic-h"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">四芒罗盘，teal 指北针。「掌舵/领航」的隐喻和 Bosun 调度器的角色最贴，形也优雅；缺点是罗盘在工具类 App 里不算稀有。</p>
+    </div>
+
+    <!-- I 水手长哨 -->
+    <div class="card">
+      <span class="badge">方案 I</span>
+      <div class="name">水手长哨（Bosun's Call）</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgI" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1b283a"/><stop offset="1" stop-color="#070a0f"/>
+              </linearGradient>
+            </defs>
+            <g id="ic-i">
+              <rect width="512" height="512" rx="112" fill="url(#bgI)"/>
+              <path d="M104 166 H268 Q332 166 346 226" fill="none" stroke="#eef4fb"
+                    stroke-width="34" stroke-linecap="round"/>
+              <path d="M104 200 Q210 252 296 338" fill="none" stroke="#eef4fb"
+                    stroke-width="24" stroke-linecap="round" opacity=".85"/>
+              <circle cx="352" cy="300" r="64" fill="none" stroke="#eef4fb" stroke-width="28"/>
+              <circle cx="352" cy="300" r="18" fill="#2dd4bf"/>
+              <g stroke="#2dd4bf" stroke-width="16" stroke-linecap="round" opacity=".9">
+                <path d="M118 116 q14 -18 0 -36"/>
+                <path d="M162 112 q18 -24 0 -48"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#ic-i"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#ic-i"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#ic-i"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">水手长的号哨是这个军衔的正字标记——用哨声调度全船，正是 Bosun 派发任务的本职。语义最独一无二，但形状冷门，路人不一定认识。</p>
+    </div>
+
+    <!-- J 锚 -->
+    <div class="card">
+      <span class="badge">方案 J</span>
+      <div class="name">锚 · 现代重绘</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgJ" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1b283a"/><stop offset="1" stop-color="#070a0f"/>
+              </linearGradient>
+            </defs>
+            <g id="ic-j">
+              <rect width="512" height="512" rx="112" fill="url(#bgJ)"/>
+              <g fill="none" stroke="#eef4fb" stroke-linecap="round">
+                <circle cx="256" cy="118" r="36" stroke-width="26"/>
+                <path d="M256 154 V386" stroke-width="30"/>
+                <path d="M172 216 H340" stroke-width="30"/>
+                <path d="M132 296 Q140 398 256 404 Q372 398 380 296" stroke-width="30"/>
+                <path d="M132 296 l-36 44 M132 296 l52 24" stroke-width="24"/>
+                <path d="M380 296 l36 44 M380 296 l-52 24" stroke-width="24"/>
+              </g>
+              <path d="M120 452 q34 -30 68 0 t68 0 t68 0 t68 0" fill="none" stroke="#2dd4bf"
+                    stroke-width="20" stroke-linecap="round" opacity=".85"/>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#ic-j"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#ic-j"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#ic-j"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">最经典的航海符号，带倒钩锚爪 + 底部一线 teal 浪。稳、一眼懂；缺点是「锚」被太多产品用过，独占性最弱。</p>
+    </div>
+
+    <!-- B 舵轮基准 -->
+    <div class="card">
+      <span class="badge">方案 B（舵轮基准）</span>
+      <div class="name">经典舵轮 · teal 点睛</div>
+      <div class="stage">
+        <div class="big">
+          <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgB" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1b283a"/><stop offset="1" stop-color="#070a0f"/>
+              </linearGradient>
+            </defs>
+            <g id="ic-b">
+              <rect width="512" height="512" rx="112" fill="url(#bgB)"/>
+              <g fill="none" stroke="#eef4fb" stroke-linecap="round">
+                <g stroke-width="34">
+                  <path d="M256 86V136" stroke="#2dd4bf"/>
+                  <path d="M256 86V136" transform="rotate(45 256 256)"/>
+                  <path d="M256 86V136" transform="rotate(90 256 256)"/>
+                  <path d="M256 86V136" transform="rotate(135 256 256)"/>
+                  <path d="M256 86V136" transform="rotate(180 256 256)"/>
+                  <path d="M256 86V136" transform="rotate(225 256 256)"/>
+                  <path d="M256 86V136" transform="rotate(270 256 256)"/>
+                  <path d="M256 86V136" transform="rotate(315 256 256)"/>
+                </g>
+                <g stroke-width="18">
+                  <path d="M256 140V256"/>
+                  <path d="M256 140V256" transform="rotate(45 256 256)"/>
+                  <path d="M256 140V256" transform="rotate(90 256 256)"/>
+                  <path d="M256 140V256" transform="rotate(135 256 256)"/>
+                  <path d="M256 140V256" transform="rotate(180 256 256)"/>
+                  <path d="M256 140V256" transform="rotate(225 256 256)"/>
+                  <path d="M256 140V256" transform="rotate(270 256 256)"/>
+                  <path d="M256 140V256" transform="rotate(315 256 256)"/>
+                </g>
+                <circle cx="256" cy="256" r="118" stroke-width="26"/>
+                <circle cx="256" cy="256" r="82" stroke-width="10" opacity=".55"/>
+              </g>
+              <circle cx="256" cy="256" r="42" fill="#2dd4bf"/>
+              <circle cx="256" cy="256" r="15" fill="#0b111a"/>
+            </g>
+          </svg>
+        </div>
+        <div class="minis">
+          <div class="mini"><svg class="m48" viewBox="0 0 512 512"><use href="#ic-b"/></svg><span>48</span></div>
+          <div class="mini"><svg class="m32" viewBox="0 0 512 512"><use href="#ic-b"/></svg><span>32</span></div>
+          <div class="mini"><svg class="m16" viewBox="0 0 512 512"><use href="#ic-b"/></svg><span>16</span></div>
+        </div>
+      </div>
+      <p class="desc">上一轮舵轮方向里最好的一版：外伸握把 + 双环 + teal 指北握把与轮毂。留作与新方向对比的基准。</p>
+    </div>
+
+  </div>
+
+  <p class="note">
+    <b>选定后落地范围</b>：frontend/public/icons/bosun.svg（favicon + 应用内 logo）→ 重新导出 bosun-180/192/512.png → macOS AppIcon.iconset 重建，全部由同一份 SVG 派生。<br>
+    <b>推荐 F「&gt;~」</b>：它是唯一同时说出「CLI」和「航海」两层身份的图形，元素只有两笔，任何尺寸都干净；H 罗盘是想要「更漂亮的具象航海物件」时的第二选择。
+  </p>
+</div>
+</body>
+</html>
