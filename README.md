@@ -47,9 +47,14 @@ _以上截图使用完全虚构的项目、路径、任务、终端输出和系�
 - Python 3.10+
 - Node.js 18+ 与 npm
 - Git
-- 已安装并登录 `claude`（Claude Code）和/或 `codex` CLI，且命令位于 `PATH` 中
-- 可选：`omp`（[Oh My Pi](https://github.com/can1357/oh-my-pi)，`npm i -g @oh-my-pi/pi-coding-agent`）。它自带 provider 凭据、依赖 Bun 运行时，安装体积约 1.1 GB；Bosun 不为它做订阅额度查询
-- 可选：`kimi`（[Kimi Code CLI](https://github.com/MoonshotAI/kimi-code)，`curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash` 或 `npm i -g @moonshot-ai/kimi-code`）。注意 npm 上的裸 `kimi-cli` 是不相干的占名包；旧一代 PyPI 版 kimi-cli 已进入淘汰期，Bosun 只适配新版 kimi-code。它自带 provider 凭据，Bosun 不为它做订阅额度查询
+- 下列支持的执行引擎 CLI **至少安装并登录一个**（哪个都行，没有必选项），命令位于 `PATH` 中；未安装的引擎不会出现在界面里
+
+| 引擎 | 命令 | 安装方式 | 说明 |
+|---|---|---|---|
+| [Claude Code](https://github.com/anthropics/claude-code) | `claude` | `npm i -g @anthropic-ai/claude-code` | 支持订阅额度查询，参与自动选引擎 |
+| [Codex CLI](https://github.com/openai/codex) | `codex` | `npm i -g @openai/codex` | 支持订阅额度查询，参与自动选引擎 |
+| [Oh My Pi](https://github.com/can1357/oh-my-pi) | `omp` | `npm i -g @oh-my-pi/pi-coding-agent` | 自带 provider 凭据；依赖 Bun 运行时，安装体积约 1.1 GB；不做订阅额度查询 |
+| [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) | `kimi` | `npm i -g @moonshot-ai/kimi-code` 或官方 `install.sh` | 自带 provider 凭据；不做订阅额度查询。注意 npm 上裸 `kimi-cli` 是不相干的占名包，旧一代 PyPI 版已淘汰，只适配新版 kimi-code |
 
 ### 安装
 
