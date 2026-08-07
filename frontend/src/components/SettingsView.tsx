@@ -444,16 +444,32 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
           </Field>
-          {error && <div className="text-xs text-rose-500">{error}</div>}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="text-xs text-rose-500">{error}</div>
             <button
               type="submit"
               disabled={saving || !newPassword}
-              className="rounded-lg bg-black px-3 py-1.5 text-sm font-medium text-white ring-1 ring-slate-700 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             >
               {saving ? "保存中…" : auth.enabled ? "修改口令" : "启用登录"}
             </button>
-            {auth.enabled && (
+          </div>
+        </form>
+      )}
+
+      {auth.enabled && (
+        <div className="space-y-3 border-t border-dh-bsoft pt-4">
+          <Field label="当前会话" hint="仅退出本设备的登录态，其它设备不受影响">
+            <button
+              type="button"
+              onClick={logout}
+              className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
+            >
+              退出登录
+            </button>
+          </Field>
+          {!envManaged && (
+            <Field label="口令保护" hint="关闭后任何人都能直接打开工作台">
               <button
                 type="button"
                 onClick={disableLogin}
@@ -461,20 +477,8 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
               >
                 关闭登录
               </button>
-            )}
-          </div>
-        </form>
-      )}
-
-      {auth.enabled && (
-        <div className="border-t border-dh-bsoft pt-3">
-          <button
-            type="button"
-            onClick={logout}
-            className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
-          >
-            退出登录
-          </button>
+            </Field>
+          )}
         </div>
       )}
     </Section>
