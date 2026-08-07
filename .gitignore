@@ -30,3 +30,6 @@ frontend/dist/
 
 # git worktrees created by branch-flow
 .worktrees/
+
+# 推广物料（截图含真实数据，不入开源仓）
+/promo/
