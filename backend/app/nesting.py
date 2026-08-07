@@ -31,7 +31,7 @@ import subprocess
 
 # Bosun 认识的 agent 可执行文件名(实测 ps comm：Claude Code 是 claude，不是 node)。
 # 只用来识别「顶层 agent 之下多出来的那个 agent」。
-AGENT_COMMANDS = {"claude", "codex", "omp"}
+AGENT_COMMANDS = {"claude", "codex", "omp", "kimi"}
 
 _MAX_DEPTH = 64  # 父链兜底深度，防坏数据下的长循环
 

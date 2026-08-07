@@ -46,6 +46,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   omp_model_options: [{ value: "", label: "默认" }],
   omp_thinking: "",
   omp_thinking_options: [{ value: "", label: "默认" }],
+  kimi_model: "",
+  kimi_model_options: [{ value: "", label: "默认" }],
 };
 const PULL_REFRESH_TRIGGER_PX = 72;
 const PULL_REFRESH_MAX_PX = 96;

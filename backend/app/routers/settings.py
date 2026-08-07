@@ -18,6 +18,7 @@ class Settings(BaseModel):
     codex_effort: str = ""
     omp_model: str = ""
     omp_thinking: str = ""
+    kimi_model: str = ""
 
 
 @router.get("")
@@ -37,6 +38,8 @@ def get_settings():
         "omp_model_options": engine_settings.omp_model_options(),
         "omp_thinking": engine_settings.omp_thinking(),
         "omp_thinking_options": engine_settings.omp_thinking_options(),
+        "kimi_model": engine_settings.kimi_model(),
+        "kimi_model_options": engine_settings.kimi_model_options(),
     }
 
 
@@ -46,6 +49,7 @@ def refresh_model_options(engine: str):
         "cc": config.CLAUDE_BIN,
         "codex": config.CODEX_BIN,
         "omp": config.OMP_BIN,
+        "kimi": config.KIMI_BIN,
     }
     binary = binaries.get(engine)
     if not binary:
@@ -80,5 +84,6 @@ def update_settings(body: Settings):
     db.set_setting("codex_effort", engine_settings.normalize_codex_effort(body.codex_effort))
     db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
     db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
+    db.set_setting("kimi_model", engine_settings.normalize_kimi_model(body.kimi_model))
     scheduler.tick()  # 提高上限时立即拉起排队任务
     return get_settings()

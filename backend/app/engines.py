@@ -3,13 +3,15 @@
 cc  = Claude Code CLI (`claude`)：支持 --session-id 钉住会话 id、--resume 恢复
 codex = OpenAI Codex CLI (`codex`)：resume <uuid> 恢复；会话 id 需运行后捕获
 omp = Oh My Pi CLI (`omp`)：--resume <id 前缀> 恢复；会话 id 需运行后捕获
+kimi = Kimi Code CLI (`kimi`)：-S session_<uuid> 恢复；交互模式不收位置参数 prompt，
+       首条指令由 PtySession 以括号粘贴写入 TUI（见 uses_stdin_prompt）
 """
 from __future__ import annotations
 
 from . import engine_settings, skills_install
-from .config import CLAUDE_BIN, CODEX_BIN, OMP_BIN
+from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
 
-ENGINES = {"cc", "codex", "omp"}
+ENGINES = {"cc", "codex", "omp", "kimi"}
 
 # 收尾回报约定：光把 bosun-report skill 装上，模型收尾时未必想得起来调，
 # 尤其是以「反问用户」结尾的那一轮。这里在派发的 prompt 末尾显式要求一次。
@@ -28,6 +30,20 @@ def with_report_directive(prompt: str) -> str:
     if not (prompt or "").strip():
         return prompt
     return f"{prompt}{REPORT_DIRECTIVE}"
+
+
+def uses_stdin_prompt(engine: str) -> bool:
+    """交互模式的 prompt 是否要在 TUI 起来后经 PTY stdin 投递(实测 kimi 0.34
+    交互模式不接受位置参数 prompt: `kimi "文本"` 报 unknown command)。"""
+    return engine == "kimi"
+
+
+def kimi_session_arg(session_uid: str) -> str:
+    """kimi -S 只认完整 `session_<uuid>`(实测裸 uuid 报 not found)；库里统一存裸
+    uuid(与其它引擎同构、复用 UUID 校验)，拼参数时补前缀。"""
+    if session_uid.startswith("session_"):
+        return session_uid
+    return f"session_{session_uid}"
 
 
 def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | None = None) -> list[str]:
@@ -51,6 +67,12 @@ def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | 
         if auto_approve:
             argv.append("--auto-approve")
         argv.append(prompt)
+        return argv
+    if engine == "kimi":
+        # prompt 不进 argv：由 PtySession 在 TUI 就绪后粘贴提交(uses_stdin_prompt)。
+        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN])
+        if auto_approve:
+            argv.append("--yolo")
         return argv
     raise ValueError(f"unknown engine: {engine}")
 
@@ -81,6 +103,12 @@ def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: 
         argv += ["--resume", session_uid]
         if prompt:
             argv.append(prompt)
+        return argv
+    if engine == "kimi":
+        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN])
+        if auto_approve:
+            argv.append("--yolo")
+        argv += ["-S", kimi_session_arg(session_uid)]
         return argv
     raise ValueError(f"unknown engine: {engine}")
 
@@ -115,6 +143,14 @@ def build_headless_argv(engine: str, prompt: str, auto_approve: bool = True, jso
             argv.append("--auto-approve")
         argv.append(prompt)
         return argv
+    if engine == "kimi":
+        # kimi 的 -p 是带值选项(非位置参数)；stream-json 为逐行 JSONL。
+        # 实测 -p 不能与 --yolo 同用(报 Cannot combine)，headless 模式自带审批语义，
+        # auto_approve 在这里没有对应参数。
+        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN, "-p", prompt])
+        if json_out:
+            argv += ["--output-format", "stream-json"]
+        return argv
     raise ValueError(f"unknown engine: {engine}")
 
 
@@ -128,4 +164,6 @@ def build_audit_argv(engine: str, audit_prompt: str) -> list[str]:
         return engine_settings.with_codex_runtime_args([CODEX_BIN, "exec", audit_prompt])
     if engine == "omp":
         return engine_settings.with_omp_runtime_args([OMP_BIN, "-p", audit_prompt])
+    if engine == "kimi":
+        return engine_settings.with_kimi_runtime_args([KIMI_BIN, "-p", audit_prompt])
     raise ValueError(f"unknown engine: {engine}")

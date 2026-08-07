@@ -16,6 +16,8 @@ export type AppSettings = {
   omp_model_options: { value: string; label: string }[];
   omp_thinking: string;
   omp_thinking_options: { value: string; label: string }[];
+  kimi_model: string;
+  kimi_model_options: { value: string; label: string }[];
 };
 
 export type ClaudeResourceCategory =
@@ -402,7 +404,7 @@ export const api = {
   getSettings: () => fetch("/api/settings").then((r) => j<AppSettings>(r)),
   setSettings: (settings: AppSettings) =>
     write<AppSettings>("PUT", "/api/settings", settings),
-  refreshModelOptions: (engine: "cc" | "codex") =>
+  refreshModelOptions: (engine: "cc" | "codex" | "kimi") =>
     write<{
       engine: "cc" | "codex";
       model_options: Array<{ value: string; label: string }>;

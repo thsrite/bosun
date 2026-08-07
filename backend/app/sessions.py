@@ -3,6 +3,8 @@
 cc:    ~/.claude/projects/<cwd 编码(/→-)>/<session-id>.jsonl
 codex: ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
 omp:   ~/.omp/agent/sessions/abs-<目录名>-<sha256(真实路径)>/<时间戳>_<uuid>.jsonl
+kimi:  ~/.kimi-code/sessions/wd_<slug>_<sha256(真实路径)[:12]>/session_<uuid>/
+       (state.json 存 cwd/时间，事件流在 agents/main/wire.jsonl)
 """
 from __future__ import annotations
 
@@ -26,6 +28,17 @@ OMP_SESSIONS = Path.home() / ".omp" / "agent" / "sessions"
 def omp_sessions_root() -> Path:
     configured = os.environ.get(_OMP_SESSIONS_ENV)
     return Path(configured).expanduser() if configured else OMP_SESSIONS
+
+
+# kimi 用 KIMI_CODE_HOME 改数据根目录(默认 ~/.kimi-code)；agent 由后端 spawn、
+# 继承同一份环境，读同一变量才对得上。
+_KIMI_HOME_ENV = "KIMI_CODE_HOME"
+KIMI_HOME = Path.home() / ".kimi-code"
+
+
+def kimi_home() -> Path:
+    configured = os.environ.get(_KIMI_HOME_ENV)
+    return Path(configured).expanduser() if configured else KIMI_HOME
 
 _UUID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 
@@ -55,6 +68,7 @@ def _capture_new_session(
     exclude_uids: set[str] | None = None,
     engine: str | None = None,
     prompt: str | None = None,
+    pattern: str = "*.jsonl",
 ) -> str | None:
     """在按 cwd 隔离的会话目录里，取本次运行新出现的最新会话 uid。
 
@@ -70,7 +84,7 @@ def _capture_new_session(
     for directory in directories:
         if not directory.is_dir():
             continue
-        for p in directory.glob("*.jsonl"):
+        for p in directory.glob(pattern):
             if str(p) in before:
                 continue  # 只认新文件，排除已存在(如其它会话)
             uid = uid_of(p)
@@ -101,13 +115,13 @@ def _capture_new_session(
     return best[1] if best else None
 
 
-def _snapshot_dirs(directories: list[Path]) -> set[str]:
+def _snapshot_dirs(directories: list[Path], pattern: str = "*.jsonl") -> set[str]:
     """快照现存会话文件的绝对路径，用于事后比对出本次新建的那个。"""
     return {
         str(p)
         for directory in directories
         if directory.is_dir()
-        for p in directory.glob("*.jsonl")
+        for p in directory.glob(pattern)
     }
 
 
@@ -205,6 +219,57 @@ def capture_omp_session(
     )
 
 
+def _kimi_slug(name: str) -> str:
+    """kimi 会话桶目录名里的 slug 段：小写、非 [a-z0-9._-] 归并为 '-'、截 40。"""
+    slug = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-")[:40].strip("-")
+    return slug if slug not in ("", ".", "..") else "workspace"
+
+
+def kimi_workdir_key(cwd: str) -> str:
+    """kimi 的按 cwd 分桶目录名：wd_<slug(目录名)>_<sha256(真实路径)[:12]>。"""
+    resolved = Path(cwd).expanduser().resolve()
+    digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:12]
+    return f"wd_{_kimi_slug(resolved.name)}_{digest}"
+
+
+def kimi_project_dir(cwd: str) -> Path:
+    return kimi_home() / "sessions" / kimi_workdir_key(cwd)
+
+
+def _kimi_uid(path: Path) -> str | None:
+    """主 agent wire.jsonl 路径 → 会话 uuid(会话目录名形如 session_<uuid>)。"""
+    if len(path.parents) < 3:
+        return None
+    uid = path.parents[2].name.removeprefix("session_")
+    return uid if _UUID_RE.fullmatch(uid) else None
+
+
+def kimi_wire_path(cwd: str, uid: str) -> Path:
+    return kimi_project_dir(cwd) / f"session_{uid}" / "agents" / "main" / "wire.jsonl"
+
+
+# 会话的权威事件流固定在主 agent 的 wire.jsonl；子 agent 各有自己的 wire，不扫。
+_KIMI_WIRE_GLOB = "session_*/agents/main/wire.jsonl"
+
+
+def snapshot_kimi(cwd: str) -> set[str]:
+    return _snapshot_dirs([kimi_project_dir(cwd)], pattern=_KIMI_WIRE_GLOB)
+
+
+def capture_kimi_session(
+    cwd: str,
+    before: set[str],
+    since_ts: float,
+    exclude_uids: set[str] | None = None,
+    prompt: str | None = None,
+) -> str | None:
+    """返回本次运行新生成的 kimi 会话 uuid。"""
+    return _capture_new_session(
+        [kimi_project_dir(cwd)], before, since_ts, _kimi_uid, exclude_uids,
+        engine="kimi", prompt=prompt, pattern=_KIMI_WIRE_GLOB,
+    )
+
+
 def _ts(value) -> float | None:
     if isinstance(value, (int, float)):
         # omp 的消息时间戳是毫秒 epoch；cc/codex 是秒。1e11 秒 ≈ 公元 5138 年，
@@ -277,8 +342,86 @@ def _mtime(path: Path) -> float:
         return 0.0
 
 
+def _kimi_session_meta(path: Path) -> dict | None:
+    """kimi 主 agent wire.jsonl → 与 _session_meta 同构的元数据。
+
+    用户回合只认 turn.prompt(origin.kind=user)：kimi 会把 system-reminder 等注入
+    内容也记成 role=user 的 context.append_message，按消息扫会把注入当成用户指令。
+    cwd/创建时间从同目录 state.json 读(wire 里没有 cwd)。
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    uid = _kimi_uid(path)
+    if not uid:
+        return None
+
+    cwd = None
+    created_at = None
+    updated_at = None
+    try:
+        state = json.loads((path.parents[2] / "state.json").read_text(errors="replace"))
+        if isinstance(state, dict):
+            cwd = state.get("cwd")
+            created_at = _ts(state.get("createdAt"))
+            updated_at = _ts(state.get("updatedAt"))
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    first_user = ""
+    turns = 0
+    line_count = 0
+    try:
+        with path.open(errors="replace") as f:
+            for line in f:
+                line_count += 1
+                if line_count > 4000:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                t = _ts(obj.get("time"))
+                if t is not None:
+                    created_at = t if created_at is None else min(created_at, t)
+                    updated_at = t if updated_at is None else max(updated_at, t)
+                if obj.get("type") != "turn.prompt":
+                    continue
+                origin = obj.get("origin")
+                if isinstance(origin, dict) and origin.get("kind") not in (None, "user"):
+                    continue
+                text = _clean_prompt(_text_from_content(obj.get("input")))
+                if text:
+                    turns += 1
+                    if not first_user:
+                        first_user = text
+    except OSError:
+        return None
+
+    return {
+        "engine": "kimi",
+        "session_uid": uid,
+        "title": _short_title(first_user, f"kimi {uid[:8]}"),
+        "prompt": first_user,
+        "path": str(path),
+        "cwd": cwd,
+        "created_at": created_at,
+        "updated_at": updated_at or stat.st_mtime,
+        "size": stat.st_size,
+        "turns": turns,
+    }
+
+
 def _session_meta(path: Path, engine: str, project_path: str | None = None) -> dict | None:
     """Read bounded transcript metadata for local-session discovery."""
+    if engine == "kimi":
+        return _kimi_session_meta(path)
     try:
         stat = path.stat()
     except OSError:
@@ -376,6 +519,11 @@ def local_session_info(engine: str, cwd: str, uid: str) -> dict | None:
         if path is None or not path.exists():
             return None
         return _session_meta(path, engine, cwd)
+    if engine == "kimi":
+        path = kimi_wire_path(cwd, uid)
+        if not path.exists():
+            return None
+        return _session_meta(path, engine, cwd)
     return None
 
 
@@ -407,6 +555,12 @@ def discover_local_sessions(cwd: str, limit: int = 50) -> list[dict]:
     omp_files = [p for d in omp_project_dirs(cwd) for p in d.glob("*.jsonl")]
     for path in sorted(omp_files, key=_mtime, reverse=True)[:limit]:
         meta = _session_meta(path, "omp", cwd)
+        if meta:
+            found.append(meta)
+
+    kimi_files = list(kimi_project_dir(cwd).glob(_KIMI_WIRE_GLOB)) if kimi_project_dir(cwd).is_dir() else []
+    for path in sorted(kimi_files, key=_mtime, reverse=True)[:limit]:
+        meta = _session_meta(path, "kimi", cwd)
         if meta:
             found.append(meta)
 
@@ -468,6 +622,8 @@ def _session_path(engine: str, cwd: str, uid: str) -> Path | None:
         return cc_session_path(cwd, uid)
     if engine == "omp":
         return omp_session_path(cwd, uid)
+    if engine == "kimi":
+        return kimi_wire_path(cwd, uid)
     return codex_session_path(uid)
 
 
@@ -534,6 +690,18 @@ def session_history(
             return
         messages.append({"role": role, "text": text, "timestamp": timestamp})
 
+    # kimi: 用户回合是 turn.prompt；助手正文在 context.append_loop_event 的
+    # content.part 里按 step 分片，攒到 step.end/turn.ended 再落成一条消息。
+    kimi_parts: list[str] = []
+    kimi_time = None
+
+    def flush_kimi() -> None:
+        nonlocal kimi_parts, kimi_time
+        if kimi_parts:
+            append("assistant", "\n".join(kimi_parts), kimi_time)
+        kimi_parts = []
+        kimi_time = None
+
     try:
         with path.open(errors="replace") as f:
             for line in f:
@@ -544,6 +712,28 @@ def session_history(
                 if not isinstance(obj, dict):
                     continue
                 timestamp = obj.get("timestamp")
+                if engine == "kimi":
+                    kind = obj.get("type")
+                    if kind == "turn.prompt":
+                        flush_kimi()
+                        origin = obj.get("origin")
+                        if not isinstance(origin, dict) or origin.get("kind") in (None, "user"):
+                            append("user", _history_content_text(obj.get("input")), obj.get("time"))
+                        continue
+                    if kind == "context.append_loop_event":
+                        event = obj.get("event")
+                        if not isinstance(event, dict):
+                            continue
+                        if event.get("type") == "content.part":
+                            part = event.get("part")
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text = part.get("text")
+                                if isinstance(text, str) and text.strip():
+                                    kimi_parts.append(text.strip())
+                                    kimi_time = kimi_time or obj.get("time")
+                        elif event.get("type") == "step.end":
+                            flush_kimi()
+                    continue
                 if engine == "cc":
                     if obj.get("type") not in {"user", "assistant"}:
                         continue
@@ -572,6 +762,7 @@ def session_history(
                     append(role, payload.get("message"), timestamp)
                 elif obj.get("type") == "response_item" and payload_type == "message":
                     append(payload.get("role"), _history_content_text(payload.get("content")), timestamp)
+        flush_kimi()
     except OSError:
         return {"messages": [], "truncated": False}
 
@@ -589,7 +780,15 @@ def session_history(
 
 
 def _usage_tokens(usage: dict) -> int | None:
-    """input+output 口径。cc/codex 的键是 *_tokens，omp 用的是 input/output。"""
+    """input+output 口径。cc/codex 的键是 *_tokens，omp 用 input/output，
+    kimi(usage.record) 用 inputOther/output——与 cc 一致不含 cache 读写。
+
+    kimi 与 omp 共用 output 键，泛化元组会部分匹配漏掉输入侧，
+    所以 kimi 按特征键 inputOther 先行判定。
+    """
+    if isinstance(usage.get("inputOther"), int):
+        out = usage.get("output")
+        return usage["inputOther"] + (out if isinstance(out, int) else 0)
     for keys in (("input_tokens", "output_tokens"), ("input", "output")):
         parts = [usage[k] for k in keys if isinstance(usage.get(k), int)]
         if parts:
@@ -665,8 +864,10 @@ class LiveTokenCounter:
     @staticmethod
     def _accumulate(engine: str, obj: dict, st: dict, since: float | None) -> None:
         payload = obj.get("payload")
+        # kimi wire 事件的时间键是 time(毫秒)，其余引擎是 timestamp
         event_ts = _ts(
             obj.get("timestamp")
+            or obj.get("time")
             or (payload.get("timestamp") if isinstance(payload, dict) else None)
         )
         in_window = since is None or (event_ts is not None and event_ts >= since)
@@ -749,8 +950,10 @@ def count_tokens(
                     continue
                 # cc: {message:{usage:{input_tokens,output_tokens,...}}}
                 payload = obj.get("payload")
+                # kimi wire 事件的时间键是 time(毫秒)，其余引擎是 timestamp
                 event_ts = _ts(
                     obj.get("timestamp")
+                    or obj.get("time")
                     or (payload.get("timestamp") if isinstance(payload, dict) else None)
                 )
                 usage = None
@@ -812,6 +1015,36 @@ def _reroot_omp_content(content: str, cwd: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _write_kimi_session(cwd: str, uid: str, content: str) -> Path:
+    """把分享来的 kimi 主 agent wire.jsonl 重建为完整会话。
+
+    kimi 的会话不是单文件：resume 还需要 state.json(cwd/agents 元数据)和
+    session_index.jsonl 里的登记行，缺一 -S 都找不到会话。cwd 直接写目标项目
+    路径，等价于 omp 导入时的 reroot。
+    """
+    session_dir = kimi_project_dir(cwd) / f"session_{uid}"
+    wire = session_dir / "agents" / "main" / "wire.jsonl"
+    wire.parent.mkdir(parents=True, exist_ok=True)
+    wire.write_text(content)
+    now_ms = int(time.time() * 1000)
+    target = str(Path(cwd).expanduser().resolve())
+    state = {
+        "id": f"session_{uid}",
+        "version": 2,
+        "cwd": target,
+        "createdAt": now_ms,
+        "updatedAt": now_ms,
+        "archived": False,
+        "agents": {"main": {"homedir": str(wire.parent), "type": "main"}},
+        "custom": {},
+    }
+    (session_dir / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    entry = {"sessionId": f"session_{uid}", "sessionDir": str(session_dir), "workDir": target}
+    with (kimi_home() / "session_index.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return wire
+
+
 def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
     """把分享来的会话写入本机对应位置，供 resume 加载。"""
     # 安全: uid 必须是合法 UUID，防止路径穿越(如 ../../.zshenv)写任意文件
@@ -824,6 +1057,8 @@ def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
         ts = time.strftime("%Y-%m-%dT%H-%M-%S-000Z")
         p = omp_project_dir(cwd) / f"{ts}_{uid}.jsonl"
         content = _reroot_omp_content(content, cwd)
+    elif engine == "kimi":
+        return _write_kimi_session(cwd, uid, content)
     else:
         # 放到今天的日期目录，文件名带上 uuid 供 codex 按 id 检索
         day = time.strftime("%Y/%m/%d")

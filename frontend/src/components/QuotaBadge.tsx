@@ -50,6 +50,7 @@ const PROVIDERS: {
   { engine: "cc", label: "Claude Code", chip: "Claude", note: "Claude CLI", usageKey: "claude" },
   { engine: "codex", label: "Codex", chip: "Codex", note: "Codex CLI", usageKey: "codex" },
   { engine: "omp", label: "omp", chip: "omp", note: "Oh My Pi" },
+  { engine: "kimi", label: "Kimi Code", chip: "Kimi", note: "Kimi Code CLI" },
 ];
 
 function dotColor(pct: number | null): string {
@@ -488,14 +489,14 @@ export function QuotaBadge({
   }, [setToolState]);
 
   const loadTools = useCallback(async () => {
-    for (const engine of ["cc", "codex", "omp"]) setToolState(engine, { loading: true, error: null, result: null });
+    for (const engine of ["cc", "codex", "omp", "kimi"]) setToolState(engine, { loading: true, error: null, result: null });
     try {
       const info = await api.engineTools.list();
       setTools(info);
-      for (const engine of ["cc", "codex", "omp"]) setToolState(engine, { loading: false });
+      for (const engine of ["cc", "codex", "omp", "kimi"]) setToolState(engine, { loading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      for (const engine of ["cc", "codex", "omp"]) setToolState(engine, { loading: false, error: message });
+      for (const engine of ["cc", "codex", "omp", "kimi"]) setToolState(engine, { loading: false, error: message });
     }
   }, [setToolState]);
 

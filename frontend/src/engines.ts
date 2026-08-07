@@ -5,16 +5,18 @@ const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }
   cc: { name: "Claude Code", short: "CC", badge: "bg-violet-500/15 text-violet-300" },
   codex: { name: "Codex", short: "Codex", badge: "bg-emerald-500/10 text-emerald-300" },
   omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-500/10 text-sky-300" },
+  kimi: { name: "Kimi Code", short: "Kimi", badge: "bg-amber-500/10 text-amber-300" },
 };
 
 /** 界面里引擎的展示顺序。 */
-export const ENGINE_ORDER: Engine[] = ["cc", "codex", "omp"];
+export const ENGINE_ORDER: Engine[] = ["cc", "codex", "omp", "kimi"];
 
 /** 各引擎的全权限运行参数，用于提示语。 */
 export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
   cc: "--dangerously-skip-permissions",
   codex: "--dangerously-bypass-approvals-and-sandbox",
   omp: "--auto-approve",
+  kimi: "--yolo",
 };
 
 const FALLBACK = { name: "未知引擎", short: "?", badge: "bg-dh-s2 text-dh-muted" };

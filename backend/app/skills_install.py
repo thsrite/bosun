@@ -9,7 +9,7 @@ import shutil
 import stat
 from pathlib import Path
 
-from . import config
+from . import config, sessions
 
 # backend/app/skills_install.py → 仓库根 = parents[2]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -17,10 +17,12 @@ _SOURCE = _REPO_ROOT / "bosun_skills" / "bosun-report"
 
 # 引擎 → (家目录, 二进制)。omp 不另设目录，它和 claude 一样从
 # ~/.claude/skills 解析 skill://，所以只有 omp 的机器也要装 ~/.claude/skills。
+# kimi 的用户级 skills 在数据根目录下(默认 ~/.kimi-code，随 KIMI_CODE_HOME 走)。
 _ENGINES: dict[str, tuple[str, str]] = {
     "cc": (".claude", config.CLAUDE_BIN),
     "omp": (".claude", config.OMP_BIN),
     "codex": (".codex", config.CODEX_BIN),
+    "kimi": ("", config.KIMI_BIN),
 }
 
 # 已装过的 skills 目录；没装成的不入表，下次启动引擎时重判一次
@@ -42,7 +44,7 @@ def _skills_dir(engine: str) -> Path | None:
     if not entry:
         return None
     home_name, binary = entry
-    root = Path.home() / home_name
+    root = sessions.kimi_home() if engine == "kimi" else Path.home() / home_name
     if root.is_dir() or _cli_installed(binary):
         return root / "skills"
     return None

@@ -48,6 +48,10 @@ def _parse_tokens(engine: str, stdout: str) -> int:
         except (json.JSONDecodeError, TypeError):
             return 0
         return sum(v for k, v in u.items() if isinstance(v, int) and k in ("input_tokens", "output_tokens"))
+    if engine == "kimi":
+        # kimi -p --output-format stream-json 只输出对话消息行，不带 usage，
+        # 解析不出用量；返回 0 让调用方落到字数估算兜底。
+        return 0
     if engine == "omp":
         # omp --mode json 是逐事件 NDJSON，每条消息自带增量 usage。同一条消息会在
         # message_start/message_end/turn_end/agent_end 里重复出现，只认 message_end
@@ -226,6 +230,12 @@ def assistant_text(engine: str, stdout: str) -> str:
             msg = obj.get("message")
             if isinstance(msg, dict) and msg.get("role") == "assistant":
                 parts.append(_text_blocks(msg.get("content")))
+            continue
+        if engine == "kimi":
+            # kimi stream-json：{"role":"assistant","content":"..."}；
+            # role=meta 的 version/resume_hint 行不是正文。
+            if obj.get("role") == "assistant":
+                parts.append(_text_blocks(obj.get("content")))
             continue
         # codex exec --json：助手正文在 item.completed 事件里(实测 codex-cli 0.146.0)
         #   {"type":"item.completed","item":{"type":"agent_message","text":"..."}}

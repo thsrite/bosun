@@ -116,3 +116,13 @@ OMP_BIN = _resolve_bin(
         Path("/usr/local/bin/omp"),
     ],
 )
+KIMI_BIN = _resolve_bin(
+    "BOSUN_KIMI_BIN",
+    "kimi",
+    [
+        Path.home() / ".local" / "bin" / "kimi",
+        Path.home() / ".kimi-code" / "bin" / "kimi",
+        Path("/opt/homebrew/bin/kimi"),
+        Path("/usr/local/bin/kimi"),
+    ],
+)

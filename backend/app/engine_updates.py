@@ -60,6 +60,16 @@ _SPECS: dict[str, ToolSpec] = {
         cli_update_args=("update",),
         has_model_catalog=False,
     ),
+    # 官方 npm 包是 @moonshot-ai/kimi-code；npm registry 上的裸 `kimi-cli` 是
+    # 不相干的占名包，绝不能配进来(会误装)。官方安装脚本装的是单二进制，
+    # npm 探测不到时走 `kimi upgrade` 自更新。
+    "kimi": ToolSpec(
+        engine="kimi",
+        label="Kimi Code",
+        binary=lambda: config.KIMI_BIN,
+        npm_packages=("@moonshot-ai/kimi-code",),
+        cli_update_args=("upgrade",),
+    ),
 }
 
 _UPDATE_LOCKS = {engine: threading.Lock() for engine in _SPECS}

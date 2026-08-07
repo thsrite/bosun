@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import db, engine_settings, events, sessions
 from .config import DATA_DIR, LOG_DIR
-from .engines import build_argv, build_resume_argv, with_report_directive
+from .engines import build_argv, build_resume_argv, uses_stdin_prompt, with_report_directive
 from .pty_session import PtySession, remove_terminal_log_files
 
 _sessions: dict[int, PtySession] = {}
@@ -215,6 +215,8 @@ def _capture_session(
                 uid = sessions.capture_cc_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             elif engine == "omp":
                 uid = sessions.capture_omp_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
+            elif engine == "kimi":
+                uid = sessions.capture_kimi_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             else:
                 uid = sessions.capture_codex_session(
                     before,
@@ -326,9 +328,16 @@ def _start_task(row) -> None:
                 before = sessions.snapshot_cc(project["path"])
             elif engine == "omp":
                 before = sessions.snapshot_omp(project["path"])
+            elif engine == "kimi":
+                before = sessions.snapshot_kimi(project["path"])
             else:
                 before = sessions.snapshot_codex()
             capture = (before, run_started_at)
+        # kimi 交互模式不收位置参数 prompt：argv 不带 prompt，改由 PtySession 在
+        # TUI 就绪后粘贴提交。收尾约定 tail 在这里补上(其它引擎由 build_argv 补)。
+        initial_prompt = None
+        if uses_stdin_prompt(engine) and (row["prompt"] or "").strip():
+            initial_prompt = with_report_directive(row["prompt"])
         session = PtySession(
             task_id=row["id"],
             argv=argv,
@@ -338,6 +347,7 @@ def _start_task(row) -> None:
             on_status=_on_status,
             on_exit=_on_exit,
             post_input=row["post_input"],
+            initial_prompt=initial_prompt,
         )
     _sessions[row["id"]] = session
     db.execute(

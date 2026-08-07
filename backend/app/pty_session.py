@@ -313,6 +313,7 @@ class PtySession:
         on_status: Callable[[int, str], None],
         on_exit: Callable[[int, int], None],
         post_input: str | None = None,
+        initial_prompt: str | None = None,
     ):
         self.task_id = task_id
         self.argv = argv
@@ -320,6 +321,7 @@ class PtySession:
         self.log_path = log_path
         self.loop = loop
         self.post_input = post_input
+        self.initial_prompt = initial_prompt
         self.on_status = on_status  # (task_id, status)
         self.on_exit = on_exit      # (task_id, exit_code)
         self.script_log_path: str | None = None
@@ -374,6 +376,8 @@ class PtySession:
         if self._heuristics:
             self._idle_watch = threading.Thread(target=self._idle_loop, daemon=True)
             self._idle_watch.start()
+        if self.initial_prompt:
+            threading.Thread(target=self._send_initial_prompt, daemon=True).start()
         if self.post_input:
             threading.Thread(target=self._send_post_input, daemon=True).start()
 
@@ -391,12 +395,33 @@ class PtySession:
 
     def _send_post_input(self) -> None:
         # 等 TUI 起来再发(如 /compact)。启发式延时，MVP 够用。
-        time.sleep(5.0)
+        # 有 initial_prompt 时再多等一拍，避免和首条指令在输入框里交错。
+        time.sleep(12.0 if self.initial_prompt else 5.0)
         if self.proc is not None and self.proc.isalive():
             try:
                 self.proc.write(self.post_input.encode())
             except Exception:
                 pass
+
+    def _send_initial_prompt(self) -> None:
+        """把首条指令投进不收位置参数 prompt 的 TUI(如 kimi)。
+
+        多行 prompt 直接打字会被逐行提交，必须走括号粘贴；粘贴与回车之间留间隔，
+        否则 TUI 可能把回车并进粘贴内容。补发的第二个回车是保险：TUI 尚未就绪吞掉
+        首个回车时兜底提交，已提交时输入框为空、空回车是无操作(实测 kimi 0.34)。
+        """
+        time.sleep(6.0)
+        if self.proc is None or not self.proc.isalive():
+            return
+        try:
+            self.proc.write(b"\x1b[200~" + self.initial_prompt.encode() + b"\x1b[201~")
+            time.sleep(1.5)
+            self.proc.write(b"\r")
+            time.sleep(2.0)
+            if self.proc.isalive():
+                self.proc.write(b"\r")
+        except Exception:
+            pass
 
     # ---- 读线程 ----
     def _read_loop(self) -> None:

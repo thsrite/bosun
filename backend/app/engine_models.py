@@ -23,6 +23,7 @@ _MAX_PICKER_BYTES = 256_000
 _SETTING_KEYS = {
     "cc": "claude_model_options",
     "codex": "codex_model_options",
+    "kimi": "kimi_model_options",
 }
 
 
@@ -176,11 +177,43 @@ def discover_codex_model_options(binary: str) -> list[dict[str, str]]:
     return options
 
 
+def discover_kimi_model_options() -> list[dict[str, str]]:
+    """kimi 的 -m 收 config.toml 里的模型别名；没有 CLI 目录接口，直接读配置。"""
+    import tomllib
+
+    from . import sessions
+
+    config_path = sessions.kimi_home() / "config.toml"
+    try:
+        data = tomllib.loads(config_path.read_text(errors="replace"))
+    except OSError as exc:
+        raise ModelDiscoveryError("未找到 Kimi 配置(~/.kimi-code/config.toml)，请先运行 kimi 登录") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ModelDiscoveryError("Kimi 配置文件不是有效 TOML") from exc
+
+    models = data.get("models")
+    options = [{"value": "", "label": "默认"}]
+    seen = {""}
+    for alias, spec in (models.items() if isinstance(models, dict) else ()):
+        alias = str(alias).strip()
+        if not alias or alias in seen:
+            continue
+        display = spec.get("display_name") if isinstance(spec, dict) else None
+        label = str(display or alias).strip() or alias
+        options.append({"value": alias, "label": label})
+        seen.add(alias)
+    if len(options) == 1:
+        raise ModelDiscoveryError("Kimi 配置里没有模型别名，可先运行 kimi 登录或配置 provider")
+    return options
+
+
 def refresh_model_options(engine: str, binary: str) -> list[dict[str, str]]:
     if engine == "cc":
         options = discover_claude_model_options(binary)
     elif engine == "codex":
         options = discover_codex_model_options(binary)
+    elif engine == "kimi":
+        options = discover_kimi_model_options()
     elif engine == "omp":
         # omp 的 --model 是跨 provider 的模糊匹配，没有可直接消费的目录接口；
         # 设置页可以直接填模型 ID，这里明确告知而不是抛未知引擎。

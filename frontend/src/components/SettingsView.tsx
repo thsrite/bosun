@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, type AppSettings, type AuthStatus, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
+import { api, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
 import { setToken } from "../auth";
+import { ENGINE_ORDER, engineName } from "../engines";
 import { useEngineVisible } from "../installedEngines";
 import { confirmDialog, toast } from "../overlay";
 
@@ -476,6 +477,64 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
   );
 }
 
+/** 支持的引擎总览。其余界面对未安装引擎一律隐藏，只有这里成对展示
+ * 「支持什么」和「本机装了什么」，让用户知道还有哪些 CLI 可以接进来。 */
+function EngineSupport() {
+  const [tools, setTools] = useState<Record<string, EngineToolInfo> | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.engineTools
+      .list()
+      .then((info) => {
+        if (!cancelled) setTools(info);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message || "读取失败");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Section title="支持的引擎" hint="Bosun 支持的全部 CLI 与本机安装状态；未安装的引擎不会出现在其它界面。">
+      {error && <div className="text-xs text-rose-300">安装状态读取失败：{error}</div>}
+      {!error && !tools && <div className="text-xs text-dh-muted">正在探测本机安装状态…</div>}
+      {tools && (
+        <div className="space-y-2">
+          {ENGINE_ORDER.map((engine) => {
+            const tool = tools[engine];
+            const installed = Boolean(tool?.installed);
+            return (
+              <div
+                key={engine}
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <span className="text-sm text-dh-text">{tool?.label || engineName(engine)}</span>
+                  <span className="ml-2 font-mono text-[11px] text-dh-muted">{tool?.configured_binary || engine}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className={`h-1.5 w-1.5 rounded-full ${installed ? "bg-emerald-500" : "bg-slate-600"}`} />
+                  {installed ? (
+                    <span className="text-dh-tsoft">
+                      已安装{tool?.version ? ` · v${tool.version}` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-dh-muted">未安装</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 /** 设置页：运行参数（并发 / 引擎模型 / 推理档位）与访问控制。 */
 export function SettingsView({
   settings,
@@ -493,24 +552,29 @@ export function SettingsView({
   const [refreshingModels, setRefreshingModels] = useState({
     cc: false,
     codex: false,
+    kimi: false,
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
   // 没装的引擎不显示它的模型/档位设置
   const showClaude = useEngineVisible("cc");
   const showCodex = useEngineVisible("codex");
   const showOmp = useEngineVisible("omp");
-  // omp 没有可消费的模型目录接口，设置页直接填模型 ID，这里只服务 cc/codex。
-  async function refreshModels(engine: "cc" | "codex") {
+  const showKimi = useEngineVisible("kimi");
+  // omp 没有可消费的模型目录接口，设置页直接填模型 ID；kimi 的刷新读的是
+  // ~/.kimi-code/config.toml 里的模型别名。
+  async function refreshModels(engine: "cc" | "codex" | "kimi") {
     if (refreshingModels[engine]) return;
 
-    const engineLabel = engine === "cc" ? "Claude" : "Codex";
+    const engineLabel = engine === "cc" ? "Claude" : engine === "codex" ? "Codex" : "Kimi";
     setRefreshingModels((current) => ({ ...current, [engine]: true }));
     try {
       const result = await api.refreshModelOptions(engine);
       if (engine === "cc") {
         onSettingsPatch({ claude_model_options: result.model_options });
-      } else {
+      } else if (engine === "codex") {
         onSettingsPatch({ codex_model_options: result.model_options });
+      } else {
+        onSettingsPatch({ kimi_model_options: result.model_options });
       }
       toast(`${engineLabel} 模型列表已刷新`, "success");
     } catch (err) {
@@ -669,6 +733,33 @@ export function SettingsView({
           </Field>
         </Section>
       )}
+
+      {showKimi && (
+        <Section title="Kimi Code" hint="模型别名来自 ~/.kimi-code/config.toml；留空用 default_model。">
+          <Field label="模型">
+            <div className="flex items-center gap-2">
+              <ModelCombobox
+                id="kimi-model"
+                value={settings.kimi_model}
+                options={settings.kimi_model_options}
+                onChange={(value) => onSettingsPatch({ kimi_model: value })}
+                onCommit={(value) => void onChange({ kimi_model: value })}
+              />
+              <button
+                type="button"
+                aria-label="刷新 Kimi 模型列表"
+                disabled={refreshingModels.kimi}
+                onClick={() => void refreshModels("kimi")}
+                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {refreshingModels.kimi ? "刷新中…" : "刷新"}
+              </button>
+            </div>
+          </Field>
+        </Section>
+      )}
+
+      <EngineSupport />
 
       <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
         <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">

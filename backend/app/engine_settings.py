@@ -231,6 +231,36 @@ def with_omp_runtime_args(argv: list[str]) -> list[str]:
     return [*prefix, *argv[1:]]
 
 
+# ---- Kimi Code CLI 模型 ----
+# kimi 的 -m 收的是 config.toml 里的模型别名(登录态下由官方目录派生)，没有稳定的
+# 内置清单；默认留空走 default_model，刷新按钮从 config.toml 读别名列表。
+KIMI_MODEL_OPTIONS = [
+    {"value": "", "label": "默认"},
+]
+
+
+def normalize_kimi_model(value: object) -> str:
+    return str(value or "").strip()
+
+
+def kimi_model() -> str:
+    return normalize_kimi_model(db.get_setting("kimi_model", ""))
+
+
+def kimi_model_options() -> list[dict[str, str]]:
+    return _cached_model_options("kimi_model_options", KIMI_MODEL_OPTIONS)
+
+
+def with_kimi_runtime_args(argv: list[str]) -> list[str]:
+    """kimi 的 -m 按前缀插入：argv 里可能已带 -p <prompt>，追加会落到选项值之后。"""
+    if not argv:
+        return argv
+    model = kimi_model()
+    if not model:
+        return argv
+    return [argv[0], "-m", model, *argv[1:]]
+
+
 def should_use_claude_sdk(
     engine: str,
     resume: bool,

@@ -296,7 +296,7 @@ def handoff_task(task_id: int, body: HandoffBody):
     if t["status"] in ("queued", "running", "waiting_input"):
         scheduler.cancel(task_id)
     status = "queued" if body.start else "draft"
-    label = {"cc": "CC", "codex": "Codex", "omp": "OMP"}.get(body.engine, body.engine.upper())
+    label = {"cc": "CC", "codex": "Codex", "omp": "OMP", "kimi": "Kimi"}.get(body.engine, body.engine.upper())
     base_title = (t["title"] or derive_title(origin)).strip()
     title = f"{base_title} · {label} 接力"[:80]
     new_id = db.execute(

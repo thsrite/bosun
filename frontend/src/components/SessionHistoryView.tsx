@@ -51,6 +51,20 @@ function parseExportedHistory(bundle: { engine?: string; jsonl?: string }) {
       if (message) append(message.role, contentText(message.content), timestamp);
       continue;
     }
+    if (bundle.engine === "kimi") {
+      // kimi wire.jsonl：用户回合在 turn.prompt(input=[{type:"text",...}])，
+      // 助手正文在 context.append_loop_event 的 content.part 事件里。
+      if (item.type === "turn.prompt") {
+        append("user", contentText(item.input), item.time);
+      } else if (item.type === "context.append_loop_event") {
+        const event = item.event as Record<string, unknown> | undefined;
+        if (event?.type === "content.part") {
+          const part = event.part as Record<string, unknown> | undefined;
+          if (part?.type === "text") append("assistant", part.text, item.time);
+        }
+      }
+      continue;
+    }
     const payload = item.payload as Record<string, unknown> | undefined;
     if (!payload) continue;
     if (item.type === "event_msg" && (payload.type === "user_message" || payload.type === "agent_message")) {
