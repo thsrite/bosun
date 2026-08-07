@@ -1,4 +1,4 @@
-# ⚓ Bosun · AI 编码 CLI 工作台
+# <img src="frontend/public/icons/bosun.svg" width="28" alt="Bosun"> Bosun · AI 编码 CLI 工作台
 
 Bosun 是一个本地优先的 Web 工作台，用来扫描和管理本机多个项目，并通过可交互终端会话编排 Claude Code、Codex、Oh My Pi、Kimi Code 等 AI 编码 CLI 执行开发任务。
 
