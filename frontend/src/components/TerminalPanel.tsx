@@ -520,8 +520,29 @@ function TerminalView({
     const copyTerminalSelection = () => {
       const selection = getTerminalSelection();
       if (!selection) return;
+      // http(非安全上下文，手机连局域网 IP 的常态)没有 navigator.clipboard，退回 execCommand。
+      // canvas 渲染下 xterm 选区不是原生 DOM 选区，iOS 对无选区的 execCommand 直接返回 false，
+      // 所以造一个临时 readonly textarea 选区(readonly 避免 iOS 弹键盘)承载要复制的文本。
+        const prevActive = document.activeElement;
       const legacyCopy = () => {
-        if (!document.execCommand("copy")) toast("复制失败，请检查浏览器剪贴板权限", "error");
+        const ta = document.createElement("textarea");
+        ta.value = selection;
+        ta.setAttribute("readonly", "");
+        ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, selection.length);
+        let ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch {
+          ok = false;
+        }
+        ta.remove();
+        if (prevActive instanceof HTMLElement && prevActive !== document.body) {
+          prevActive.focus({ preventScroll: true });
+        }
+        if (!ok) toast("复制失败，请检查浏览器剪贴板权限", "error");
       };
       if (navigator.clipboard?.writeText) {
         void navigator.clipboard.writeText(selection).catch(legacyCopy);
