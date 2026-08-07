@@ -485,7 +485,7 @@ export function HomeView({
             className="ml-auto rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             title="自进化提案"
           >
-            🧬<span className="hidden sm:inline"> 自进化提案</span>
+            自进化提案
           </button>
           <button
             onClick={onAddProject}

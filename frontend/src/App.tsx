@@ -17,13 +17,13 @@ import type { Engine, Project } from "./types";
 import { useSingleFlight } from "./useSingleFlight";
 
 type Tab = "projects" | "tasks" | "claude" | "stats" | "delivery" | "settings";
-const NAV: { key: Tab; label: string; icon: string }[] = [
-  { key: "projects", label: "项目", icon: "▦" },
-  { key: "tasks", label: "运行任务", icon: "▸" },
-  { key: "claude", label: "Claude 管理", icon: "✦" },
-  { key: "stats", label: "统计图表", icon: "◔" },
-  { key: "delivery", label: "交付监控", icon: "◈" },
-  { key: "settings", label: "设置", icon: "⚙" },
+const NAV: { key: Tab; label: string }[] = [
+  { key: "projects", label: "项目" },
+  { key: "tasks", label: "运行任务" },
+  { key: "claude", label: "Claude 管理" },
+  { key: "stats", label: "统计图表" },
+  { key: "delivery", label: "交付监控" },
+  { key: "settings", label: "设置" },
 ];
 const DEFAULT_AUTH: AuthStatus = {
   enabled: false,
@@ -387,7 +387,6 @@ export default function App() {
                         : "text-dh-tsoft hover:bg-dh-hover"
                     }`}
                   >
-                    <span className={active ? "text-white" : "text-slate-400"}>{n.icon}</span>
                     <span>{n.label}</span>
                     {n.key === "tasks" && activeTotal > 0 && (
                       <span className="rounded-full bg-emerald-500/15 px-1.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-dh-border">

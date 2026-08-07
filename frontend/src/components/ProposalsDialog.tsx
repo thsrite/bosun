@@ -119,7 +119,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="🧠 自进化提案（反思循环）" onClose={onClose} wide>
+    <Modal title="自进化提案（反思循环）" onClose={onClose} wide>
       <div className="flex max-h-[calc(100dvh-8.5rem)] min-h-0 flex-col gap-3 text-sm">
         <div className="flex shrink-0 items-center gap-2">
           <button
