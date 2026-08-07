@@ -3,8 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfUpdateInfo, type SelfUpdateResult } from "../api";
 import { setToken } from "../auth";
-import { ENGINE_ORDER, engineName } from "../engines";
+import { engineName } from "../engines";
 import { useEngineVisible } from "../installedEngines";
+import type { Engine } from "../types";
 import { confirmDialog, toast } from "../overlay";
 
 type ModelOption = { value: string; label: string };
@@ -175,10 +176,13 @@ function ModelCombobox({
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, hint, aside, children }: { title: string; hint?: string; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="card p-4 lg:p-5">
-      <h2 className="text-sm font-semibold text-dh-text">{title}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold text-dh-text">{title}</h2>
+        {aside}
+      </div>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
       <div className="mt-4 space-y-4">{children}</div>
     </section>
@@ -477,61 +481,39 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
   );
 }
 
-/** 支持的引擎总览。其余界面对未安装引擎一律隐藏，只有这里成对展示
- * 「支持什么」和「本机装了什么」，让用户知道还有哪些 CLI 可以接进来。 */
-function EngineSupport() {
-  const [tools, setTools] = useState<Record<string, EngineToolInfo> | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    api.engineTools
-      .list()
-      .then((info) => {
-        if (!cancelled) setTools(info);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message || "读取失败");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+/** 引擎卡头上的安装状态胶囊：已安装显示版本号，探测未回来时不占位。 */
+function EngineVersionChip({ tool }: { tool: EngineToolInfo | undefined }) {
+  if (!tool?.installed) return null;
   return (
-    <Section title="支持的引擎" hint="Bosun 支持的全部 CLI 与本机安装状态；未安装的引擎不会出现在其它界面。">
-      {error && <div className="text-xs text-rose-300">安装状态读取失败：{error}</div>}
-      {!error && !tools && <div className="text-xs text-dh-muted">正在探测本机安装状态…</div>}
-      {tools && (
-        <div className="space-y-2">
-          {ENGINE_ORDER.map((engine) => {
-            const tool = tools[engine];
-            const installed = Boolean(tool?.installed);
-            return (
-              <div
-                key={engine}
-                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <span className="text-sm text-dh-text">{tool?.label || engineName(engine)}</span>
-                  <span className="ml-2 font-mono text-[11px] text-dh-muted">{tool?.configured_binary || engine}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className={`h-1.5 w-1.5 rounded-full ${installed ? "bg-emerald-500" : "bg-slate-600"}`} />
-                  {installed ? (
-                    <span className="text-dh-tsoft">
-                      已安装{tool?.version ? ` · v${tool.version}` : ""}
-                    </span>
-                  ) : (
-                    <span className="text-dh-muted">未安装</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-[11px] text-dh-tsoft">
+      <span className="h-1.5 w-1.5 rounded-full bg-teal-500/80" />
+      {tool.version ? `v${tool.version}` : "已安装"}
+    </span>
+  );
+}
+
+const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
+  cc: { blurb: "Anthropic 的 Claude Code CLI", install: "npm i -g @anthropic-ai/claude-code" },
+  codex: { blurb: "OpenAI 的 Codex CLI", install: "npm i -g @openai/codex" },
+  omp: { blurb: "Oh My Pi，自带 provider 凭据", install: "npm i -g @oh-my-pi/pi-coding-agent" },
+  kimi: { blurb: "Moonshot 的 Kimi Code CLI，自带 provider 凭据", install: "npm i -g @moonshot-ai/kimi-code" },
+};
+
+/** 未安装引擎的灰态摘要卡。其余界面对未安装引擎一律隐藏，
+ * 只在设置页保留一张占位卡，成对展示「支持什么」和「怎么装」。 */
+function UninstalledEngineCard({ engine }: { engine: Engine }) {
+  const intro = ENGINE_INTRO[engine];
+  return (
+    <section className="card border-dashed p-4 opacity-70 lg:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-dh-tsoft">{engineName(engine)}</h2>
+          <span className="rounded-full border border-dh-bsoft px-2 py-0.5 text-[11px] text-dh-muted">未安装</span>
         </div>
-      )}
-    </Section>
+        <code className="rounded-md bg-dh-s2 px-2 py-1 font-mono text-[11px] text-dh-muted">{intro.install}</code>
+      </div>
+      <p className="mt-1.5 text-xs text-slate-400">{intro.blurb}；装好后这里会出现它的模型设置，其它界面才会显示该引擎。</p>
+    </section>
   );
 }
 
@@ -555,11 +537,21 @@ export function SettingsView({
     kimi: false,
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
-  // 没装的引擎不显示它的模型/档位设置
+  // 没装的引擎不渲染设置表单，降级为灰态占位卡
   const showClaude = useEngineVisible("cc");
   const showCodex = useEngineVisible("codex");
   const showOmp = useEngineVisible("omp");
   const showKimi = useEngineVisible("kimi");
+  // 引擎卡头的版本胶囊数据；探测失败不阻塞页面，胶囊留空即可
+  const [engineTools, setEngineTools] = useState<Record<string, EngineToolInfo> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.engineTools
+      .list()
+      .then((tools) => { if (alive) setEngineTools(tools); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
   // omp 没有可消费的模型目录接口，设置页直接填模型 ID；kimi 的刷新读的是
   // ~/.kimi-code/config.toml 里的模型别名。
   async function refreshModels(engine: "cc" | "codex" | "kimi") {
@@ -617,8 +609,9 @@ export function SettingsView({
         </Field>
       </Section>
 
+      {!showClaude && <UninstalledEngineCard engine="cc" />}
       {showClaude && (
-        <Section title="Claude" hint="调用方式、模型与推理档位。">
+        <Section title="Claude" hint="调用方式、模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.cc} />}>
           <Field label="调用方式">
             <select
               className="w-28"
@@ -666,8 +659,9 @@ export function SettingsView({
         </Section>
       )}
 
+      {!showCodex && <UninstalledEngineCard engine="codex" />}
       {showCodex && (
-        <Section title="Codex" hint="模型与推理档位。">
+        <Section title="Codex" hint="模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.codex} />}>
           <Field label="模型">
             <div className="flex items-center gap-2">
               <ModelCombobox
@@ -707,8 +701,9 @@ export function SettingsView({
         </Section>
       )}
 
+      {!showOmp && <UninstalledEngineCard engine="omp" />}
       {showOmp && (
-        <Section title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。">
+        <Section title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。" aside={<EngineVersionChip tool={engineTools?.omp} />}>
           <Field label="模型">
             <ModelCombobox
               id="omp-model"
@@ -734,8 +729,9 @@ export function SettingsView({
         </Section>
       )}
 
+      {!showKimi && <UninstalledEngineCard engine="kimi" />}
       {showKimi && (
-        <Section title="Kimi Code" hint="模型别名来自 ~/.kimi-code/config.toml；留空用 default_model。">
+        <Section title="Kimi Code" hint="模型别名来自 ~/.kimi-code/config.toml；留空用 default_model。" aside={<EngineVersionChip tool={engineTools?.kimi} />}>
           <Field label="模型">
             <div className="flex items-center gap-2">
               <ModelCombobox
@@ -758,8 +754,6 @@ export function SettingsView({
           </Field>
         </Section>
       )}
-
-      <EngineSupport />
 
       <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
         <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">

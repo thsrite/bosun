@@ -156,7 +156,7 @@ cd frontend && npm run build    # 产物在 frontend/dist
 5. 「整体分析」→ 问题收件箱 → 勾「→ 修复任务」转成修复任务（人在环）
 6. 「统计」看任务趋势 / 引擎用量 / 问题态势
 
-选用 omp 时，「设置 → Oh My Pi」可以填模型与思考档位；选用 kimi 时，「设置 → Kimi Code」可以选模型别名（列表来自 `~/.kimi-code/config.toml`）。「设置 → 支持的引擎」能看到全部支持的 CLI 与本机安装状态。
+选用 omp 时，「设置 → Oh My Pi」可以填模型与思考档位；选用 kimi 时，「设置 → Kimi Code」可以选模型别名（列表来自 `~/.kimi-code/config.toml`）。设置页按引擎分卡：已安装的引擎卡头显示版本，未安装的显示灰态占位卡（含安装命令），全部支持的 CLI 与本机安装状态一目了然。
 
 ## 配置
 
