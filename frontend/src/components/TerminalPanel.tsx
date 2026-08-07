@@ -1,6 +1,7 @@
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { Terminal } from "@xterm/xterm";
 import {
   useCallback,
@@ -457,6 +458,14 @@ function TerminalView({
     term.loadAddon(clipboard);
     term.loadAddon(webLinks);
     term.open(elRef.current);
+    // 默认 DOM 渲染器每滚一行都全视口重建 span，移动端手势逐帧 scrollLines 时明显掉帧，
+    // 换 canvas 渲染。不用 WebGL 渲染器：WebKit 合成器让 WebGL 纹理晚一帧上屏，与同帧生效的
+    // 亚像素 transform 永远错半拍，每跨一行边界闪跳一次；2D canvas 与 CSS 变更同帧合成无此问题。
+    try {
+      term.loadAddon(new CanvasAddon());
+    } catch {
+      // canvas 渲染不可用（极老 WebView 等），保持 DOM 渲染器
+    }
     termRef.current = term;
     const disposeAltBufferWorkaround = installAltBufferScrollbackWorkaround(term);
     const disposeImeFix = isTouchDevice() ? installMobileImeInsertTextFix(term) : () => {};
@@ -873,46 +882,20 @@ function TerminalView({
       );
       return true;
     };
-    // 行内亚像素偏移：xterm 只能整行滚(scrollLines)，纯行量化的拖动每步跳一个字符行，
-    // 观感明显发涩。把不足一行的余量用 translateY 补到画布上，视觉上做到像素级跟手；
-    // 松手停稳/撞边界/滚动交给 TUI 时把偏移吸回行网格。
+    // 纯整行量化滚动：所有视觉位移都来自缓冲区渲染本身，不叠加任何 CSS transform。
+    // 曾用「整行滚 + 亚像素 translateY 补余量」做像素级跟手，但 iOS WebKit 的 canvas/WebGL
+    // 内容经 GPU 缓冲晚一帧上屏，而 transform 当帧生效，两套位移每跨一行边界就错开一帧，
+    // 表现为滑动抖动、减速时上下晃——时序在页面侧不可控，补偿方案（onRender 对账、±1 行
+    // 钳制）均无法根除，故整体拆除。慢滑为一行一步的细步进，换绝对稳定。
     const screenEl = terminalHost.querySelector<HTMLElement>(".xterm-screen");
-    if (screenEl) screenEl.style.willChange = "transform";
-    let subCellOffset = 0;
-    let subCellSnapTimer: number | null = null;
-    const setSubCellOffset = (px: number) => {
-      if (!screenEl || subCellOffset === px) return;
-      subCellOffset = px;
-      screenEl.style.transform = px ? `translateY(${px}px)` : "";
-    };
-    const clearSubCellTransition = () => {
-      if (subCellSnapTimer != null) {
-        window.clearTimeout(subCellSnapTimer);
-        subCellSnapTimer = null;
-      }
-      if (screenEl) screenEl.style.transition = "";
-    };
-    // 松手吸回行网格：残余偏移 ≤ 半个字符行，用一段短过渡回去，避免肉眼可见的跳变
-    const snapSubCellOffset = () => {
-      tRemainder = 0;
-      if (!screenEl || subCellOffset === 0) return;
-      screenEl.style.transition = "transform 90ms ease-out";
-      setSubCellOffset(0);
-      if (subCellSnapTimer != null) window.clearTimeout(subCellSnapTimer);
-      subCellSnapTimer = window.setTimeout(() => {
-        subCellSnapTimer = null;
-        if (screenEl) screenEl.style.transition = "";
-      }, 120);
-    };
     // 按手指位移滚动，返回是否真的动了(撞到顶/底则不动，用于停止甩滚)
     const scrollByFingerDelta = (dy: number): boolean => {
       tRemainder += dy / cellHeight();
       const lines = Math.trunc(tRemainder);
       tRemainder -= lines;
       if (lines !== 0 && dispatchApplicationWheel(lines)) {
-        // TUI 接管滚动（鼠标跟踪模式），画布归 TUI 重绘，不做亚像素偏移
+        // TUI 接管滚动（鼠标跟踪模式），画布归 TUI 重绘
         tRemainder = 0;
-        setSubCellOffset(0);
         return true;
       }
       const buffer = term.buffer.active;
@@ -925,15 +908,13 @@ function TerminalView({
         term.scrollLines(lines);
         moved = buffer.viewportY !== before;
       }
-      // 撞到顶/底后余量清零，不把画布拖出边界露出底色
+      // 撞到顶/底后余量清零，避免离开边界时凭空吃掉一段手指位移
       if (
         (buffer.viewportY >= buffer.baseY && tRemainder > 0) ||
         (buffer.viewportY <= 0 && tRemainder < 0)
       ) {
         tRemainder = 0;
       }
-      // 视口下移 1 行 = 内容上移 1 行，故余量 f 行对应 translateY(-f·行高)
-      setSubCellOffset(-tRemainder * cellHeight());
       return lines === 0 ? true : moved;
     };
     const startFling = () => {
@@ -949,16 +930,61 @@ function TerminalView({
         last = now;
         const moved = scrollByFingerDelta(vel * dt);
         vel *= Math.pow(0.998, dt); // iOS 风格逐毫秒衰减(≈0.968/16ms)，滑得更远更绵
-        if (!moved || Math.abs(vel) < 0.01) {
-          snapSubCellOffset(); // 到顶/到底或速度衰减尽 → 停，吸回行网格
-          return;
-        }
+        if (!moved || Math.abs(vel) < 0.01) return; // 到顶/到底或速度衰减尽 → 停
         flingFrame = requestAnimationFrame(step);
       };
       flingFrame = requestAnimationFrame(step);
     };
+    // canvas 渲染器把文字画进画布，iOS 原生长按选区（依赖 DOM 文字层）不再可用。
+    // 用 xterm 自带选区补：长按选中所在词，按住拖动按字符扩选（高亮由渲染器绘制），
+    // 松手自动写入剪贴板；轻点一下清除选区。
+    let tLongPressTimer: number | null = null;
+    let tSelecting = false;
+    let tSelectAnchorIdx = 0;
+    const cancelLongPress = () => {
+      if (tLongPressTimer != null) {
+        window.clearTimeout(tLongPressTimer);
+        tLongPressTimer = null;
+      }
+    };
+    const cellFromTouch = (x: number, y: number) => {
+      const el = screenEl ?? terminalHost;
+      const rect = el.getBoundingClientRect();
+      const cols = Math.max(1, term.cols);
+      const rows = Math.max(1, term.rows);
+      const col = Math.min(cols - 1, Math.max(0, Math.floor(((x - rect.left) / rect.width) * cols)));
+      const viewportRow = Math.min(
+        rows - 1,
+        Math.max(0, Math.floor((y - rect.top) / cellHeight())),
+      );
+      return { col, row: term.buffer.active.viewportY + viewportRow };
+    };
+    const startWordSelection = () => {
+      tLongPressTimer = null;
+      if (!tActive || tScrollStarted) return;
+      const { col, row } = cellFromTouch(tLastX, tLastY);
+      const text = term.buffer.active.getLine(row)?.translateToString(false) ?? "";
+      let start = col;
+      let end = col;
+      if ((text[col] ?? " ") !== " ") {
+        while (start > 0 && text[start - 1] !== " ") start -= 1;
+        while (end < text.length - 1 && text[end + 1] !== " ") end += 1;
+      }
+      tSelecting = true;
+      tSelectAnchorIdx = row * term.cols + start;
+      term.select(start, row, end - start + 1);
+    };
+    const extendSelection = (x: number, y: number) => {
+      const { col, row } = cellFromTouch(x, y);
+      const idx = row * term.cols + col;
+      const from = Math.min(idx, tSelectAnchorIdx);
+      term.select(from % term.cols, Math.floor(from / term.cols), Math.abs(idx - tSelectAnchorIdx) + 1);
+    };
     const onTouchStart = (e: globalThis.TouchEvent) => {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1) {
+        cancelLongPress();
+        return;
+      }
       const t = e.touches[0];
       if (!t) return;
       e.stopPropagation();
@@ -970,10 +996,11 @@ function TerminalView({
       tStartAt = performance.now();
       tLastMoveAt = performance.now();
       tVelocity = 0;
-      // 打断甩滚接着拖：把画布上尚未吸回的亚像素偏移换算回余量，保证视觉连续不跳
-      clearSubCellTransition();
-      tRemainder = subCellOffset ? -subCellOffset / cellHeight() : 0;
+      tRemainder = 0;
       tScrollStarted = false;
+      tSelecting = false;
+      cancelLongPress();
+      tLongPressTimer = window.setTimeout(startWordSelection, 450);
       tActive = true;
     };
     const onTouchMove = (e: globalThis.TouchEvent) => {
@@ -981,8 +1008,17 @@ function TerminalView({
       const t = e.touches[0];
       if (!t) return;
       e.stopPropagation();
+      if (tSelecting) {
+        // 长按已成选区：按住拖动是扩选，不再当滚动手势
+        e.preventDefault();
+        tLastX = t.clientX;
+        tLastY = t.clientY;
+        extendSelection(t.clientX, t.clientY);
+        return;
+      }
       const totalDx = t.clientX - tStartX;
       const totalDy = t.clientY - tStartY;
+      if (Math.abs(totalDx) > 8 || Math.abs(totalDy) > 8) cancelLongPress();
       if (!tScrollStarted) {
         if (Math.abs(totalDy) < 8) return; // 等纵向位移过阈值再接管，短于此留给点按/长按
         if (Math.abs(totalDy) < Math.abs(totalDx)) return; // 横向拖选/手势不接管
@@ -1006,17 +1042,32 @@ function TerminalView({
       if (tActive) e.stopPropagation();
       tActive = false;
       touchActive = false;
+      cancelLongPress();
+      const wasSelecting = tSelecting;
+      tSelecting = false;
+      if (wasSelecting) {
+        // 长按选区松手即复制（touchend 属用户手势，剪贴板可写；touchcancel 不复制）
+        if (e.type === "touchend" && term.hasSelection()) {
+          copyTerminalSelection();
+          toast("已复制选中文本");
+        }
+      }
       if (tScrollStarted) startFling(); // 松手按末速甩滚，撞顶/底或衰减尽自停
-      if (tScrollStarted && flingFrame == null) snapSubCellOffset(); // 慢速松手没起甩滚 → 直接吸回
       // 移动端「轻点终端」＝想输入：聚焦 xterm 隐藏 textarea 弹出输入法，键入直进 PTY，
       // 与桌面端点击终端即可打字一致。纵向拖动(滚历史)、长按选区、pinch 都不算轻点。
-      if (
+      const tapLike =
         wasActive &&
+        !wasSelecting &&
         !tScrollStarted &&
         e.type === "touchend" &&
+        performance.now() - tStartAt < 350;
+      if (tapLike && term.hasSelection()) {
+        // 有选区时轻点＝取消选区（对应原生选区点击空白收起的习惯），本次不弹输入法
+        term.clearSelection();
+      } else if (
+        tapLike &&
         liveRef.current &&
         !isDesktopLayout() &&
-        performance.now() - tStartAt < 350 &&
         !hasNativeTerminalSelection() &&
         !term.hasSelection()
       ) {
@@ -1079,10 +1130,10 @@ function TerminalView({
     return () => {
       disposed = true;
       stopFling();
+      cancelLongPress();
       stopApplicationScroll();
       if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
-      if (subCellSnapTimer != null) window.clearTimeout(subCellSnapTimer);
       scrollDisposable.dispose();
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
