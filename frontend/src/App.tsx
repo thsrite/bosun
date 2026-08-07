@@ -369,7 +369,8 @@ export default function App() {
               <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-700 bg-black">
                 <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
               </span>
-              <span className="min-w-0">
+              {/* 移动端顶栏寸土寸金：只留 icon，标题文字 sm 起才显示 */}
+              <span className="hidden min-w-0 sm:block">
                 <span className="block text-sm font-semibold leading-tight text-dh-text">Bosun 工作台</span>
               </span>
             </button>
