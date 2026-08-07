@@ -26,7 +26,7 @@ const ARCHIVED_STATUSES = new Set(["done", "failed", "cancelled", "interrupted"]
 
 // 任务行主操作（继续执行）的统一按钮样式：等待执行区与归档区共用，跟随全站品牌主色
 const RESUME_BTN_CLS =
-  "rounded-md bg-teal-600 px-2.5 py-1.5 text-white hover:bg-teal-500 disabled:opacity-50";
+  "rounded-md bg-dh-accent px-2.5 py-1.5 text-dh-accfg hover:bg-dh-acchov disabled:opacity-50";
 
 function isActiveTask(t: Task): boolean {
   return ACTIVE_STATUSES.has(t.status);
@@ -110,7 +110,7 @@ function EditableTaskTitle({
         onBlur={() => void commit()}
         placeholder="任务标题"
         aria-label={`重命名任务 #${task.id}`}
-        className="min-w-0 flex-1 rounded border border-teal-400 bg-dh-surface px-1.5 py-0.5 text-sm font-medium text-dh-text outline-none focus:ring-1 focus:ring-teal-400"
+        className="min-w-0 flex-1 rounded border border-dh-accent bg-dh-surface px-1.5 py-0.5 text-sm font-medium text-dh-text outline-none focus:ring-1 focus:ring-dh-accent"
       />
     );
   }
@@ -122,7 +122,7 @@ function EditableTaskTitle({
       </span>
       <button
         type="button"
-        className="shrink-0 rounded p-0.5 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+        className="shrink-0 rounded p-0.5 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-dh-accent"
         title="重命名标题"
         aria-label={`重命名任务 #${task.id}`}
         onClick={begin}
@@ -147,7 +147,7 @@ function DraggableTaskRow({ task, children }: { task: Task; children: ReactNode 
         type="button"
         {...attributes}
         {...listeners}
-        className="absolute left-2 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 active:cursor-grabbing"
+        className="absolute left-2 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-dh-accent active:cursor-grabbing"
         title="拖到等待执行"
         aria-label={`拖动任务 #${task.id}`}
         onClick={(event) => event.stopPropagation()}
@@ -215,7 +215,7 @@ function MobileTaskCard({
     <div
       role="button"
       tabIndex={0}
-      className="flex flex-col gap-1.5 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:hidden"
+      className="flex flex-col gap-1.5 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:hidden"
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -364,7 +364,7 @@ function WorkspaceTabs({
       <button
         type="button"
         className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
-          activeId === null ? "bg-slate-900 text-white" : "text-dh-tsoft hover:bg-dh-hover"
+          activeId === null ? "bg-dh-soft text-white" : "text-dh-tsoft hover:bg-dh-hover"
         }`}
         onClick={onSelectList}
       >
@@ -374,7 +374,7 @@ function WorkspaceTabs({
         <div
           key={w.id}
           className={`flex shrink-0 items-center gap-1 rounded-lg py-1.5 pl-3 pr-1 text-sm ${
-            activeId === w.id ? "bg-teal-600 text-white" : "text-dh-tsoft hover:bg-dh-hover"
+            activeId === w.id ? "bg-dh-accent text-dh-accfg" : "text-dh-tsoft hover:bg-dh-hover"
           }`}
         >
           <button
@@ -386,7 +386,7 @@ function WorkspaceTabs({
           >
             {w.name}
             {w.taskIds.length > 0 && (
-              <span className={`ml-1.5 text-xs ${activeId === w.id ? "text-teal-100" : "text-slate-400"}`}>
+              <span className={`ml-1.5 text-xs ${activeId === w.id ? "text-dh-accfg" : "text-slate-400"}`}>
                 {w.taskIds.length}
               </span>
             )}
@@ -394,7 +394,7 @@ function WorkspaceTabs({
           <button
             type="button"
             className={`rounded p-0.5 text-xs ${
-              activeId === w.id ? "text-teal-100 hover:bg-teal-500" : "text-slate-400 hover:bg-dh-hover"
+              activeId === w.id ? "text-dh-accfg hover:bg-dh-acchov" : "text-slate-400 hover:bg-dh-hover"
             }`}
             onClick={() => onClose(w.id)}
             title="关闭工作台"
@@ -774,7 +774,7 @@ export function ActiveTasksView({
           </div>
         </div>
         <button
-          className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-teal-950/20 hover:bg-teal-500 disabled:opacity-50"
+          className="ml-auto rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg shadow-sm shadow-black/30 hover:bg-dh-acchov disabled:opacity-50"
           onClick={() => setShowCreate(true)}
           disabled={projects.length === 0}
           title={projects.length === 0 ? "请先添加项目" : "新建任务"}
@@ -902,7 +902,7 @@ export function ActiveTasksView({
                 <div
                   role="button"
                   tabIndex={0}
-                  className="hidden w-full cursor-pointer gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:grid md:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] md:items-center"
+                  className="hidden w-full cursor-pointer gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:grid md:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] md:items-center"
                   onClick={() => setOpenTaskId(t.id)}
                   onKeyDown={(event) => {
                     if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -1116,11 +1116,11 @@ export function ActiveTasksView({
                     type="button"
                     aria-expanded={expanded}
                     onClick={() => toggleArchiveDate(group.date, groupIndex)}
-                    className={`flex w-full items-center px-3 py-2 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${expanded ? "border-b border-dh-bsoft bg-dh-soft" : "bg-dh-soft"}`}
+                    className={`flex w-full items-center px-3 py-2 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent ${expanded ? "border-b border-dh-bsoft bg-dh-soft" : "bg-dh-soft"}`}
                   >
                     <span className={`mr-2 text-[10px] text-slate-400 transition-transform ${expanded ? "rotate-90" : ""}`}>▶</span>
                     <span className="text-xs font-semibold text-dh-tsoft">{group.date}</span>
-                    <span className="ml-auto rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-100 ring-1 ring-inset ring-slate-700">
+                    <span className="ml-auto rounded-full bg-dh-s2 px-2 py-0.5 text-[10px] font-semibold text-slate-100 ring-1 ring-inset ring-slate-700">
                       {group.tasks.length}
                     </span>
                   </button>
@@ -1178,7 +1178,7 @@ export function ActiveTasksView({
                         <div
                           role="button"
                           tabIndex={0}
-                          className="hidden w-full gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:grid md:grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_132px] md:items-center"
+                          className="hidden w-full gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:grid md:grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_132px] md:items-center"
                           onClick={() => setOpenTaskId(task.id)}
                           onKeyDown={(event) => {
                             if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -1222,7 +1222,7 @@ export function ActiveTasksView({
                 <button
                   type="button"
                   onClick={() => setShowOlderArchives(true)}
-                  className="w-full rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-4 py-2.5 text-center text-xs font-medium text-dh-muted hover:bg-dh-hover hover:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
+                  className="w-full rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-4 py-2.5 text-center text-xs font-medium text-dh-muted hover:bg-dh-hover hover:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent"
                 >
                   显示更早的归档 · {olderGroups.length} 天 / {olderTaskCount} 个任务
                 </button>

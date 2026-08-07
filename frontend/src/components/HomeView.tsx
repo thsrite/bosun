@@ -63,15 +63,15 @@ function hostMetricTone(kind: "temp" | "load", value: number | null | undefined)
 }
 
 const tooltipStyle = {
-  background: "#101722",
-  border: "1px solid #253448",
+  background: "#131316",
+  border: "1px solid #2a2a31",
   borderRadius: 10,
   color: "#e5edf7",
   fontSize: 12,
   boxShadow: "0 12px 28px rgba(0,0,0,.35)",
 };
 const tooltipTextStyle = { color: "#e5edf7" };
-const GRID_STROKE = "#1d2a3a";
+const GRID_STROKE = "#1f1f25";
 const AXIS_STROKE = "#94a3b8";
 const legendStyle = { fontSize: 11, color: "#94a3b8" };
 // recharts v3 起 Tooltip 默认 itemSorter="name"（按名称排序），会把「创建/完成/失败」
@@ -489,7 +489,7 @@ export function HomeView({
           </button>
           <button
             onClick={onAddProject}
-            className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500"
+            className="rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov"
           >
             ＋<span className="hidden sm:inline"> 添加 / 扫描路径</span>
           </button>

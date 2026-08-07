@@ -283,7 +283,7 @@ export function ChatView({ taskId, live }: { taskId: number; live: boolean }) {
               <div className="sticky top-0 z-[1] flex justify-center py-1">
                 <button
                   type="button"
-                  className="rounded-md border border-slate-600 bg-slate-800/95 px-3 py-1 text-[11px] font-medium text-slate-300 shadow hover:bg-slate-700 hover:text-white"
+                  className="rounded-md border border-dh-border bg-dh-s2/95 px-3 py-1 text-[11px] font-medium text-slate-300 shadow hover:bg-dh-hover hover:text-white"
                   onClick={loadEarlier}
                 >
                   加载更早消息（还有 {visibleStart} 条）
@@ -311,7 +311,7 @@ const EventBubble = memo(function EventBubble({ ev }: { ev: ChatEvent }) {
     case "text":
     case "raw":
       return (
-        <div className="chat-md rounded-lg bg-slate-800/40 px-3 py-2">
+        <div className="chat-md rounded-lg bg-dh-s2/40 px-3 py-2">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{ a: (p) => <a {...p} target="_blank" rel="noreferrer" /> }}
@@ -322,7 +322,7 @@ const EventBubble = memo(function EventBubble({ ev }: { ev: ChatEvent }) {
       );
     case "user":
       return (
-        <div className="ml-8 whitespace-pre-wrap break-words rounded-lg bg-teal-600/25 px-3 py-2 text-[13px] text-teal-50">
+        <div className="ml-8 whitespace-pre-wrap break-words rounded-lg bg-dh-accent/15 px-3 py-2 text-[13px] text-dh-text">
           {ev.text}
         </div>
       );
@@ -383,11 +383,11 @@ function Composer({
     focusTextareaWithoutScroll(e.currentTarget);
   };
   return (
-    <div className="dh-safe-bottom-pad flex flex-col gap-2 border-t border-slate-700/50 bg-[#0b0f17] px-3 pt-2">
+    <div className="dh-safe-bottom-pad flex flex-col gap-2 border-t border-dh-bsoft bg-[#0b0f17] px-3 pt-2">
       <div className="flex items-end gap-2">
         <textarea
           ref={inputRef}
-          className="max-h-28 min-h-[2.35rem] flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-[16px] text-slate-100 placeholder-slate-500 focus:border-dh-m2 focus:outline-none"
+          className="max-h-28 min-h-[2.35rem] flex-1 resize-none rounded-lg border border-dh-border bg-dh-soft px-2.5 py-1.5 text-[16px] text-slate-100 placeholder-slate-500 focus:border-dh-m2 focus:outline-none"
           rows={1}
           autoCapitalize="none"
           autoCorrect="off"
@@ -405,7 +405,7 @@ function Composer({
           }}
         />
         <button
-          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-40"
+          className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 text-xs font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-40"
           onClick={send}
           disabled={!text.trim()}
         >

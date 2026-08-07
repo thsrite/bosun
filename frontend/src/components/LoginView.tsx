@@ -36,7 +36,7 @@ export function LoginView({ onSignedIn }: { onSignedIn: () => void }) {
     <div className="dh-app-shell flex h-full items-center justify-center px-4">
       <form onSubmit={submit} className="card w-full max-w-sm p-6">
         <div className="mb-5 flex items-center gap-2.5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-700 bg-black">
+          <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-dh-border bg-black">
             <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
           </span>
           <div>

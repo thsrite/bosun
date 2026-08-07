@@ -107,7 +107,7 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
   }, [taskId]);
 
   return (
-    <div className="h-full overflow-y-auto bg-[#101722] px-3 py-3 sm:px-5">
+    <div className="h-full overflow-y-auto bg-[#131316] px-3 py-3 sm:px-5">
       {truncated && (
         <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           会话较长，当前展示最近的历史消息；完整记录仍可通过“分享导出”获取。
@@ -125,14 +125,14 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
           message.role === "user" ? (
             <div
               key={`${message.timestamp ?? "user"}-${index}`}
-              className="ml-auto max-w-[92%] whitespace-pre-wrap break-words rounded-xl bg-teal-600/25 px-3 py-2 text-[13px] leading-relaxed text-teal-50 sm:max-w-[80%]"
+              className="ml-auto max-w-[92%] whitespace-pre-wrap break-words rounded-xl bg-dh-accent/15 px-3 py-2 text-[13px] leading-relaxed text-dh-text sm:max-w-[80%]"
             >
               {message.text}
             </div>
           ) : (
             <div
               key={`${message.timestamp ?? "assistant"}-${index}`}
-              className="chat-md break-words rounded-xl border border-slate-700/50 bg-slate-800/35 px-3 py-2 text-[13px] leading-relaxed text-slate-200"
+              className="chat-md break-words rounded-xl border border-dh-bsoft bg-dh-s2/40 px-3 py-2 text-[13px] leading-relaxed text-slate-200"
             >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}

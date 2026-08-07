@@ -103,11 +103,11 @@ const APPLICATION_SCROLL_STEPS = 48;
 const APPLICATION_SCROLL_STEPS_PER_FRAME = 8;
 const APPLICATION_SCROLL_COOLDOWN_MS = 500;
 const TERMINAL_THEME = {
-  background: "#101722",
-  foreground: "#e5edf7",
-  cursor: "#f8fafc",
-  cursorAccent: "#101722",
-  selectionBackground: "#334155",
+  background: "#131316",
+  foreground: "#ededf0",
+  cursor: "#fafafa",
+  cursorAccent: "#131316",
+  selectionBackground: "#3a3a44",
   black: "#1f2937",
   red: "#f87171",
   green: "#34d399",
@@ -1240,7 +1240,7 @@ function TerminalView({
           </div>
         )}
         {pastingImages && (
-          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-md bg-teal-700/95 px-2.5 py-1 text-[11px] font-medium text-white shadow">
+          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-md bg-dh-accent px-2.5 py-1 text-[11px] font-medium text-dh-accfg shadow">
             图片上传中…
           </div>
         )}
@@ -1254,7 +1254,7 @@ function TerminalView({
             最新 ↓
           </button>
         )}
-        <div ref={elRef} className="dh-terminal-selectable h-full w-full overflow-hidden bg-[#101722]" />
+        <div ref={elRef} className="dh-terminal-selectable h-full w-full overflow-hidden bg-[#131316]" />
       </div>
       {live && (
         <TerminalMobileComposer
@@ -1312,7 +1312,7 @@ function TerminalMobileComposer({
   };
 
   return (
-    <div className="dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-slate-700/50 bg-[#101722] px-2 pt-2 md:hidden">
+    <div className="dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
       {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
           文本输入直接轻点终端区域弹输入法键入。 */}
       <div className="grid grid-cols-6 gap-1.5">
@@ -1322,7 +1322,7 @@ function TerminalMobileComposer({
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[A")} label="↑" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x7f")} label="⌫" />
         <AttachmentPicker
-          buttonClassName="w-full whitespace-nowrap rounded-md border border-slate-700 bg-slate-800 px-1 py-1.5 text-[12px] font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+          buttonClassName="w-full whitespace-nowrap rounded-md border border-dh-border bg-dh-s2 px-1 py-1.5 text-[12px] font-medium text-slate-200 hover:bg-dh-hover disabled:opacity-40"
           disabled={!connected || uploading}
           onFiles={onPickFiles}
           title="上传文件（可多选），路径会粘贴到终端输入行"
@@ -1352,7 +1352,7 @@ function TerminalKeyButton({
   return (
     <button
       type="button"
-      className="w-full whitespace-nowrap rounded-md border border-slate-700 bg-slate-900 px-1 py-1.5 text-center text-[12px] font-medium text-slate-200 hover:border-slate-600 hover:bg-slate-800 disabled:opacity-40"
+      className="w-full whitespace-nowrap rounded-md border border-dh-border bg-dh-soft px-1 py-1.5 text-center text-[12px] font-medium text-slate-200 hover:border-dh-border hover:bg-dh-hover disabled:opacity-40"
       disabled={disabled}
       // 拦掉默认的焦点转移：正在用输入法直打终端时按方向键/Enter，键盘不收起
       onPointerDown={(e) => e.preventDefault()}
@@ -1899,7 +1899,7 @@ export function TerminalPanel({
                   取消
                 </button>
                 <button
-                  className="rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+                  className="rounded-lg bg-dh-accent px-2.5 py-1 text-xs font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
                   disabled={busy}
                   onClick={saveEdit}
                 >
@@ -1978,7 +1978,7 @@ export function TerminalPanel({
             {isFinished && canSession && (
               <>
                 <button
-                  className="rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+                  className="rounded-lg bg-dh-accent px-2.5 py-1 text-xs font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
                   disabled={busy}
                   onClick={() => doContinue(false)}
                 >
@@ -2057,13 +2057,13 @@ export function TerminalPanel({
               <ChatView key={`chat-${detail.id}`} taskId={detail.id} live={active} />
             ) : hasStoredHistory ? (
               <div className="flex h-full min-h-0 flex-col">
-                <div className="flex shrink-0 items-center gap-1 border-b border-slate-700 bg-[#101722] px-2 py-1.5">
+                <div className="flex shrink-0 items-center gap-1 border-b border-dh-border bg-[#131316] px-2 py-1.5">
                   <button
                     type="button"
                     className={`rounded-md px-2.5 py-1 text-xs ${
                       historyMode === "history"
-                        ? "bg-teal-600 text-white"
-                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                        ? "bg-dh-accent text-dh-accfg"
+                        : "text-slate-400 hover:bg-dh-hover hover:text-slate-200"
                     }`}
                     onClick={() => setHistoryMode("history")}
                   >
@@ -2074,7 +2074,7 @@ export function TerminalPanel({
                     className={`rounded-md px-2.5 py-1 text-xs ${
                       historyMode === "terminal"
                         ? "bg-slate-700 text-white"
-                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                        : "text-slate-400 hover:bg-dh-hover hover:text-slate-200"
                     }`}
                     onClick={() => setHistoryMode("terminal")}
                   >
@@ -2120,7 +2120,7 @@ export function TerminalPanel({
       data-no-pull-refresh
       // Mobile panels start at top: 0 and must cover the app header; otherwise the
       // terminal title, details toggle, and close button are trapped underneath it.
-      className="fixed inset-x-0 z-[60] box-border flex justify-end bg-slate-900/20"
+      className="fixed inset-x-0 z-[60] box-border flex justify-end bg-black/20"
       style={terminalPanelViewportStyle(panelTopOffset)}
     >
       {panel}

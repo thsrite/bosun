@@ -201,7 +201,7 @@ export function OverlayHost() {
       {dlg && (
         <div
           data-no-pull-refresh
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
         >
@@ -236,19 +236,19 @@ export function OverlayHost() {
               />
             )}
             {dlg.kind === "prompt" && attachTaskId !== undefined && (
-              <div className="mt-3 rounded-lg border-2 border-dashed border-teal-500 bg-slate-900 p-3 shadow-inner shadow-black/20">
+              <div className="mt-3 rounded-lg border-2 border-dashed border-dh-accent bg-dh-soft p-3 shadow-inner shadow-black/20">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-slate-100">📋 粘贴截图到这里（Ctrl/⌘ + V）</span>
                   <AttachmentPicker
                     accept="image/*"
-                    buttonClassName="ml-auto rounded-md border border-teal-400 bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+                    buttonClassName="ml-auto rounded-md border border-dh-accent bg-dh-accent px-2.5 py-1 text-xs font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
                     disabled={uploading}
                     onFiles={addAttachments}
                   >
                     + 图片
                   </AttachmentPicker>
                   <AttachmentPicker
-                    buttonClassName="rounded-md border border-slate-500 bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-slate-700 disabled:opacity-50"
+                    buttonClassName="rounded-md border border-dh-border bg-dh-s2 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-dh-hover disabled:opacity-50"
                     disabled={uploading}
                     onFiles={addAttachments}
                   >
@@ -259,7 +259,7 @@ export function OverlayHost() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     {attachments.map((attachment) => (
                       attachment.preview ? (
-                        <div key={attachment.id} className="group relative h-16 w-16 overflow-hidden rounded-md border-2 border-slate-500 bg-slate-800 shadow-sm">
+                        <div key={attachment.id} className="group relative h-16 w-16 overflow-hidden rounded-md border-2 border-dh-border bg-dh-s2 shadow-sm">
                           <img src={attachment.preview} alt={attachment.file.name} className="h-full w-full object-cover" />
                           <button
                             type="button"
@@ -273,7 +273,7 @@ export function OverlayHost() {
                       ) : (
                         <span
                           key={attachment.id}
-                          className="inline-flex max-w-full items-center gap-1 rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                          className="inline-flex max-w-full items-center gap-1 rounded-md border border-dh-border bg-dh-s2 px-2 py-1 text-xs text-slate-200"
                         >
                           <span className="truncate">📎 {attachment.file.name}</span>
                           <button
@@ -304,7 +304,7 @@ export function OverlayHost() {
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${
                   dlg.kind === "confirm" && dlg.danger
                     ? "bg-rose-500 hover:bg-rose-600"
-                    : "bg-teal-600 hover:bg-teal-500"
+                    : "bg-dh-accent hover:bg-dh-acchov"
                 }`}
                 onClick={() => (dlg.kind === "prompt" ? void submitPrompt() : closeDialog(true))}
               >

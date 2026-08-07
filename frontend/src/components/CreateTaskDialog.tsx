@@ -259,18 +259,18 @@ export function CreateTaskDialog({
           // 元素却保持聚焦」，之后点击已聚焦元素 focus() 是空操作，键盘要点很多次才弹得出来。
           autoFocus={!projects && !isCoarsePointer()}
         />
-        <div className="rounded-lg border-2 border-dashed border-teal-500 bg-slate-900 p-3 shadow-inner shadow-black/20">
+        <div className="rounded-lg border-2 border-dashed border-dh-accent bg-dh-soft p-3 shadow-inner shadow-black/20">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-100">📋 粘贴截图到这里（Ctrl/⌘ + V）</span>
             <AttachmentPicker
               accept="image/*"
-              buttonClassName="ml-auto rounded-md border border-teal-400 bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500"
+              buttonClassName="ml-auto rounded-md border border-dh-accent bg-dh-accent px-2.5 py-1 text-xs font-medium text-dh-accfg hover:bg-dh-acchov"
               onFiles={addAttachments}
             >
               + 选择图片
             </AttachmentPicker>
             <AttachmentPicker
-              buttonClassName="rounded-md border border-slate-500 bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-slate-700"
+              buttonClassName="rounded-md border border-dh-border bg-dh-s2 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-dh-hover"
               onFiles={addAttachments}
             >
               + 选择文件
@@ -280,7 +280,7 @@ export function CreateTaskDialog({
             <div className="mt-2 flex flex-wrap gap-2">
               {attachments.map((attachment) => (
                 attachment.preview ? (
-                  <div key={attachment.id} className="group relative h-16 w-16 overflow-hidden rounded-md border-2 border-slate-500 bg-slate-800 shadow-sm">
+                  <div key={attachment.id} className="group relative h-16 w-16 overflow-hidden rounded-md border-2 border-dh-border bg-dh-s2 shadow-sm">
                     <img src={attachment.preview} alt={attachment.file.name} className="h-full w-full object-cover" />
                     <button
                       type="button"
@@ -294,7 +294,7 @@ export function CreateTaskDialog({
                 ) : (
                   <div
                     key={attachment.id}
-                    className="inline-flex h-16 max-w-40 items-center gap-1.5 rounded-md border-2 border-slate-500 bg-slate-800 px-2 text-xs text-slate-100 shadow-sm"
+                    className="inline-flex h-16 max-w-40 items-center gap-1.5 rounded-md border-2 border-dh-border bg-dh-s2 px-2 text-xs text-slate-100 shadow-sm"
                     title={attachment.file.name}
                   >
                     <span className="min-w-0 flex-1 truncate">📎 {attachment.file.name}</span>
@@ -347,7 +347,7 @@ export function CreateTaskDialog({
               取消
             </button>
             <button
-              className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
               disabled={busy || !selectedProject || (!prompt.trim() && attachments.length === 0)}
               onClick={() => submit(false)}
             >

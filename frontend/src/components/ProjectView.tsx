@@ -80,7 +80,7 @@ export function ProjectView({
         </span>
         <div className="dh-scrollbar-none flex w-full gap-2 overflow-x-auto pb-1 md:ml-auto md:w-auto md:flex-wrap md:overflow-visible md:pb-0">
           <button
-            className="shrink-0 whitespace-nowrap rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-teal-950/30 hover:bg-teal-500"
+            className="shrink-0 whitespace-nowrap rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg shadow-sm shadow-black/30 hover:bg-dh-acchov"
             onClick={() => setShowCreate(true)}
           >
             + 任务

@@ -121,11 +121,11 @@ export function TerminalWorkspace({
       <div
         className={
           inline
-            ? "flex h-full w-full flex-col overflow-hidden bg-slate-900"
-            : `flex h-full w-full max-w-full flex-col overflow-hidden bg-slate-900 shadow-2xl ${DRAWER_WIDTH[layout]}`
+            ? "flex h-full w-full flex-col overflow-hidden bg-dh-soft"
+            : `flex h-full w-full max-w-full flex-col overflow-hidden bg-dh-soft shadow-2xl ${DRAWER_WIDTH[layout]}`
         }
       >
-        <div className="flex shrink-0 items-center gap-2 border-b border-slate-700 bg-slate-800 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-b border-dh-border bg-dh-s2 px-3 py-2">
           <span className="text-xs font-medium text-slate-200">终端工作台</span>
           <span className="text-[11px] text-dh-muted">{openTasks.length} 个终端</span>
           <div className="ml-auto flex items-center gap-1">
@@ -134,7 +134,7 @@ export function TerminalWorkspace({
                 key={value}
                 type="button"
                 className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  layout === value ? "bg-teal-600 text-white" : "text-slate-300 hover:bg-slate-700"
+                  layout === value ? "bg-dh-accent text-dh-accfg" : "text-slate-300 hover:bg-dh-hover"
                 }`}
                 onClick={() => onLayoutChange(value)}
                 title={title}
@@ -144,7 +144,7 @@ export function TerminalWorkspace({
             ))}
             <button
               type="button"
-              className="ml-1 rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+              className="ml-1 rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-dh-hover hover:text-slate-200"
               onClick={onCloseAll}
               title="关闭全部终端"
             >
@@ -152,12 +152,12 @@ export function TerminalWorkspace({
             </button>
           </div>
         </div>
-        <div className="grid min-h-0 flex-1 gap-1.5 bg-slate-900 p-1.5" style={gridStyle}>
+        <div className="grid min-h-0 flex-1 gap-1.5 bg-dh-soft p-1.5" style={gridStyle}>
           {slots.map((t, i) =>
             t ? (
               <div
                 key={`cell-${t.id}`}
-                className="min-h-0 overflow-hidden rounded-lg border border-slate-700 bg-dh-surface"
+                className="min-h-0 overflow-hidden rounded-lg border border-dh-border bg-dh-surface"
               >
                 <TerminalPanel
                   embedded
@@ -170,13 +170,13 @@ export function TerminalWorkspace({
             ) : pickingSlot === i ? (
               <div
                 key={`pick-${i}`}
-                className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-600 bg-slate-800"
+                className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-dh-border bg-dh-s2"
               >
-                <div className="flex shrink-0 items-center justify-between border-b border-slate-700 px-3 py-2">
+                <div className="flex shrink-0 items-center justify-between border-b border-dh-border px-3 py-2">
                   <span className="text-xs font-medium text-slate-200">选择任务加入</span>
                   <button
                     type="button"
-                    className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                    className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-dh-hover hover:text-slate-200"
                     onClick={() => setPickingSlot(null)}
                     title="取消"
                   >
@@ -193,7 +193,7 @@ export function TerminalWorkspace({
                         <button
                           key={t.id}
                           type="button"
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-slate-700"
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-dh-hover"
                           onClick={() => {
                             onSwitchTask(t);
                             setPickingSlot(null);
@@ -219,7 +219,7 @@ export function TerminalWorkspace({
               <button
                 key={`empty-${i}`}
                 type="button"
-                className="flex min-h-0 items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-800/40 px-3 text-center text-xs text-dh-muted hover:border-slate-600 hover:text-slate-400"
+                className="flex min-h-0 items-center justify-center rounded-lg border border-dashed border-dh-border bg-dh-s2/40 px-3 text-center text-xs text-dh-muted hover:border-dh-border hover:text-slate-400"
                 onClick={() => setPickingSlot(i)}
               >
                 ＋ 点击选择任务加入
@@ -233,7 +233,7 @@ export function TerminalWorkspace({
   return (
     <div
       data-no-pull-refresh
-      className="fixed inset-x-0 z-40 box-border flex justify-end bg-slate-900/20"
+      className="fixed inset-x-0 z-40 box-border flex justify-end bg-black/20"
       style={{ top: `${headerTop}px`, bottom: 0 }}
     >
       {body}

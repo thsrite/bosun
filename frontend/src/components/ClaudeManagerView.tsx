@@ -248,7 +248,7 @@ export function ClaudeManagerView() {
         </div>
         <div className="dh-scrollbar-none -mx-1 flex max-w-full gap-2 overflow-x-auto px-1 pb-1">
           <button
-            className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500"
+            className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov"
             onClick={() => create("skill")}
           >
             + Skill
@@ -317,7 +317,7 @@ export function ClaudeManagerView() {
                           tabIndex={0}
                           className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${
                             isActive
-                              ? "border-slate-400/40 bg-slate-400/10 ring-1 ring-teal-300"
+                              ? "border-slate-400/40 bg-slate-400/10 ring-1 ring-dh-accent"
                               : "border-transparent hover:border-dh-bsoft hover:bg-dh-hover"
                           }`}
                           onClick={() => choose(item.path)}
@@ -463,7 +463,7 @@ function EditorPanel({
             {active?.disk_path ?? ""}
           </div>
         </div>
-        <div className="flex shrink-0 rounded-lg border border-dh-bsoft bg-slate-900/40 p-0.5">
+        <div className="flex shrink-0 rounded-lg border border-dh-bsoft bg-dh-soft/40 p-0.5">
           {(["edit", "preview"] as const).map((key) => (
             <button
               key={key}
@@ -471,7 +471,7 @@ function EditorPanel({
               className={`rounded-md px-2.5 py-1 text-xs font-medium ${
                 mode === key
                   ? "bg-dh-s2 text-dh-text"
-                  : "text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                  : "text-slate-400 hover:bg-dh-hover hover:text-slate-100"
               }`}
               onClick={() => setMode(key)}
             >
@@ -492,7 +492,7 @@ function EditorPanel({
           {active?.enabled ? "关闭" : "开启"}
         </button>
         <button
-          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!dirty || saving}
           onClick={onSave}
         >

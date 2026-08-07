@@ -5,33 +5,37 @@
 @tailwind utilities;
 
 :root {
+  /* 碳黑仪表色板：中性碳黑基底 + 琥珀信号强调色（2026-08 UI 翻新，方向 02） */
   /* RGB 三元组：供 Tailwind dh 色板做透明度运算（bg-dh-surface/80 → 毛玻璃底色） */
-  --dh-bg-rgb: 7 10 15;
-  --dh-bg-soft-rgb: 11 17 26;
-  --dh-surface-rgb: 16 23 34;
-  --dh-surface-2-rgb: 21 31 46;
-  --dh-surface-hover-rgb: 27 40 58;
-  --dh-border-rgb: 37 52 72;
-  --dh-border-soft-rgb: 29 42 58;
-  --dh-text-rgb: 229 237 247;
-  --dh-text-soft-rgb: 203 213 225;
-  --dh-muted-rgb: 148 163 184;
-  --dh-muted-2-rgb: 100 116 139;
+  --dh-bg-rgb: 10 10 12;
+  --dh-bg-soft-rgb: 14 14 17;
+  --dh-surface-rgb: 19 19 22;
+  --dh-surface-2-rgb: 29 29 34;
+  --dh-surface-hover-rgb: 36 36 42;
+  --dh-border-rgb: 42 42 49;
+  --dh-border-soft-rgb: 31 31 37;
+  --dh-text-rgb: 237 237 240;
+  --dh-text-soft-rgb: 201 201 209;
+  --dh-muted-rgb: 139 139 150;
+  --dh-muted-2-rgb: 106 106 117;
   --st-ok: #10b981;
   --st-warn: #f59e0b;
   --st-crit: #ef4444;
-  --dh-accent: #64748b; /* 深色主题中性焦点色 */
-  --dh-bg: #070a0f;
-  --dh-bg-soft: #0b111a;
-  --dh-surface: #101722;
-  --dh-surface-2: #151f2e;
-  --dh-surface-hover: #1b283a;
-  --dh-border: #253448;
-  --dh-border-soft: #1d2a3a;
-  --dh-text: #e5edf7;
-  --dh-text-soft: #cbd5e1;
-  --dh-muted: #94a3b8;
-  --dh-muted-2: #64748b;
+  --dh-accent-rgb: 245 179 66;
+  --dh-accent: #f5b342; /* 琥珀信号色：主按钮/聚焦/选中态共用 */
+  --dh-accent-hover: #ffc45c;
+  --dh-accent-fg: #241a05; /* 琥珀底上的深色文字 */
+  --dh-bg: #0a0a0c;
+  --dh-bg-soft: #0e0e11;
+  --dh-surface: #131316;
+  --dh-surface-2: #1d1d22;
+  --dh-surface-hover: #24242a;
+  --dh-border: #2a2a31;
+  --dh-border-soft: #1f1f25;
+  --dh-text: #ededf0;
+  --dh-text-soft: #c9c9d1;
+  --dh-muted: #8b8b96;
+  --dh-muted-2: #6a6a75;
   color-scheme: dark;
 }
 
@@ -49,10 +53,11 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
     "PingFang SC", sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
   background: var(--dh-bg);
   overflow: hidden;
   overscroll-behavior: none;
-  -webkit-tap-highlight-color: rgba(148, 163, 184, 0.16);
+  -webkit-tap-highlight-color: rgba(245, 179, 66, 0.14);
 }
 
 .dh-app-shell {
@@ -98,19 +103,16 @@ body {
     user-select: text !important;
   }
   .dh-terminal-selectable .xterm-rows ::selection {
-    background: rgba(45, 212, 191, 0.38);
-    color: #f8fafc;
+    background: rgba(245, 179, 66, 0.38);
+    color: #fafafa;
   }
 }
 
-/* Bosun 卡片：暗色实心面 + 细边 + 顶缘高光（暗底上的层次靠内侧亮线而非投影） */
+/* Bosun 卡片：暗色实心面 + 发丝细边，无高光无投影（碳黑仪表：层次全靠明度差） */
 .card {
   background: var(--dh-surface);
   border: 1px solid var(--dh-border-soft);
-  border-radius: 1rem;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    0 12px 28px rgba(0, 0, 0, 0.28);
+  border-radius: 0.5rem;
 }
 
 /* 原生 select 统一成和其它输入一致的观感 */
@@ -123,12 +125,13 @@ select {
   color: var(--dh-text);
   cursor: pointer;
 }
-/* 统一聚焦态: 青蓝描边 */
+/* 统一聚焦态: 琥珀描边 + 柔和外圈 */
 select:focus,
 input:focus,
 textarea:focus {
   outline: none;
   border-color: var(--dh-accent);
+  box-shadow: 0 0 0 3px rgb(var(--dh-accent-rgb) / 0.18);
 }
 
 /* 对话面板 markdown：暗底浅字，长 token 换行不撑破 */
@@ -146,7 +149,7 @@ textarea:focus {
 .chat-md h1 { font-size: 1.15em; }
 .chat-md h2 { font-size: 1.08em; }
 .chat-md h3 { font-size: 1em; }
-.chat-md a { color: #2dd4bf; text-decoration: underline; }
+.chat-md a { color: var(--dh-accent); text-decoration: underline; }
 .chat-md ul, .chat-md ol { margin: 0.4em 0; padding-left: 1.4em; }
 .chat-md li { margin: 0.15em 0; }
 .chat-md code {
@@ -159,8 +162,8 @@ textarea:focus {
 .chat-md pre {
   margin: 0.5em 0;
   padding: 0.7em 0.85em;
-  background: #060910;
-  border: 1px solid #1e293b;
+  background: #0a0a0c;
+  border: 1px solid #1f1f25;
   border-radius: 8px;
   overflow-x: auto;
 }
@@ -168,11 +171,11 @@ textarea:focus {
 .chat-md blockquote {
   margin: 0.5em 0;
   padding-left: 0.8em;
-  border-left: 3px solid #334155;
+  border-left: 3px solid #3a3a44;
   color: #94a3b8;
 }
 .chat-md table { border-collapse: collapse; margin: 0.5em 0; display: block; overflow-x: auto; }
-.chat-md th, .chat-md td { border: 1px solid #334155; padding: 0.3em 0.6em; }
+.chat-md th, .chat-md td { border: 1px solid #2a2a31; padding: 0.3em 0.6em; }
 .chat-md th { background: rgba(148, 163, 184, 0.1); }
 
 /* 表单小输入(问题来源表单等) */
@@ -220,7 +223,7 @@ textarea::placeholder {
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #3a3a44;
   border-radius: 8px;
 }
 *::-webkit-scrollbar-track {

@@ -212,7 +212,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
                       key={v}
                       onClick={() => setView(v)}
                       className={`rounded px-2 py-0.5 text-[11px] ${
-                        view === v ? "bg-slate-800 text-white" : "text-dh-muted hover:bg-dh-hover"
+                        view === v ? "bg-dh-s2 text-white" : "text-dh-muted hover:bg-dh-hover"
                       }`}
                     >
                       {v === "trace" ? "流水线" : "日志"}
@@ -395,7 +395,7 @@ function PoliciesSection({ project }: { project: Project }) {
           分钟
         </label>
         <button
-          className="rounded-lg bg-slate-800 px-3 py-1 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+          className="rounded-lg bg-dh-s2 px-3 py-1 font-medium text-white hover:bg-dh-hover disabled:opacity-50"
           disabled={busy}
           onClick={add}
         >

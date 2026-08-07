@@ -71,7 +71,7 @@ export function FindingsInbox({
     <Modal title={`问题收件箱 · ${project.name}`} onClose={onClose} wide>
       <div className="mb-3 flex items-center gap-3 text-sm">
         <button
-          className="shrink-0 whitespace-nowrap rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+          className="shrink-0 whitespace-nowrap rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
           disabled={busy}
           onClick={analyze}
         >

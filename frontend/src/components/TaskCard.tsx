@@ -59,19 +59,20 @@ export function TaskCard({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`group w-full rounded-xl border bg-dh-surface p-3 text-sm shadow-sm transition ${
+      className={`group w-full rounded-xl border bg-dh-surface p-3 text-sm transition ${
+        /* 等待介入：卡面保持中性，只用左缘信号条标色（碳黑仪表） */
         isPerm
-          ? "border-fuchsia-500/40 bg-fuchsia-500/10 ring-2 ring-dh-border"
+          ? "border-dh-bsoft border-l-2 border-l-fuchsia-400"
           : isChoice
-          ? "border-orange-500/40 bg-orange-500/10 ring-2 ring-dh-border"
+          ? "border-dh-bsoft border-l-2 border-l-orange-400"
           : isReview
-          ? "border-cyan-500/40 bg-cyan-500/10 ring-2 ring-dh-border"
+          ? "border-dh-bsoft border-l-2 border-l-cyan-400"
           : isWaiting
-          ? "border-amber-500/40 bg-amber-500/10 ring-2 ring-dh-border"
+          ? "border-dh-bsoft border-l-2 border-l-amber-400"
           : terminal
             ? "border-dh-bsoft opacity-70"
-            : "border-dh-bsoft hover:shadow"
-      } ${isDragging ? "opacity-60 ring-2 ring-teal-500" : ""}`}
+            : "border-dh-bsoft hover:border-dh-border"
+      } ${isDragging ? "opacity-60 ring-2 ring-dh-accent" : ""}`}
     >
       <div className="flex items-center gap-1.5">
         <span
@@ -123,7 +124,7 @@ export function TaskCard({
         <div className="flex flex-wrap justify-end gap-1 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
           {isDraft && (
             <button
-              className="rounded-md bg-emerald-500 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-600 disabled:opacity-50"
+              className="rounded-md bg-dh-accent px-2 py-0.5 text-[11px] text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
               onClick={run(onStart)}
               disabled={busy}
               title="排入执行"
@@ -149,7 +150,7 @@ export function TaskCard({
           )}
           {terminal && task.session_uid && (
             <button
-              className="rounded-md bg-teal-600 px-2 py-0.5 text-[11px] text-white hover:bg-teal-500 disabled:opacity-50"
+              className="rounded-md bg-dh-accent px-2 py-0.5 text-[11px] text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
               onClick={run(onContinue)}
               disabled={busy}
               title="加载旧上下文继续"

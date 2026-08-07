@@ -360,13 +360,13 @@ export default function App() {
   return (
     <InstalledEnginesContext.Provider value={installedEngines}>
       <div className="dh-app-shell flex h-full min-w-0 flex-col">
-        <header className="dh-app-header relative z-50 border-b border-dh-bsoft bg-dh-surface/75 backdrop-blur-xl">
+        <header className="dh-app-header relative z-50 border-b border-dh-bsoft bg-dh-soft/95">
           <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 lg:gap-3 lg:px-8">
             <button
               className="flex min-w-0 items-center gap-2 pr-2 text-left"
               onClick={() => goTab("projects")}
             >
-              <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-700 bg-black">
+              <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-dh-border bg-black">
                 <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
               </span>
               {/* 移动端顶栏寸土寸金：只留 icon，标题文字 sm 起才显示 */}
@@ -444,7 +444,7 @@ export default function App() {
           {showPullIndicator && (
             <div className="pointer-events-none sticky top-0 z-30 flex h-0 justify-center">
               <div
-                className="mt-2 rounded-full border border-slate-700 bg-slate-900/95 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-lg"
+                className="mt-2 rounded-full border border-dh-border bg-dh-soft/95 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-lg"
                 style={{
                   transform: `translateY(${Math.max(0, (refreshing ? 54 : pullDistance) - 48)}px)`,
                 }}

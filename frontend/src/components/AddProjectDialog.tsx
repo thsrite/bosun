@@ -124,7 +124,7 @@ export function AddProjectDialog({
             关闭
           </button>
           <button
-            className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+            className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
             disabled={busy || loading || !cur}
             onClick={submit}
           >

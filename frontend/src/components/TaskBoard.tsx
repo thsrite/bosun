@@ -142,9 +142,9 @@ function DoneArchiveGroups({
             setOpenKey((cur) => (isOpen ? archive.key : cur === archive.key ? null : cur));
           }}
         >
-          <summary className="sticky top-0 z-10 flex cursor-pointer select-none items-center gap-2 border-b border-slate-800 bg-dh-bg/75 px-1 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur">
+          <summary className="sticky top-0 z-10 flex cursor-pointer select-none items-center gap-2 border-b border-dh-bsoft bg-dh-bg/75 px-1 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur">
             <span>{archive.key}</span>
-            <span className="ml-auto rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-slate-300 ring-1 ring-slate-700">
+            <span className="ml-auto rounded-full bg-dh-soft px-1.5 py-0.5 text-[10px] font-medium text-slate-300 ring-1 ring-slate-700">
               {archive.tasks.length}
             </span>
           </summary>
@@ -155,7 +155,7 @@ function DoneArchiveGroups({
         <button
           type="button"
           onClick={() => setShowOlder(true)}
-          className="w-full rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-3 py-2 text-center text-xs font-medium text-dh-muted hover:bg-dh-hover hover:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
+          className="w-full rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-3 py-2 text-center text-xs font-medium text-dh-muted hover:bg-dh-hover hover:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent"
         >
           显示更早的归档 · {olderArchives.length} 天 / {olderTaskCount} 个任务
         </button>

@@ -73,7 +73,7 @@ function ModelCombobox({
         aria-expanded={open}
         aria-controls={`${id}-options`}
         aria-activedescendant={highlighted >= 0 ? `${id}-option-${highlighted}` : undefined}
-        className="w-full rounded-md border border-dh-bsoft bg-dh-surface py-1 pl-2 pr-7 text-sm text-dh-text outline-none transition focus:border-teal-400 focus:ring-1 focus:ring-teal-400/30"
+        className="w-full rounded-md border border-dh-bsoft bg-dh-surface py-1 pl-2 pr-7 text-sm text-dh-text outline-none transition focus:border-dh-accent focus:ring-1 focus:ring-dh-accent/30"
         value={displayValue}
         placeholder="默认 / 自定义 ID"
         onFocus={() => {
@@ -140,7 +140,7 @@ function ModelCombobox({
         <div
           id={`${id}-options`}
           role="listbox"
-          className="absolute left-0 top-[calc(100%+0.3rem)] z-[80] max-h-56 min-w-full overflow-auto rounded-lg border border-dh-bsoft bg-dh-surface p-1 shadow-xl shadow-slate-900/15"
+          className="absolute left-0 top-[calc(100%+0.3rem)] z-[80] max-h-56 min-w-full overflow-auto rounded-lg border border-dh-bsoft bg-dh-surface p-1 shadow-xl shadow-black/30"
         >
           {filteredOptions.length > 0 ? filteredOptions.map((option, index) => {
             const selected = option.value === value;
@@ -164,7 +164,7 @@ function ModelCombobox({
                 onClick={() => selectOption(option.value)}
               >
                 <span className="whitespace-nowrap">{option.label}</span>
-                {selected && <span className="text-teal-500">✓</span>}
+                {selected && <span className="text-dh-accent">✓</span>}
               </button>
             );
           }) : (
@@ -395,7 +395,7 @@ function StorageOverview() {
           type="button"
           disabled={loading}
           onClick={() => void load()}
-          className="rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
         >{loading ? "统计中…" : "刷新"}</button>
       }
     >
@@ -546,7 +546,7 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
             <button
               type="submit"
               disabled={saving || !newPassword}
-              className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
             >
               {saving ? "保存中…" : auth.enabled ? "修改口令" : "启用登录"}
             </button>
@@ -597,7 +597,7 @@ function EngineVersionChip({ tool }: { tool: EngineToolInfo | undefined }) {
   if (!tool?.installed) return null;
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-[11px] text-dh-tsoft">
-      <span className="h-1.5 w-1.5 rounded-full bg-teal-500/80" />
+      <span className="h-1.5 w-1.5 rounded-full bg-dh-accent/80" />
       {tool.version ? `v${tool.version}` : "已安装"}
     </span>
   );
@@ -737,7 +737,7 @@ export function SettingsView({
                 aria-label="刷新 Claude 模型列表"
                 disabled={refreshingModels.cc}
                 onClick={() => void refreshModels("cc")}
-                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {refreshingModels.cc ? "刷新中…" : "刷新"}
               </button>
@@ -776,7 +776,7 @@ export function SettingsView({
                 aria-label="刷新 Codex 模型列表"
                 disabled={refreshingModels.codex}
                 onClick={() => void refreshModels("codex")}
-                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {refreshingModels.codex ? "刷新中…" : "刷新"}
               </button>
@@ -846,7 +846,7 @@ export function SettingsView({
                 aria-label="刷新 Kimi 模型列表"
                 disabled={refreshingModels.kimi}
                 onClick={() => void refreshModels("kimi")}
-                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {refreshingModels.kimi ? "刷新中…" : "刷新"}
               </button>

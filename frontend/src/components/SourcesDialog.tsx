@@ -93,7 +93,7 @@ export function SourcesDialog({
                 外部 API 拉取的条目会进「问题收件箱」当 finding，你再勾选转任务
               </span>
               <button
-                className="ml-auto shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500"
+                className="ml-auto shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov"
                 onClick={() => setEditing("new")}
               >
                 ＋ 新增来源
@@ -354,7 +354,7 @@ function SourceForm({
             取消
           </button>
           <button
-            className="rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+            className="rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
             disabled={busy || !name.trim() || !cfg.url.trim()}
             onClick={() =>
               run(async (config) => {

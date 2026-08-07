@@ -123,7 +123,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
       <div className="flex max-h-[calc(100dvh-8.5rem)] min-h-0 flex-col gap-3 text-sm">
         <div className="flex shrink-0 items-center gap-2">
           <button
-            className="rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+            className="rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
             disabled={reflectionRunning}
             onClick={reflect}
           >

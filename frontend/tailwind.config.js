@@ -23,8 +23,15 @@ export default {
           tsoft: "rgb(var(--dh-text-soft-rgb) / <alpha-value>)",
           muted: "rgb(var(--dh-muted-rgb) / <alpha-value>)",
           m2: "rgb(var(--dh-muted-2-rgb) / <alpha-value>)",
-          accent: "var(--dh-accent)",
+          accent: "rgb(var(--dh-accent-rgb) / <alpha-value>)",
+          acchov: "var(--dh-accent-hover)",
+          accfg: "var(--dh-accent-fg)",
         },
+      },
+      // 碳黑仪表：卡片级圆角整体收紧（rounded-xl 12→8px，rounded-2xl 16→12px）
+      borderRadius: {
+        xl: "0.5rem",
+        "2xl": "0.75rem",
       },
       fontFamily: {
         sans: [
