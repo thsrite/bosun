@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Bosun 工作台",
   "short_name": "Bosun",
-  "description": "Bosun local CC/Codex workbench",
+  "description": "Bosun local AI coding CLI workbench",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",

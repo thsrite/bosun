@@ -1,6 +1,6 @@
-# ⚓ Bosun · Claude Code / Codex 工作台
+# ⚓ Bosun · AI 编码 CLI 工作台
 
-Bosun 是一个本地优先的 Web 工作台，用来扫描和管理本机多个项目，并通过可交互终端会话编排 Claude Code / Codex 执行开发任务。
+Bosun 是一个本地优先的 Web 工作台，用来扫描和管理本机多个项目，并通过可交互终端会话编排 Claude Code、Codex、Oh My Pi、Kimi Code 等 AI 编码 CLI 执行开发任务。
 
 它提供并发上限、优先级调度、任务状态跟踪、人在环的 AI 诊断，以及跨项目的数据统计。设计思路见 [`docs/bosun-design.md`](docs/bosun-design.md)。
 

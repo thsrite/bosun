@@ -114,7 +114,7 @@ app.include_router(ws.router)
 def _warn_if_login_disabled() -> None:
     """未设访问口令时在启动日志里警示。
 
-    默认监听 0.0.0.0，同一网络下任何设备都能打开工作台驱动 cc/codex、
+    默认监听 0.0.0.0，同一网络下任何设备都能打开工作台驱动本机编码 CLI、
     直连终端 PTY。这条警示是「裸奔」状态唯一的提示面。
     """
     if auth_service.is_enabled():
