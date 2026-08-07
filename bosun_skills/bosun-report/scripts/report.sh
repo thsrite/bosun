@@ -55,7 +55,11 @@ code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' -X POST \
 [ -n "$code" ] || code="000"
 
 case "$code" in
-  2*) ;;
+  2*)
+    # 这行会出现在 agent 的工具结果里：在模型正要停下的时刻提醒它补上正文，
+    # 治「结论只写进 --summary、用户要点开命令才看得到」的收尾方式。
+    printf '回报已送达。请紧接着把本轮完整结论正文作为你最后一条消息打印出来再停下（不得再调工具）；summary 只是回执，用户只看正文。\n'
+    ;;
   *)
     printf 'Bosun 回报失败(HTTP %s)：状态没同步到工作台，请直接告知用户。\n' "$code" >&2
     exit 1
