@@ -56,7 +56,16 @@ _以上截图使用完全虚构的项目、路径、任务、终端输出和系�
 | [Oh My Pi](https://github.com/can1357/oh-my-pi) | `omp` | `npm i -g @oh-my-pi/pi-coding-agent` | 自带 provider 凭据；依赖 Bun 运行时，安装体积约 1.1 GB；不做订阅额度查询 |
 | [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) | `kimi` | `npm i -g @moonshot-ai/kimi-code` 或官方 `install.sh` | 自带 provider 凭据；不做订阅额度查询。注意 npm 上裸 `kimi-cli` 是不相干的占名包，旧一代 PyPI 版已淘汰，只适配新版 kimi-code |
 
-### 安装
+### 安装（下载安装包，免源码）
+
+[Releases](https://github.com/thsrite/bosun/releases) 提供开箱即用的二进制产物，不需要 Python / Node / 源码（运行 AI 任务仍需按上表安装引擎 CLI）：
+
+- **macOS（Apple Silicon）**：下载 `Bosun-*-macos-arm64.dmg`，拖入「应用程序」。未做 Apple 公证，首次打开被 Gatekeeper 拦截时执行 `xattr -cr /Applications/Bosun.app`
+- **Linux（x86_64）**：下载 `bosun-*-linux-x86_64.tar.gz`，解压后运行 `./bosun/bosun`，浏览器访问 `http://127.0.0.1:8770`
+
+二进制版同样支持「设置 → Bosun 版本」在线更新（整包替换）。
+
+### 安装（源码运行）
 
 ```bash
 git clone https://github.com/thsrite/bosun.git
@@ -138,7 +147,11 @@ cd frontend && npm run build    # 产物在 frontend/dist
 
 ## 更新
 
-「设置 → Bosun 版本」可以对比本地版本与 GitHub 上最新的 [release](https://github.com/thsrite/bosun/releases)，并一键更新本地代码：
+「设置 → Bosun 版本」可以对比本地版本与 GitHub 上最新的 [release](https://github.com/thsrite/bosun/releases)，并一键更新。
+
+**二进制部署**：下载当前平台的最新产物后整包原子替换安装目录，重启后端即生效（macOS 菜单栏图标程序在下次启动 Bosun.app 时更新）。
+
+**源码部署**：一键更新本地代码：
 
 1. `git fetch --tags` 后快进合并到该 release 的 tag（不做 merge，也不会 reset）
 2. 按本次变更的文件决定是否重装后端依赖、前端依赖、重建 `frontend/dist`

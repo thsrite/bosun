@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, JSONResponse, Response
 
 from . import auth as auth_service
-from . import codex_skills_guard, db, events, policies, reflection_scheduler, scheduler, self_update
+from . import codex_skills_guard, config, db, events, policies, reflection_scheduler, scheduler, self_update
 from .routers import (
     auth,
     autopilot,
@@ -158,7 +158,7 @@ def health(request: Request):
     return payload
 
 
-# 生产：挂载前端构建产物（frontend/dist）。开发时前端跑 Vite dev server。
-_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+# 生产：挂载前端构建产物（frontend/dist，冻结包内为随包资源）。开发时前端跑 Vite dev server。
+_dist = config.RESOURCE_ROOT / "frontend" / "dist"
 if _dist.is_dir():
     app.mount("/", SPAStaticFiles(directory=str(_dist), html=True), name="static")

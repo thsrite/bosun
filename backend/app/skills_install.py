@@ -11,9 +11,8 @@ from pathlib import Path
 
 from . import config, sessions
 
-# backend/app/skills_install.py → 仓库根 = parents[2]
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_SOURCE = _REPO_ROOT / "bosun_skills" / "bosun-report"
+# 随包只读资源，源码运行 = 仓库根，冻结包 = _MEIPASS
+_SOURCE = config.RESOURCE_ROOT / "bosun_skills" / "bosun-report"
 
 # 引擎 → (家目录, 二进制)。omp 不另设目录，它和 claude 一样从
 # ~/.claude/skills 解析 skill://，所以只有 omp 的机器也要装 ~/.claude/skills。

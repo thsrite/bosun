@@ -63,15 +63,29 @@ func launchctl(_ arguments: [String]) -> (code: Int32, output: String) {
 /// ThrottleInterval 是防崩溃风暴的闸门：即便后端反复启动失败，
 /// launchd 也最多每 10 秒重试一次，不会打满 CPU。
 func backendPlistDict(runAtLoad: Bool) -> [String: Any] {
-    [
+    // 内嵌模式（分发版）：后端是 app 包内的 PyInstaller 产物，路径随 Bundle 运行时解析，
+    // PATH 也不能用构建机烘焙值（CI 的 $HOME 不是用户的）。源码模式沿用构建时烘焙的 venv。
+    let program: [String]
+    let workDir: String
+    let envPath: String
+    if BosunConfig.bundledBackend, let resources = Bundle.main.resourcePath {
+        program = [resources + "/backend/bosun"]
+        workDir = resources + "/backend"
+        envPath = "\(homeDir.path)/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    } else {
+        program = [BosunConfig.python, "run.py"]
+        workDir = BosunConfig.backendDir
+        envPath = BosunConfig.path
+    }
+    return [
         "Label": kBackendLabel,
-        "ProgramArguments": [BosunConfig.python, "run.py"],
-        "WorkingDirectory": BosunConfig.backendDir,
+        "ProgramArguments": program,
+        "WorkingDirectory": workDir,
         "EnvironmentVariables": [
             "BOSUN_HOST": "0.0.0.0",
             "BOSUN_PORT": String(BosunConfig.port),
             // launchd 不读 .zshrc，claude / node / git 的路径必须显式给全。
-            "PATH": BosunConfig.path,
+            "PATH": envPath,
             "HOME": homeDir.path,
             "LANG": "zh_CN.UTF-8",
         ],
@@ -634,8 +648,17 @@ final class BosunController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 默认**不开机自启**：只落一份 RunAtLoad=false 的后端定义，不写图标自启 plist。
     /// 想要开机自启，由用户在菜单里主动勾选。
     private func ensureBackendPlistExists() {
-        guard !fm.fileExists(atPath: backendPlistURL.path) else { return }
-        try? writePlist(backendPlistDict(runAtLoad: false), to: backendPlistURL)
+        // 启动命令或工作目录变化（换了部署形态 / app 挪了位置）时重写 plist，
+        // 保留用户已选的 RunAtLoad；内容一致则不动。
+        let existing = readPlist(backendPlistURL)
+        let runAtLoad = existing?["RunAtLoad"] as? Bool ?? false
+        let desired = backendPlistDict(runAtLoad: runAtLoad)
+        if let existing,
+           existing["ProgramArguments"] as? [String] == desired["ProgramArguments"] as? [String],
+           existing["WorkingDirectory"] as? String == desired["WorkingDirectory"] as? String {
+            return
+        }
+        try? writePlist(desired, to: backendPlistURL)
     }
 
     /// 首次启动时若后端尚未被 launchd 接管，就地接管一次（幂等）。

@@ -1,0 +1,123 @@
+# 打 tag（v*）时构建 macOS / Linux 免源码可执行产物并挂到 GitHub Release。
+# 产物命名是在线更新的契约（backend/app/self_update.py 按后缀匹配平台），不要随意改：
+#   Bosun-<tag>-macos-arm64.dmg          （macOS 用户手动安装）
+#   bosun-<tag>-macos-arm64.app.tar.gz   （macOS 在线更新 / 命令行安装）
+#   bosun-<tag>-linux-x86_64.tar.gz      （Linux）
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 构建前端
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 打包后端
+        run: |
+          pip install -r backend/requirements.txt pyinstaller
+          python -m PyInstaller packaging/bosun.spec --noconfirm
+      - name: 冒烟测试
+        run: |
+          ./dist/bosun/bosun &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8770/api/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8770/ | grep -q "<title>" || exit 1
+          kill %1
+      - name: 压缩产物
+        run: tar -C dist -czf "bosun-${{ github.ref_name }}-linux-x86_64.tar.gz" bosun
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: bosun-*.tar.gz
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 构建前端
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 构建 Bosun.app（内嵌后端）
+        run: |
+          pip install -r backend/requirements.txt pyinstaller
+          BOSUN_PYTHON="$(command -v python)" bash macos/build.sh --bundle
+      - name: 冒烟测试
+        run: |
+          ./macos/build/Bosun.app/Contents/Resources/backend/bosun &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8770/api/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8770/ | grep -q "<title>" || exit 1
+          kill %1
+      - name: 打 DMG 与更新包
+        run: |
+          mkdir -p staging
+          cp -R macos/build/Bosun.app staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname Bosun -srcfolder staging -ov -format UDZO \
+            "Bosun-${{ github.ref_name }}-macos-arm64.dmg"
+          tar -C macos/build -czf "bosun-${{ github.ref_name }}-macos-arm64.app.tar.gz" Bosun.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            Bosun-*.dmg
+            bosun-*.app.tar.gz
+
+  release:
+    needs: [linux, macos]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bosun-*.tar.gz
+            Bosun-*.dmg
+          body: |
+            ## 安装说明
+
+            **macOS（Apple Silicon）**：下载 `.dmg`，拖入「应用程序」。产物未做 Apple 公证，首次打开若被 Gatekeeper 拦截，执行：
+            ```bash
+            xattr -cr /Applications/Bosun.app
+            ```
+
+            **Linux（x86_64）**：下载 `.tar.gz` 解压后运行 `./bosun/bosun`，浏览器访问 `http://127.0.0.1:8770`。
+
+            运行 AI 编码任务仍需自行安装至少一种支持的 CLI（Claude Code / Codex / Oh My Pi / Kimi Code 等）。
+          append_body: true

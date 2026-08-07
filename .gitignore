@@ -23,3 +23,7 @@ frontend/dist/
 /.superpowers/
 /docs/superpowers/
 /tests/
+
+# PyInstaller 打包产物（packaging/bosun.spec）
+/build/
+/dist/

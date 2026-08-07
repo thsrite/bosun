@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import platform
 import re
 import shutil
 import ssl
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.error
@@ -22,6 +25,7 @@ from pathlib import Path
 
 import certifi
 
+from . import config
 from .env import child_env
 from .version import VERSION
 
@@ -100,6 +104,9 @@ def _dist_exists() -> bool:
 # ---- 仓库状态 ----
 def _repo_state() -> dict:
     state = {"is_git": False, "branch": None, "detached": False, "dirty": False, "head": None, "error": None}
+    if config.IS_FROZEN:
+        state["binary"] = True  # 二进制发行版：不查 git，走整包替换更新
+        return state
     try:
         inside = _run_git(["rev-parse", "--is-inside-work-tree"], timeout=10)
     except Exception as exc:  # noqa: BLE001
@@ -123,6 +130,15 @@ def _repo_state() -> dict:
 
 
 def _blockers(state: dict) -> list[str]:
+    if state.get("binary"):
+        if _binary_asset_suffix() is None:
+            return ["当前平台没有对应的发行产物，无法在线更新"]
+        root = _binary_install_root()
+        if root is None:
+            return ["无法定位二进制安装目录，无法在线更新"]
+        if not os.access(root.parent, os.W_OK):
+            return [f"安装目录 {root.parent} 不可写，无法在线更新"]
+        return []
     if not state["is_git"]:
         return [state.get("error") or "当前部署不是 git 工作区，无法在线更新"]
     blockers = []
@@ -164,6 +180,7 @@ def _base_info(state: dict) -> dict:
         "dirty": state.get("dirty"),
         "head": state.get("head"),
         "is_git": state.get("is_git"),
+        "deploy": "binary" if state.get("binary") else "source",
         "blockers": blockers,
         "can_update": not blockers,
         "latest_version": None,
@@ -316,6 +333,9 @@ def _run_update() -> dict:
             "message": "已是最新版本",
         }
 
+    if state.get("binary"):
+        return _run_binary_update(steps, release, tag, latest)
+
     result = _run_git(["fetch", "--tags", "--prune", "origin"], timeout=180)
     if not _record(steps, "git fetch", ["git", "fetch", "--tags", "--prune", "origin"], result):
         return _fail(steps, _tail(result.stderr) or "拉取远端失败", from_version=VERSION, to_version=latest)
@@ -356,6 +376,107 @@ def _run_update() -> dict:
         "to_version": latest,
         "tag": tag,
         "message": f"已更新到 {tag}",
+    }
+
+
+# ---- 二进制发行版：整包替换更新 ----
+def _binary_asset_suffix() -> str | None:
+    """当前平台对应的 release 产物文件名后缀；不支持的平台返回 None。"""
+    machine = platform.machine().lower()
+    if sys.platform == "darwin":
+        arch = "arm64" if machine == "arm64" else "x86_64"
+        return f"macos-{arch}.app.tar.gz"
+    if sys.platform.startswith("linux"):
+        arch = "x86_64" if machine in {"x86_64", "amd64"} else machine
+        return f"linux-{arch}.tar.gz"
+    return None
+
+
+def _binary_install_root() -> Path | None:
+    """要整体替换的安装根：macOS 为 Bosun.app 包，Linux 为 PyInstaller onedir 目录。"""
+    exe = Path(sys.executable).resolve()
+    if sys.platform == "darwin":
+        for parent in exe.parents:
+            if parent.suffix == ".app":
+                return parent
+    return exe.parent
+
+
+def _step(steps: list[dict], name: str, output: str, ok: bool = True) -> None:
+    steps.append({"name": name, "command": None, "exit_code": None, "ok": ok, "output": _tail(output)})
+
+
+def _run_binary_update(steps: list[dict], release: dict, tag: str, latest: str | None) -> dict:
+    """下载对应平台产物 → 解压到同盘暂存目录 → 原子换名整包替换 → 交由调用方重启。"""
+    suffix = _binary_asset_suffix()
+    asset = next(
+        (a for a in release.get("assets") or [] if (a.get("name") or "").endswith(suffix)),
+        None,
+    )
+    if not asset:
+        return _fail(steps, f"release {tag} 没有 {suffix} 产物，无法在线更新", from_version=VERSION, to_version=latest)
+
+    target = _binary_install_root()
+    archive = config.DATA_DIR / "updates" / str(asset["name"])
+    staging = target.parent / f".bosun-update-{tag}"
+
+    try:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        request = urllib.request.Request(
+            asset["browser_download_url"],
+            headers={"Accept": "application/octet-stream", "User-Agent": f"bosun/{VERSION}"},
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_SSL_CTX) as response, open(archive, "wb") as fh:
+            shutil.copyfileobj(response, fh)
+        _step(steps, "下载更新包", f"{asset['name']}（{archive.stat().st_size // 1024 // 1024} MB）")
+    except Exception as exc:  # noqa: BLE001
+        return _fail(steps, f"下载更新包失败：{exc}", from_version=VERSION, to_version=latest)
+
+    try:
+        shutil.rmtree(staging, ignore_errors=True)
+        with tarfile.open(archive) as tf:
+            tf.extractall(staging, filter="tar")
+        entries = [p for p in staging.iterdir() if not p.name.startswith(".")]
+        if len(entries) != 1:
+            raise RuntimeError(f"更新包结构异常，顶层有 {len(entries)} 个条目")
+        new_root = entries[0]
+        _step(steps, "解压更新包", str(new_root.name))
+    except Exception as exc:  # noqa: BLE001
+        shutil.rmtree(staging, ignore_errors=True)
+        return _fail(steps, f"解压更新包失败：{exc}", from_version=VERSION, to_version=latest)
+
+    # 同盘 rename 原子替换；旧包先挪名保命，新包就位后再删。
+    # POSIX 上删除运行中的旧目录是安全的：已打开的 inode 在进程退出前仍有效。
+    old = target.with_name(target.name + ".update-old")
+    try:
+        shutil.rmtree(old, ignore_errors=True)
+        os.rename(target, old)
+        try:
+            os.rename(new_root, target)
+        except Exception:
+            os.rename(old, target)  # 回滚
+            raise
+        _step(steps, "替换安装目录", str(target))
+    except Exception as exc:  # noqa: BLE001
+        shutil.rmtree(staging, ignore_errors=True)
+        return _fail(steps, f"替换安装目录失败：{exc}", from_version=VERSION, to_version=latest)
+
+    shutil.rmtree(old, ignore_errors=True)
+    shutil.rmtree(staging, ignore_errors=True)
+    archive.unlink(missing_ok=True)
+
+    message = f"已更新到 {tag}，重启后端后生效"
+    if sys.platform == "darwin":
+        message += "；菜单栏图标程序在下次启动 Bosun.app 时更新"
+    return {
+        "ok": True,
+        "changed": True,
+        "steps": steps,
+        "error": None,
+        "from_version": VERSION,
+        "to_version": latest,
+        "tag": tag,
+        "message": message,
     }
 
 

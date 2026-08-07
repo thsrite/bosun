@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # 构建 Bosun 状态栏程序（Bosun.app）。只依赖 Xcode Command Line Tools，无需完整 Xcode。
 #
-#   ./macos/build.sh              仅构建到 macos/build/Bosun.app
+#   ./macos/build.sh              仅构建到 macos/build/Bosun.app（后端走本机源码 venv）
 #   ./macos/build.sh --install    构建并安装到 /Applications，然后启动
+#   ./macos/build.sh --bundle     分发模式：内嵌 PyInstaller 后端，产物免源码运行
+#                                 （需先 npm run build 与 pip install pyinstaller）
 
 set -euo pipefail
 
@@ -14,15 +16,29 @@ APP_DIR="$BUILD_DIR/Bosun.app"
 PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"
 PORT="${BOSUN_BACKEND_PORT:-8770}"
 INSTALL=0
+BUNDLE=0
 
 fail() { printf '错误：%s\n' "$1" >&2; exit 1; }
 
-[[ "${1:-}" == "--install" ]] && INSTALL=1
-[[ -n "${1:-}" && "${1:-}" != "--install" ]] && fail "未知参数：$1"
+for arg in "$@"; do
+  case "$arg" in
+    --install) INSTALL=1 ;;
+    --bundle) BUNDLE=1 ;;   # 分发模式：把 PyInstaller 后端产物内嵌进 app，免源码运行
+    *) fail "未知参数：$arg" ;;
+  esac
+done
 
 command -v xcrun >/dev/null 2>&1 || fail "找不到 xcrun，请先安装 Xcode Command Line Tools：xcode-select --install"
 xcrun -f swiftc >/dev/null 2>&1 || fail "找不到 swiftc。"
-[[ -x "$PYTHON_BIN" ]] || fail "缺少 $PYTHON_BIN，请先安装后端依赖。"
+if [[ "$BUNDLE" -eq 1 ]]; then
+  # 分发模式用系统/CI 的 python 跑 PyInstaller，不依赖本机 venv 路径
+  PYTHON_BIN="${BOSUN_PYTHON:-$PYTHON_BIN}"
+  [[ -x "$PYTHON_BIN" ]] || PYTHON_BIN="$(command -v python3)" || fail "找不到 python3"
+  "$PYTHON_BIN" -m PyInstaller --version >/dev/null 2>&1 || fail "缺少 PyInstaller：$PYTHON_BIN -m pip install pyinstaller"
+  [[ -f "$ROOT_DIR/frontend/dist/index.html" ]] || fail "缺少 frontend/dist，请先执行 cd frontend && npm run build"
+else
+  [[ -x "$PYTHON_BIN" ]] || fail "缺少 $PYTHON_BIN，请先安装后端依赖。"
+fi
 
 # launchd 不读 shell 配置，这里把后端真正需要的目录固化进 plist。
 # ~/.local/bin 提供 claude，homebrew 提供 node/npm/git。
@@ -83,16 +99,32 @@ make_icon || true
 
 # 发现已安装的 Bosun PWA（Chrome 安装的 PWA 位于 ~/Applications/Chrome Apps.localized）。
 # 找不到不算失败：运行时会按目录名再找一次，再不行才退回默认浏览器开地址。
+# 分发模式不烘焙：构建机的 PWA id 对用户机器没有意义。
 PWA_BUNDLE_ID=""
-for candidate in "$HOME/Applications/Chrome Apps.localized/"*.app; do
-  [[ -d "$candidate" ]] || continue
-  case "$(basename "$candidate")" in
-    *Bosun*|*bosun*)
-      PWA_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$candidate/Contents/Info.plist" 2>/dev/null || true)"
-      ;;
-  esac
-done
-printf '  PWA    : %s\n' "${PWA_BUNDLE_ID:-未发现（将退回默认浏览器）}"
+if [[ "$BUNDLE" -eq 0 ]]; then
+  for candidate in "$HOME/Applications/Chrome Apps.localized/"*.app; do
+    [[ -d "$candidate" ]] || continue
+    case "$(basename "$candidate")" in
+      *Bosun*|*bosun*)
+        PWA_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$candidate/Contents/Info.plist" 2>/dev/null || true)"
+        ;;
+    esac
+  done
+  printf '  PWA    : %s\n' "${PWA_BUNDLE_ID:-未发现（将退回默认浏览器）}"
+fi
+
+# 分发模式：先把后端打成 PyInstaller onedir，再内嵌进 app 的 Resources/backend。
+if [[ "$BUNDLE" -eq 1 ]]; then
+  printf '  后端   : PyInstaller 打包中…\n'
+  "$PYTHON_BIN" -m PyInstaller "$ROOT_DIR/packaging/bosun.spec" --noconfirm \
+    --workpath "$BUILD_DIR/pyi-work" --distpath "$BUILD_DIR/pyi-dist" >/dev/null \
+    || fail "PyInstaller 打包失败"
+  cp -R "$BUILD_DIR/pyi-dist/bosun" "$APP_DIR/Contents/Resources/backend"
+  printf '  后端   : 已内嵌 %s\n' "Contents/Resources/backend"
+fi
+
+APP_VERSION="$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' "$BACKEND_DIR/app/version.py")"
+APP_VERSION="${APP_VERSION:-0.0.0}"
 
 cat > "$BUILD_DIR/Config.swift" <<EOF
 // 由 macos/build.sh 生成，请勿手改。
@@ -103,6 +135,7 @@ enum BosunConfig {
     static let path = "$BAKED_PATH"
     static let pwaBundleID = "$PWA_BUNDLE_ID"
     static let executableFallback = "/Applications/Bosun.app/Contents/MacOS/Bosun"
+    static let bundledBackend = $([[ "$BUNDLE" -eq 1 ]] && echo true || echo false)
 }
 EOF
 
@@ -121,8 +154,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIdentifier</key><string>com.thsrite.bosun.menubar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>CFBundleVersion</key><string>$APP_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <!-- 只驻留菜单栏：无 Dock 图标、无主窗口 -->
   <key>LSUIElement</key><true/>

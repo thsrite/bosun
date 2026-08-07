@@ -4,7 +4,13 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
+
+# PyInstaller 冻结包：随包资源（frontend/dist、bosun_skills）解压在 _MEIPASS 下；
+# 源码运行时资源根即仓库根。凡随仓库分发的只读资源一律经 RESOURCE_ROOT 解析。
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", "")) if IS_FROZEN else Path(__file__).resolve().parents[2]
 
 # 数据根目录：~/.bosun（旧版 ~/.deckhand 会在首次启动时自动迁移）
 _ENV_DATA = os.environ.get("BOSUN_DATA")
