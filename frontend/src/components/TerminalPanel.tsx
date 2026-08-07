@@ -467,6 +467,27 @@ function TerminalView({
     // 输入法弹出时 visualViewport 机制会收缩面板高度并 refit，不会盖住终端内容。
     const isDesktopLayout = () => window.matchMedia("(min-width: 768px)").matches;
     if (isDesktopLayout()) term.focus();
+    // 触屏 + 移动布局：xterm 在 mousedown 里会自行 focus 隐藏 textarea，轻点正文经
+    // 合成 mousedown 就把输入法弹出来。textarea 置 inputmode=none —— 聚焦照常（硬件
+    // 键盘、按键栏键入不受影响），但不召唤软键盘；软键盘唯一从按键栏占位条唤起
+    // （onFocusTerminal 里临时恢复 inputmode 再聚焦），失焦后复原为 none。
+    // 桌面布局（含横屏 iPad）没有占位条，不能封死软键盘，转屏切换布局时同步解除/恢复。
+    const syncSoftKeyboardGate = () => {
+      const ta = term.textarea;
+      if (!ta || !isTouchDevice()) return;
+      if (isDesktopLayout()) {
+        if (ta.inputMode === "none") ta.inputMode = "";
+      } else if (document.activeElement !== ta) {
+        ta.inputMode = "none";
+      }
+    };
+    const restoreInputModeOnBlur = () => {
+      if (!isDesktopLayout() && term.textarea) term.textarea.inputMode = "none";
+    };
+    if (isTouchDevice() && term.textarea) {
+      syncSoftKeyboardGate();
+      term.textarea.addEventListener("blur", restoreInputModeOnBlur);
+    }
 
     let ws: WebSocket | null = null;
     let retry: number | null = null;
@@ -1107,6 +1128,7 @@ function TerminalView({
     const onResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
+      syncSoftKeyboardGate(); // 转屏跨过 768px 断点时，软键盘闸门随布局解除/恢复
       fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
@@ -1150,6 +1172,7 @@ function TerminalView({
       applicationScrollActive = false;
       deferredWrites.splice(0);
       deferredBytes = 0;
+      term.textarea?.removeEventListener("blur", restoreInputModeOnBlur);
       disposeAltBufferWorkaround();
       disposeImeFix();
       hardWrappedLinks.dispose();
@@ -1195,6 +1218,9 @@ function TerminalView({
             // iOS 残留态：textarea 仍是 activeElement 但键盘已收起时 focus() 是空操作，
             // 先 blur 再 focus 强制重新召唤键盘。
             if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
+            // blur 复原了 inputmode=none（轻点正文不弹键盘的闸门），这里是软键盘唯一
+            // 入口，聚焦前恢复成默认输入模式让键盘弹出
+            if (term.textarea) term.textarea.inputMode = "text";
             term.focus();
           }}
         />
