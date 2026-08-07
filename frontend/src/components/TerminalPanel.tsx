@@ -1073,6 +1073,18 @@ function TerminalView({
         e.type === "touchend" &&
         performance.now() - tStartAt < 350;
       if (tapLike && term.hasSelection()) {
+      // 只有点到「输入行附近」才弹输入法：TUI 输入框/shell 提示符都在光标所在屏幕行，
+      // 向上放宽 2 行容纳输入框边框；正文/历史区域轻点用于阅读滚动，不该误弹键盘。
+      // 正文轻点不拦默认链，链接仍走浏览器补发的模拟事件正常打开。
+      const tapNearCursorRow = (touch: Touch): boolean => {
+        const screen = term.element?.querySelector(".xterm-screen");
+        const rect = (screen ?? terminalHost).getBoundingClientRect();
+        if (rect.height <= 0 || term.rows <= 0) return true;
+        const tapRow = ((touch.clientY - rect.top) / rect.height) * term.rows;
+        const buf = term.buffer.active;
+        const cursorScreenRow = buf.baseY + buf.cursorY - buf.viewportY;
+        return tapRow >= cursorScreenRow - 2;
+      };
         // 有选区时轻点＝取消选区（对应原生选区点击空白收起的习惯），本次不弹输入法
         term.clearSelection();
       } else if (
@@ -1080,7 +1092,9 @@ function TerminalView({
         liveRef.current &&
         !isDesktopLayout() &&
         !hasNativeTerminalSelection() &&
-        !term.hasSelection()
+        !term.hasSelection() &&
+        e.changedTouches[0] &&
+        tapNearCursorRow(e.changedTouches[0])
       ) {
         // 轻点（区别于稍长的按压：那种 iOS 不补发模拟鼠标事件，键盘就能正常保持）的默认
         // 动作链——补发模拟鼠标事件 + 「点在不可聚焦区域」整链结束后收键盘——是输入法
