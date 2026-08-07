@@ -175,10 +175,11 @@ export function OverlayHost() {
     closeDialog(promptWithAttachments(promptVal, paths));
   }
 
+  // 悬浮层走毛玻璃：半透明底 + backdrop-blur，彩色 tone 底色同样降透明度让模糊透出来
   const toneCls: Record<Toast["tone"], string> = {
-    info: "border-slate-200 bg-white text-slate-700",
-    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    error: "border-rose-200 bg-rose-50 text-rose-700",
+    info: "border-dh-bsoft bg-dh-surface/80 text-dh-tsoft",
+    success: "border-emerald-500/40 bg-emerald-950/60 text-emerald-300",
+    error: "border-rose-500/40 bg-rose-950/60 text-rose-300",
   };
 
   return (
@@ -188,7 +189,7 @@ export function OverlayHost() {
         {_toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto max-w-sm rounded-lg border px-4 py-2.5 text-sm shadow-lg ${toneCls[t.tone]}`}
+            className={`pointer-events-auto max-w-sm rounded-xl border px-4 py-2.5 text-sm shadow-lg backdrop-blur-lg ${toneCls[t.tone]}`}
           >
             {t.message}
           </div>
@@ -204,13 +205,13 @@ export function OverlayHost() {
           aria-modal="true"
         >
           <div
-            className="max-h-full w-full max-w-[420px] overflow-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="max-h-full w-full max-w-[420px] overflow-auto rounded-2xl border border-dh-bsoft bg-dh-surface p-5 shadow-xl shadow-black/40 ring-1 ring-inset ring-white/[0.04]"
             onPaste={handlePaste}
           >
             <div className="mb-3 flex items-start gap-3">
-              <div className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-slate-700">{dlg.message}</div>
+              <div className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-dh-tsoft">{dlg.message}</div>
               <button
-                className="-mr-1 -mt-1 rounded-md px-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="-mr-1 -mt-1 rounded-md px-1 text-slate-400 hover:bg-dh-hover hover:text-slate-50"
                 onClick={() => closeDialog(dlg.kind === "prompt" ? null : false)}
                 aria-label="关闭"
                 title="关闭"
@@ -221,7 +222,7 @@ export function OverlayHost() {
             {dlg.kind === "prompt" && (
               <input
                 autoFocus
-                className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-800 focus:border-teal-500 focus:outline-none"
+                className="mt-3 w-full rounded-lg border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm text-dh-text focus:border-dh-m2 focus:outline-none"
                 value={promptVal}
                 onChange={(e) => setPromptVal(e.target.value)}
                 onKeyDown={(e) => {
@@ -290,7 +291,7 @@ export function OverlayHost() {
             )}
             <div className="mt-4 flex justify-end gap-2">
               <button
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
                 onClick={() => closeDialog(dlg.kind === "prompt" ? null : false)}
               >
                 取消
@@ -301,7 +302,7 @@ export function OverlayHost() {
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${
                   dlg.kind === "confirm" && dlg.danger
                     ? "bg-rose-500 hover:bg-rose-600"
-                    : "bg-teal-600 hover:bg-teal-700"
+                    : "bg-teal-600 hover:bg-teal-500"
                 }`}
                 onClick={() => (dlg.kind === "prompt" ? void submitPrompt() : closeDialog(true))}
               >

@@ -26,9 +26,9 @@ export const STATUS_STYLE: Record<string, { dot: string; text: string; label: st
   waiting_input: { dot: "bg-amber-400", text: "text-amber-400", label: "待输入", pulse: true },
   // 非真实 DB 状态：waiting_input 的细分，用后端 waiting_kind/pending_perm 派生
   waiting_perm: { dot: "bg-fuchsia-400", text: "text-fuchsia-400", label: "待授权", pulse: true },
-  waiting_choice: { dot: "bg-orange-400", text: "text-orange-500", label: "待选择", pulse: true },
+  waiting_choice: { dot: "bg-orange-400", text: "text-orange-400", label: "待选择", pulse: true },
   waiting_review: { dot: "bg-cyan-400", text: "text-cyan-400", label: "待人工核对", pulse: true },
-  paused: { dot: "bg-violet-400", text: "text-violet-500", label: "等待执行" },
+  paused: { dot: "bg-violet-400", text: "text-violet-300", label: "等待执行" },
   done: { dot: "bg-sky-400", text: "text-sky-400", label: "完成" },
   failed: { dot: "bg-rose-400", text: "text-rose-400", label: "失败" },
   cancelled: { dot: "bg-slate-500", text: "text-slate-400", label: "已取消" },

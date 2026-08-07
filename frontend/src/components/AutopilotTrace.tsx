@@ -42,8 +42,8 @@ export function AutopilotTrace({ runId, live }: { runId: number; live: boolean }
       {iters.map((it) => {
         const bySt = Object.fromEntries(spans.filter((s) => s.iteration === it).map((s) => [s.stage, s]));
         return (
-          <div key={it} className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
-            <div className="mb-2 text-xs font-medium text-slate-500">第 {it} 轮</div>
+          <div key={it} className="rounded-lg border border-dh-bsoft bg-dh-soft p-2.5">
+            <div className="mb-2 text-xs font-medium text-dh-muted">第 {it} 轮</div>
             <div className="flex flex-wrap items-stretch gap-1">
               {ORDER.map((stage, idx) => {
                 const s = bySt[stage];
@@ -52,14 +52,14 @@ export function AutopilotTrace({ runId, live }: { runId: number; live: boolean }
                   <div key={stage} className="flex items-stretch">
                     <div
                       className={`min-w-[92px] rounded-lg border px-2 py-1.5 ${
-                        s ? "border-slate-200 bg-white" : "border-dashed border-slate-200 bg-transparent opacity-40"
+                        s ? "border-dh-bsoft bg-dh-surface" : "border-dashed border-dh-bsoft bg-transparent opacity-40"
                       }`}
                       title={s?.detail || ""}
                     >
                       <div className="flex items-center gap-1">
                         <GlowDot tone={s ? tone(s.status) : "idle"} size={7} />
                         <span className="text-[11px]">{meta.icon}</span>
-                        <span className="text-[11px] font-medium text-slate-700">{meta.name}</span>
+                        <span className="text-[11px] font-medium text-dh-tsoft">{meta.name}</span>
                       </div>
                       {s && (
                         <div className="mt-0.5 text-[10px] text-slate-400">
@@ -68,7 +68,7 @@ export function AutopilotTrace({ runId, live }: { runId: number; live: boolean }
                         </div>
                       )}
                       {s?.label && (
-                        <div className="mt-0.5 line-clamp-1 text-[10px] text-slate-500">{s.label}</div>
+                        <div className="mt-0.5 line-clamp-1 text-[10px] text-dh-muted">{s.label}</div>
                       )}
                     </div>
                     {idx < ORDER.length - 1 && (

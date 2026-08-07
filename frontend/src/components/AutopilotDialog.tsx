@@ -9,10 +9,10 @@ import { AutopilotTrace } from "./AutopilotTrace";
 import { Modal } from "./Modal";
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
-  running: { text: "运行中", cls: "text-emerald-600" },
-  done: { text: "完成", cls: "text-sky-600" },
-  stopped: { text: "已停止", cls: "text-slate-500" },
-  failed: { text: "失败", cls: "text-rose-600" },
+  running: { text: "运行中", cls: "text-emerald-300" },
+  done: { text: "完成", cls: "text-sky-300" },
+  stopped: { text: "已停止", cls: "text-dh-muted" },
+  failed: { text: "失败", cls: "text-rose-400" },
 };
 
 export function AutopilotDialog({ project, onClose }: { project: Project; onClose: () => void }) {
@@ -102,17 +102,17 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
   return (
     <Modal title={`自动修复（自愈）· ${project.name}`} onClose={onClose} wide>
       <div className="space-y-3 text-sm">
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
           ⚠️ 会无人值守地改代码：在专用分支 <code>bosun/autopilot-*</code> 上循环「审→修→验→交叉复审→提交」。
           结束后请 review 分支 diff 再合并；不满意 <code>git reset</code> 回滚。会消耗较多 token。
         </p>
 
         {!isRunning && (
-          <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 p-3">
+          <div className="flex flex-wrap items-end gap-4 rounded-lg border border-dh-bsoft p-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">审查范围</span>
+              <span className="text-xs text-dh-muted">审查范围</span>
               <select
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+                className="rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
                 value={scope}
                 onChange={(e) => setScope(e.target.value)}
               >
@@ -123,31 +123,31 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
             </label>
             {scope !== "full" && (
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-dh-muted">
                   {scope === "recent" ? "最近N个提交" : "commit/范围"}
                 </span>
                 <input
-                  className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1"
+                  className="w-24 rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
                   value={scopeArg}
                   onChange={(e) => setScopeArg(e.target.value)}
                 />
               </label>
             )}
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">最大迭代</span>
+              <span className="text-xs text-dh-muted">最大迭代</span>
               <input
                 type="number"
                 min={1}
                 max={10}
-                className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1"
+                className="w-20 rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
                 value={maxIter}
                 onChange={(e) => setMaxIter(Number(e.target.value))}
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">修复引擎</span>
+              <span className="text-xs text-dh-muted">修复引擎</span>
               <select
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+                className="rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
                 value={fixEngine}
                 onChange={(e) => setFixEngine(e.target.value)}
               >
@@ -157,9 +157,9 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">交叉复审引擎</span>
+              <span className="text-xs text-dh-muted">交叉复审引擎</span>
               <select
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+                className="rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
                 value={reviewEngine}
                 onChange={(e) => setReviewEngine(e.target.value)}
               >
@@ -169,12 +169,12 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-slate-500">token 预算(千, 0=不限)</span>
+              <span className="text-xs text-dh-muted">token 预算(千, 0=不限)</span>
               <input
                 type="number"
                 min={0}
                 step={50}
-                className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1"
+                className="w-28 rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
                 value={budgetK}
                 onChange={(e) => setBudgetK(Number(e.target.value))}
               />
@@ -190,29 +190,29 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
         )}
 
         {run && (
-          <div className="rounded-lg border border-slate-200">
-            <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2 text-xs">
+          <div className="rounded-lg border border-dh-bsoft">
+            <div className="flex items-center gap-3 border-b border-dh-bsoft px-3 py-2 text-xs">
               <span className={`font-medium ${st?.cls}`}>● {st?.text}</span>
-              <span className="text-slate-500">
+              <span className="text-dh-muted">
                 第 {run.iteration}/{run.max_iterations} 轮
               </span>
               {run.branch && <span className="font-mono text-slate-400">{run.branch}</span>}
               <span className="text-slate-400">
                 {run.fix_engine} 修 → {run.review_engine} 审
               </span>
-              <span className="text-slate-500">
+              <span className="text-dh-muted">
                 🔥 {(run.tokens_used / 1000).toFixed(1)}k
                 {run.token_budget > 0 ? ` / ${(run.token_budget / 1000).toFixed(0)}k` : " (不限)"} tok
               </span>
-              {run.summary && <span className="text-slate-500">· {run.summary}</span>}
+              {run.summary && <span className="text-dh-muted">· {run.summary}</span>}
               <div className="ml-auto flex items-center gap-1">
-                <div className="flex rounded-lg border border-slate-200 p-0.5">
+                <div className="flex rounded-lg border border-dh-bsoft p-0.5">
                   {(["trace", "log"] as const).map((v) => (
                     <button
                       key={v}
                       onClick={() => setView(v)}
                       className={`rounded px-2 py-0.5 text-[11px] ${
-                        view === v ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100"
+                        view === v ? "bg-slate-800 text-white" : "text-dh-muted hover:bg-dh-hover"
                       }`}
                     >
                       {v === "trace" ? "流水线" : "日志"}
@@ -221,7 +221,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
                 </div>
                 {isRunning && (
                   <button
-                    className="rounded-lg border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                    className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-dh-tsoft hover:bg-rose-500/20 hover:text-rose-400 disabled:opacity-50"
                     disabled={busy}
                     onClick={() =>
                       runStart(async () => {
@@ -242,7 +242,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
             ) : (
               <pre
                 ref={logRef}
-                className="max-h-72 overflow-auto whitespace-pre-wrap bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700"
+                className="max-h-72 overflow-auto whitespace-pre-wrap bg-dh-soft p-3 text-[11px] leading-relaxed text-dh-tsoft"
               >
                 {log || "(暂无日志)"}
               </pre>
@@ -297,14 +297,14 @@ function PoliciesSection({ project }: { project: Project }) {
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
-      <div className="mb-2 text-sm font-medium text-slate-700">
+    <div className="rounded-lg border border-dh-bsoft p-3">
+      <div className="mb-2 text-sm font-medium text-dh-tsoft">
         定时策略（可配多条：如「最近改动」每小时、「全仓库」每天）
       </div>
       <div className="space-y-1.5">
         {policies.length === 0 && <div className="text-xs text-slate-400">还没有策略，下方添加</div>}
         {policies.map((p) => (
-          <div key={p.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs">
+          <div key={p.id} className="flex items-center gap-2 rounded-lg bg-dh-soft px-2.5 py-1.5 text-xs">
             <button
               disabled={busy}
               onClick={() =>
@@ -313,11 +313,11 @@ function PoliciesSection({ project }: { project: Project }) {
                   await load();
                 })
               }
-              className={`h-2 w-2 rounded-full disabled:opacity-50 ${p.enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+              className={`h-2 w-2 rounded-full disabled:opacity-50 ${p.enabled ? "bg-emerald-500" : "bg-slate-600"}`}
               title={p.enabled ? "已启用(点击停用)" : "已停用(点击启用)"}
             />
-            <span className="font-medium text-slate-700">{p.name}</span>
-            <span className="rounded bg-white px-1.5 text-slate-500 ring-1 ring-slate-200">
+            <span className="font-medium text-dh-tsoft">{p.name}</span>
+            <span className="rounded bg-dh-surface px-1.5 text-dh-muted ring-1 ring-dh-border">
               {SCOPE_LABEL[p.scope]}
               {p.scope !== "full" ? `·${p.scope_arg}` : ""}
             </span>
@@ -327,7 +327,7 @@ function PoliciesSection({ project }: { project: Project }) {
             )}
             <div className="ml-auto flex gap-1.5">
               <button
-                className="rounded border border-slate-200 bg-white px-2 py-0.5 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                className="rounded border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
                 disabled={busy}
                 onClick={() =>
                   guard(async () => {
@@ -342,7 +342,7 @@ function PoliciesSection({ project }: { project: Project }) {
                 立即跑
               </button>
               <button
-                className="rounded border border-slate-200 bg-white px-2 py-0.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                className="rounded border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-dh-muted hover:bg-rose-500/20 hover:text-rose-400 disabled:opacity-50"
                 disabled={busy}
                 onClick={() =>
                   guard(async () => {
@@ -360,15 +360,15 @@ function PoliciesSection({ project }: { project: Project }) {
         ))}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2 text-xs">
+      <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-dh-bsoft pt-2 text-xs">
         <input
-          className="w-36 rounded-lg border border-slate-200 px-2 py-1"
+          className="w-36 rounded-lg border border-dh-bsoft px-2 py-1"
           placeholder="策略名"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
         <select
-          className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+          className="rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1"
           value={scope}
           onChange={(e) => setScope(e.target.value)}
         >
@@ -378,17 +378,17 @@ function PoliciesSection({ project }: { project: Project }) {
         </select>
         {scope !== "full" && (
           <input
-            className="w-16 rounded-lg border border-slate-200 px-2 py-1"
+            className="w-16 rounded-lg border border-dh-bsoft px-2 py-1"
             value={scopeArg}
             onChange={(e) => setScopeArg(e.target.value)}
           />
         )}
-        <label className="flex items-center gap-1 text-slate-500">
+        <label className="flex items-center gap-1 text-dh-muted">
           每
           <input
             type="number"
             min={5}
-            className="w-16 rounded-lg border border-slate-200 px-2 py-1"
+            className="w-16 rounded-lg border border-dh-bsoft px-2 py-1"
             value={interval}
             onChange={(e) => setIntervalMin(Number(e.target.value))}
           />

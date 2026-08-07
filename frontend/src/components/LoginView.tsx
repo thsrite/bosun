@@ -40,12 +40,12 @@ export function LoginView({ onSignedIn }: { onSignedIn: () => void }) {
             <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
           </span>
           <div>
-            <div className="text-sm font-semibold text-slate-900">Bosun</div>
+            <div className="text-sm font-semibold text-dh-text">Bosun</div>
             <div className="text-[11px] text-slate-400">请输入访问口令</div>
           </div>
         </div>
 
-        <label className="block text-xs text-slate-500" htmlFor="bosun-password">
+        <label className="block text-xs text-dh-muted" htmlFor="bosun-password">
           访问口令
         </label>
         <input
@@ -53,7 +53,7 @@ export function LoginView({ onSignedIn }: { onSignedIn: () => void }) {
           type="password"
           autoFocus
           autoComplete="current-password"
-          className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+          className="mt-1.5 w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-text"
           value={password}
           onChange={(e) => {
             setPassword(e.target.value);

@@ -59,44 +59,44 @@ export function TaskCard({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`group w-full rounded-xl border bg-white p-3 text-sm shadow-sm transition ${
+      className={`group w-full rounded-xl border bg-dh-surface p-3 text-sm shadow-sm transition ${
         isPerm
-          ? "border-fuchsia-300 bg-fuchsia-50/60 ring-2 ring-fuchsia-200"
+          ? "border-fuchsia-500/40 bg-fuchsia-500/10 ring-2 ring-dh-border"
           : isChoice
-          ? "border-orange-300 bg-orange-50/60 ring-2 ring-orange-200"
+          ? "border-orange-500/40 bg-orange-500/10 ring-2 ring-dh-border"
           : isReview
-          ? "border-cyan-300 bg-cyan-50/60 ring-2 ring-cyan-200"
+          ? "border-cyan-500/40 bg-cyan-500/10 ring-2 ring-dh-border"
           : isWaiting
-          ? "border-amber-300 bg-amber-50/60 ring-2 ring-amber-200"
+          ? "border-amber-500/40 bg-amber-500/10 ring-2 ring-dh-border"
           : terminal
-            ? "border-slate-100 opacity-70"
-            : "border-slate-200 hover:shadow"
+            ? "border-dh-bsoft opacity-70"
+            : "border-dh-bsoft hover:shadow"
       } ${isDragging ? "opacity-60 ring-2 ring-teal-500" : ""}`}
     >
       <div className="flex items-center gap-1.5">
         <span
           {...attributes}
           {...listeners}
-          className="cursor-grab select-none text-slate-300 hover:text-slate-500"
+          className="cursor-grab select-none text-slate-300 hover:text-dh-muted"
           title="拖拽"
         >
           ⠿
         </span>
         <span className={`h-2 w-2 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
         <span className="font-mono text-[11px] text-slate-400">#{task.id}</span>
-        <span className="rounded bg-slate-100 px-1.5 text-[10px] font-medium uppercase text-slate-500">
+        <span className="rounded bg-dh-s2 px-1.5 text-[10px] font-medium uppercase text-dh-muted">
           {task.engine}
         </span>
         {task.kind === "repair" && (
-          <span className="rounded bg-violet-100 px-1.5 text-[10px] text-violet-600">修复</span>
+          <span className="rounded bg-violet-500/15 px-1.5 text-[10px] text-violet-300">修复</span>
         )}
-        <span className="ml-auto rounded-full bg-slate-100 px-1.5 text-[10px] font-medium text-slate-500">
+        <span className="ml-auto rounded-full bg-dh-s2 px-1.5 text-[10px] font-medium text-dh-muted">
           P{task.priority}
         </span>
       </div>
 
       <div className="mt-2 cursor-pointer" onClick={() => onOpen(task)} title={taskPromptText(task)}>
-        <div className="line-clamp-1 text-[13px] font-medium leading-snug text-slate-800 hover:text-slate-900">
+        <div className="line-clamp-1 text-[13px] font-medium leading-snug text-dh-text hover:text-dh-text">
           {task.title || taskPromptText(task)}
         </div>
         {task.title && (
@@ -132,14 +132,14 @@ export function TaskCard({
             </button>
           )}
           <button
-            className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
+            className="rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-dh-tsoft hover:bg-dh-hover"
             onClick={() => onOpen(task)}
           >
             终端
           </button>
           {(!terminal || task.status === "interrupted") && (
             <button
-              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-sky-600 hover:bg-sky-50 disabled:opacity-50"
+              className="rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
               onClick={run(onComplete)}
               disabled={busy}
               title="标记完成"
@@ -149,7 +149,7 @@ export function TaskCard({
           )}
           {terminal && task.session_uid && (
             <button
-              className="rounded-md bg-teal-600 px-2 py-0.5 text-[11px] text-white hover:bg-teal-700 disabled:opacity-50"
+              className="rounded-md bg-teal-600 px-2 py-0.5 text-[11px] text-white hover:bg-teal-500 disabled:opacity-50"
               onClick={run(onContinue)}
               disabled={busy}
               title="加载旧上下文继续"
@@ -159,7 +159,7 @@ export function TaskCard({
           )}
           {terminal && (
             <button
-              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
               onClick={run(onRerun)}
               disabled={busy}
               title="用同样指令全新跑一遍"
@@ -169,7 +169,7 @@ export function TaskCard({
           )}
           {active && (
             <button
-              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              className="rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-rose-400 hover:bg-rose-500/20 disabled:opacity-50"
               onClick={run(onCancel)}
               disabled={busy}
               title="取消运行"
@@ -178,7 +178,7 @@ export function TaskCard({
             </button>
           )}
           <button
-            className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+            className="rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-dh-muted hover:bg-rose-500/20 hover:text-rose-400 disabled:opacity-50"
             onClick={run(onDelete)}
             disabled={busy}
             title="删除任务"
@@ -189,7 +189,7 @@ export function TaskCard({
       </div>
 
       {(fmtDur(task.started_at, task.ended_at, task.elapsed_accum) || task.tokens != null) && (
-        <div className="mt-1.5 flex items-center gap-3 border-t border-slate-100 pt-1.5 text-[10px] text-slate-400">
+        <div className="mt-1.5 flex items-center gap-3 border-t border-dh-bsoft pt-1.5 text-[10px] text-slate-400">
           {fmtDur(task.started_at, task.ended_at, task.elapsed_accum) && (
             <span title="处理时长(含续聊累计)">⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</span>
           )}

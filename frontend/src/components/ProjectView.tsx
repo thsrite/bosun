@@ -72,15 +72,15 @@ export function ProjectView({
         <span className="hidden max-w-[40%] truncate text-xs text-slate-400 md:inline" title={project.path}>
           {project.path}
         </span>
-        <span className="shrink-0 text-xs text-slate-500">
+        <span className="shrink-0 text-xs text-dh-muted">
           {project.task_total} 任务
           {project.running > 0 && (
-            <span className="ml-1 text-emerald-600">· ●{project.running} 运行</span>
+            <span className="ml-1 text-emerald-300">· ●{project.running} 运行</span>
           )}
         </span>
-        <div className="flex w-full gap-2 overflow-x-auto pb-1 md:ml-auto md:w-auto md:flex-wrap md:overflow-visible md:pb-0">
+        <div className="dh-scrollbar-none flex w-full gap-2 overflow-x-auto pb-1 md:ml-auto md:w-auto md:flex-wrap md:overflow-visible md:pb-0">
           <button
-            className="shrink-0 whitespace-nowrap rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-sky-950/30 hover:bg-sky-700"
+            className="shrink-0 whitespace-nowrap rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-teal-950/30 hover:bg-teal-500"
             onClick={() => setShowCreate(true)}
           >
             + 任务
@@ -101,7 +101,7 @@ export function ProjectView({
             </button>
           )}
           <button
-            className="relative shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            className="relative shrink-0 whitespace-nowrap rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             onClick={() => setShowFindings(true)}
           >
             整体分析
@@ -112,28 +112,28 @@ export function ProjectView({
             )}
           </button>
           <button
-            className="shrink-0 whitespace-nowrap rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-100"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-500/20"
             onClick={() => setShowAutopilot(true)}
             title="AI 自审自修：审→修→验→交叉复审 循环"
           >
             🤖 自动修复
           </button>
           <button
-            className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             onClick={() => setShowSources(true)}
             title="配置外部 API 问题来源，拉取条目进收件箱"
           >
             🔌 问题来源
           </button>
           <button
-            className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             onClick={() => setShowImport(true)}
             title="导入别人分享的会话"
           >
             导入会话
           </button>
           <button
-            className="shrink-0 whitespace-nowrap rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm text-rose-600 hover:bg-rose-50"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-rose-500/40 bg-dh-surface px-3 py-1.5 text-sm text-rose-400 hover:bg-rose-500/20"
             onClick={() => onDeleteProject(project)}
             title="从 Bosun 删除此项目，不删除磁盘目录"
           >
@@ -150,7 +150,7 @@ export function ProjectView({
             value={taskQuery}
             onChange={(event) => setTaskQuery(event.target.value)}
             placeholder="搜索任务编号、标题或指令…"
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-700 outline-none focus:border-teal-500"
+            className="w-full rounded-lg border border-dh-bsoft bg-dh-surface py-2 pl-8 pr-3 text-sm text-dh-tsoft outline-none focus:border-dh-m2"
           />
         </div>
         {taskQuery.trim() && (

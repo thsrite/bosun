@@ -5,6 +5,18 @@
 @tailwind utilities;
 
 :root {
+  /* RGB 三元组：供 Tailwind dh 色板做透明度运算（bg-dh-surface/80 → 毛玻璃底色） */
+  --dh-bg-rgb: 7 10 15;
+  --dh-bg-soft-rgb: 11 17 26;
+  --dh-surface-rgb: 16 23 34;
+  --dh-surface-2-rgb: 21 31 46;
+  --dh-surface-hover-rgb: 27 40 58;
+  --dh-border-rgb: 37 52 72;
+  --dh-border-soft-rgb: 29 42 58;
+  --dh-text-rgb: 229 237 247;
+  --dh-text-soft-rgb: 203 213 225;
+  --dh-muted-rgb: 148 163 184;
+  --dh-muted-2-rgb: 100 116 139;
   --st-ok: #10b981;
   --st-warn: #f59e0b;
   --st-crit: #ef4444;
@@ -58,7 +70,14 @@ body {
 }
 .dh-app-header {
   padding-top: env(safe-area-inset-top);
-  background: rgba(10, 15, 24, 0.96);
+}
+
+/* 横向滚动条隐藏（导航条等 overflow-x 容器：能滚但不露轨道） */
+.dh-scrollbar-none {
+  scrollbar-width: none;
+}
+.dh-scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 .dh-safe-bottom-pad {
   padding-bottom: max(0.5rem, var(--dh-panel-safe-bottom, env(safe-area-inset-bottom)));
@@ -84,12 +103,14 @@ body {
   }
 }
 
-/* Bosun 卡片：暗色实心面 + 细边 */
+/* Bosun 卡片：暗色实心面 + 细边 + 顶缘高光（暗底上的层次靠内侧亮线而非投影） */
 .card {
   background: var(--dh-surface);
   border: 1px solid var(--dh-border-soft);
-  border-radius: 0.75rem;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  border-radius: 1rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 /* 原生 select 统一成和其它输入一致的观感 */
@@ -206,171 +227,7 @@ textarea::placeholder {
   background: transparent;
 }
 
-/* 全局暗色覆盖：让现有 Tailwind 浅色工具类统一映射到 Bosun 黑色主题 */
-.bg-white,
-.bg-white\/70,
-.bg-white\/95 {
-  background-color: var(--dh-surface) !important;
-}
-.bg-slate-50,
-.bg-slate-50\/50,
-.bg-slate-50\/60,
-.bg-slate-50\/70 {
-  background-color: var(--dh-bg-soft) !important;
-}
-.bg-slate-100 {
-  background-color: var(--dh-surface-2) !important;
-}
-.bg-teal-50,
-.bg-teal-50\/50,
-.bg-teal-100 {
-  background-color: rgba(148, 163, 184, 0.12) !important;
-}
-.bg-indigo-50,
-.bg-indigo-100,
-.bg-violet-50,
-.bg-violet-50\/30,
-.bg-violet-50\/50,
-.bg-violet-50\/60,
-.bg-violet-100,
-.bg-fuchsia-50,
-.bg-fuchsia-50\/60,
-.bg-fuchsia-100 {
-  background-color: rgba(139, 92, 246, 0.18) !important;
-}
-.bg-emerald-50,
-.bg-emerald-100 {
-  background-color: rgba(16, 185, 129, 0.12) !important;
-}
-.bg-sky-50,
-.bg-sky-100 {
-  background-color: rgba(14, 165, 233, 0.13) !important;
-}
-.bg-teal-600 {
-  background-color: #0f766e !important;
-}
-.hover\:bg-teal-700:hover {
-  background-color: #115e59 !important;
-}
-.bg-amber-50,
-.bg-amber-50\/60,
-.bg-amber-100 {
-  background-color: rgba(245, 158, 11, 0.13) !important;
-}
-.bg-rose-50,
-.bg-rose-100 {
-  background-color: rgba(244, 63, 94, 0.13) !important;
-}
-
-.border-slate-100,
-.border-slate-200 {
-  border-color: var(--dh-border-soft) !important;
-}
-.border-amber-200,
-.border-amber-300 {
-  border-color: rgba(245, 158, 11, 0.42) !important;
-}
-.border-emerald-200 {
-  border-color: rgba(16, 185, 129, 0.4) !important;
-}
-.border-rose-200 {
-  border-color: rgba(244, 63, 94, 0.4) !important;
-}
-.border-teal-300 {
-  border-color: rgba(148, 163, 184, 0.46) !important;
-}
-.border-violet-200 {
-  border-color: rgba(139, 92, 246, 0.4) !important;
-}
-.divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
-  border-color: var(--dh-border-soft) !important;
-}
-.divide-violet-100 > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgba(139, 92, 246, 0.28) !important;
-}
-.ring-slate-200,
-.ring-teal-200,
-.ring-emerald-200,
-.ring-sky-200,
-.ring-violet-200,
-.ring-fuchsia-200,
-.ring-amber-200 {
-  --tw-ring-color: var(--dh-border) !important;
-}
-
-.text-slate-900,
-.text-slate-800 {
-  color: var(--dh-text) !important;
-}
-.text-slate-700,
-.text-slate-600 {
-  color: var(--dh-text-soft) !important;
-}
-.text-slate-500 {
-  color: var(--dh-muted) !important;
-}
-.text-slate-400,
-.text-slate-300 {
-  color: var(--dh-muted-2) !important;
-}
-.text-teal-700,
-.text-teal-600 {
-  color: var(--dh-text-soft) !important;
-}
-.text-emerald-700,
-.text-emerald-600 {
-  color: #6ee7b7 !important;
-}
-.text-amber-800,
-.text-amber-700,
-.text-amber-600 {
-  color: #fbbf24 !important;
-}
-.text-rose-700,
-.text-rose-600 {
-  color: #fb7185 !important;
-}
-.text-sky-600 {
-  color: #7dd3fc !important;
-}
-.text-violet-600,
-.text-fuchsia-600,
-.text-indigo-600 {
-  color: #c4b5fd !important;
-}
-
-.hover\:bg-slate-50:hover,
-.hover\:bg-slate-100:hover {
-  background-color: var(--dh-surface-hover) !important;
-}
-.hover\:bg-teal-50:hover {
-  background-color: rgba(148, 163, 184, 0.18) !important;
-}
-.hover\:bg-emerald-50:hover,
-.hover\:bg-emerald-100:hover {
-  background-color: rgba(16, 185, 129, 0.18) !important;
-}
-.hover\:bg-sky-50:hover {
-  background-color: rgba(14, 165, 233, 0.18) !important;
-}
-.hover\:bg-amber-50:hover,
-.hover\:bg-amber-50\/60:hover,
-.hover\:bg-amber-100:hover {
-  background-color: rgba(245, 158, 11, 0.18) !important;
-}
-.hover\:bg-rose-50:hover {
-  background-color: rgba(244, 63, 94, 0.18) !important;
-}
-.hover\:bg-violet-50\/30:hover,
-.hover\:bg-violet-50:hover {
-  background-color: rgba(139, 92, 246, 0.18) !important;
-}
-.hover\:text-slate-800:hover,
-.hover\:text-slate-700:hover,
-.hover\:text-slate-600:hover {
-  color: #f8fafc !important;
-}
-
+/* 暗底阴影统一压深（浅色阴影在黑底上不可见） */
 .shadow,
 .shadow-sm,
 .shadow-md,
@@ -378,8 +235,4 @@ textarea::placeholder {
 .shadow-xl,
 .shadow-2xl {
   --tw-shadow-color: rgba(0, 0, 0, 0.45);
-}
-
-.focus\:border-teal-500:focus {
-  border-color: var(--dh-muted-2) !important;
 }

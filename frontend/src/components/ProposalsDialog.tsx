@@ -123,7 +123,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
       <div className="flex max-h-[calc(100dvh-8.5rem)] min-h-0 flex-col gap-3 text-sm">
         <div className="flex shrink-0 items-center gap-2">
           <button
-            className="rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            className="rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             disabled={reflectionRunning}
             onClick={reflect}
           >
@@ -135,15 +135,15 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         {reflectionRunning && (
-          <div className="shrink-0 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700">
+          <div className="shrink-0 rounded-lg border border-slate-400/30 bg-slate-400/10 px-3 py-2 text-xs text-dh-tsoft">
             正在调用 cc 读取运行数据并生成提案，通常需要几十秒；完成后列表会自动刷新。
           </div>
         )}
 
         {settings && (
-          <div className="shrink-0 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+          <div className="shrink-0 rounded-xl border border-dh-bsoft bg-dh-soft p-3">
             <div className="mb-2 flex items-center gap-2">
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+              <label className="flex items-center gap-2 text-sm font-medium text-dh-text">
                 <input
                   type="checkbox"
                   checked={settings.auto_enabled}
@@ -156,11 +156,11 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
                 定时读取系统诊断数据，生成待你采纳的优化提案
               </span>
             </div>
-            <div className="grid grid-cols-1 gap-2 text-xs text-slate-500 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 text-xs text-dh-muted sm:grid-cols-3">
               <label className="flex items-center gap-2">
                 间隔(小时)
                 <input
-                  className="w-20 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                  className="w-20 rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-dh-tsoft"
                   type="number"
                   min={1}
                   max={168}
@@ -172,7 +172,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
               <label className="flex items-center gap-2">
                 Pending 阈值
                 <input
-                  className="w-20 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                  className="w-20 rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-dh-tsoft"
                   type="number"
                   min={1}
                   max={50}
@@ -183,7 +183,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
               </label>
               <div className="min-w-0 truncate">
                 上次：{fmtLast(settings.last_run_at)}
-                {settings.last_skip_reason && <span className="ml-1 text-amber-600">({settings.last_skip_reason})</span>}
+                {settings.last_skip_reason && <span className="ml-1 text-amber-400">({settings.last_skip_reason})</span>}
                 {typeof settings.last_new_count === "number" && (
                   <span className="ml-1 text-slate-400">新增 {settings.last_new_count}</span>
                 )}
@@ -194,7 +194,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {items.length > 0 && (
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 py-1 text-xs text-slate-400 backdrop-blur">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-dh-bsoft bg-dh-surface py-1 text-xs text-slate-400 backdrop-blur">
               <span>待处理提案 {items.length} 条</span>
               <span>列表可滚动</span>
             </div>
@@ -205,31 +205,31 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {items.map((p) => (
-            <div key={p.id} className="rounded-xl border border-slate-200 bg-white p-3">
+            <div key={p.id} className="rounded-xl border border-dh-bsoft bg-dh-surface p-3">
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium text-slate-800">{p.title}</div>
+                  <div className="font-medium text-dh-text">{p.title}</div>
                   {p.rationale && (
-                    <div className="mt-1 max-h-20 overflow-y-auto pr-1 text-xs leading-relaxed text-slate-500">
+                    <div className="mt-1 max-h-20 overflow-y-auto pr-1 text-xs leading-relaxed text-dh-muted">
                       {p.rationale}
                     </div>
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     {p.action ? (
-                      <code className="inline-block rounded bg-teal-50 px-1.5 py-0.5 text-[10px] text-teal-700">
+                      <code className="inline-block rounded bg-slate-400/10 px-1.5 py-0.5 text-[10px] text-dh-tsoft">
                         {actionLabel(p.action)}
                       </code>
                     ) : (
                       <span className="inline-block text-[10px] text-slate-400">{actionLabel(null)}</span>
                     )}
                     {p.task && (
-                      <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                      <span className="inline-block rounded bg-dh-s2 px-1.5 py-0.5 text-[10px] text-dh-tsoft">
                         任务 #{p.task.id} · {p.task.status}
                       </span>
                     )}
                   </div>
                   {actionDetail(p.action) && (
-                    <code className="mt-1 block overflow-x-auto whitespace-pre rounded bg-slate-50 px-2 py-1 text-[10px] text-slate-600">
+                    <code className="mt-1 block overflow-x-auto whitespace-pre rounded bg-dh-soft px-2 py-1 text-[10px] text-dh-tsoft">
                       {actionDetail(p.action)}
                     </code>
                   )}
@@ -255,7 +255,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
                     采纳
                   </button>
                   <button
-                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
                     disabled={acting != null}
                     onClick={() => {
                       setDismissReason("");
@@ -267,9 +267,9 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
               {dismissId === p.id && (
-                <div className="mt-2 flex items-center gap-1.5 border-t border-slate-100 pt-2">
+                <div className="mt-2 flex items-center gap-1.5 border-t border-dh-bsoft pt-2">
                   <input
-                    className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                    className="min-w-0 flex-1 rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-xs text-dh-tsoft"
                     placeholder="忽略理由（可选，会回流给下一轮反思，避免重复提出）"
                     value={dismissReason}
                     disabled={acting != null}
@@ -278,7 +278,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
                     onKeyDown={(e) => e.key === "Enter" && confirmDismiss(p.id)}
                   />
                   <button
-                    className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className="shrink-0 rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
                     disabled={acting != null}
                     onClick={() => confirmDismiss(p.id)}
                   >

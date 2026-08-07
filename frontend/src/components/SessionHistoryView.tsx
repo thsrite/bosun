@@ -99,12 +99,12 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
           会话较长，当前展示最近的历史消息；完整记录仍可通过“分享导出”获取。
         </div>
       )}
-      {loading && <div className="pt-8 text-center text-xs text-slate-500">正在读取会话历史…</div>}
+      {loading && <div className="pt-8 text-center text-xs text-dh-muted">正在读取会话历史…</div>}
       {!loading && error && (
         <div className="pt-8 text-center text-xs text-rose-300">历史读取失败：{error}</div>
       )}
       {!loading && !error && messages.length === 0 && (
-        <div className="pt-8 text-center text-xs text-slate-500">没有可解析的会话历史，可切换到原始终端查看。</div>
+        <div className="pt-8 text-center text-xs text-dh-muted">没有可解析的会话历史，可切换到原始终端查看。</div>
       )}
       <div className="mx-auto max-w-5xl space-y-3">
         {messages.map((message, index) =>

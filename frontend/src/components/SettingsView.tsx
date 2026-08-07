@@ -71,7 +71,7 @@ function ModelCombobox({
         aria-expanded={open}
         aria-controls={`${id}-options`}
         aria-activedescendant={highlighted >= 0 ? `${id}-option-${highlighted}` : undefined}
-        className="w-full rounded-md border border-slate-200 bg-white py-1 pl-2 pr-7 text-sm text-slate-800 outline-none transition focus:border-teal-400 focus:ring-1 focus:ring-teal-400/30"
+        className="w-full rounded-md border border-dh-bsoft bg-dh-surface py-1 pl-2 pr-7 text-sm text-dh-text outline-none transition focus:border-teal-400 focus:ring-1 focus:ring-teal-400/30"
         value={displayValue}
         placeholder="默认 / 自定义 ID"
         onFocus={() => {
@@ -122,7 +122,7 @@ function ModelCombobox({
       <button
         type="button"
         tabIndex={-1}
-        className="absolute inset-y-0 right-0 grid w-7 place-items-center rounded-r-md text-[10px] text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+        className="absolute inset-y-0 right-0 grid w-7 place-items-center rounded-r-md text-[10px] text-slate-400 hover:bg-dh-hover hover:text-slate-50"
         aria-label={open ? "收起模型选项" : "展开模型选项"}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
@@ -138,7 +138,7 @@ function ModelCombobox({
         <div
           id={`${id}-options`}
           role="listbox"
-          className="absolute left-0 top-[calc(100%+0.3rem)] z-[80] max-h-56 min-w-full overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15"
+          className="absolute left-0 top-[calc(100%+0.3rem)] z-[80] max-h-56 min-w-full overflow-auto rounded-lg border border-dh-bsoft bg-dh-surface p-1 shadow-xl shadow-slate-900/15"
         >
           {filteredOptions.length > 0 ? filteredOptions.map((option, index) => {
             const selected = option.value === value;
@@ -152,10 +152,10 @@ function ModelCombobox({
                 aria-selected={selected}
                 className={`flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-xs ${
                   selected
-                    ? "bg-teal-50 font-medium text-teal-700"
+                    ? "bg-slate-400/10 font-medium text-dh-tsoft"
                     : active
-                      ? "bg-slate-100 text-slate-800"
-                      : "text-slate-700 hover:bg-slate-50"
+                      ? "bg-dh-s2 text-dh-text"
+                      : "text-dh-tsoft hover:bg-dh-hover"
                 }`}
                 onMouseEnter={() => setHighlighted(index)}
                 onMouseDown={(event) => event.preventDefault()}
@@ -177,7 +177,7 @@ function ModelCombobox({
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section className="card p-4 lg:p-5">
-      <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+      <h2 className="text-sm font-semibold text-dh-text">{title}</h2>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
       <div className="mt-4 space-y-4">{children}</div>
     </section>
@@ -188,7 +188,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
       <div className="min-w-0">
-        <div className="text-sm text-slate-700">{label}</div>
+        <div className="text-sm text-dh-tsoft">{label}</div>
         {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
       </div>
       {children}
@@ -264,7 +264,7 @@ function BosunVersion() {
           type="button"
           disabled={checking || updating}
           onClick={() => void check()}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
         >{checking ? "检查中…" : "检查更新"}</button>
       </Field>
 
@@ -280,20 +280,20 @@ function BosunVersion() {
               href={info.release_url || info.releases_url}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-teal-600 hover:underline"
+              className="text-xs text-dh-tsoft hover:underline"
             >更新说明</a>
             <button
               type="button"
               disabled={updating || !info.can_update}
               onClick={() => void update()}
-              className="rounded-lg border border-teal-300 px-3 py-1.5 text-sm text-teal-600 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-slate-400/40 px-3 py-1.5 text-sm text-dh-tsoft hover:bg-slate-400/20 disabled:cursor-not-allowed disabled:opacity-50"
             >{updating ? "更新中…" : "立即更新"}</button>
           </div>
         </Field>
       )}
 
       {info?.update_available && info.release_notes && (
-        <div className="chat-md max-h-40 overflow-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="chat-md max-h-40 overflow-auto rounded-lg border border-dh-bsoft bg-dh-soft px-3 py-2">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{ a: (p) => <a {...p} target="_blank" rel="noreferrer" /> }}
@@ -304,16 +304,16 @@ function BosunVersion() {
       )}
 
       {info && info.blockers.length > 0 && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
           无法在线更新：{info.blockers.join("；")}
         </div>
       )}
 
       {result && (
-        <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+        <div className="space-y-1 rounded-lg border border-dh-bsoft bg-dh-soft px-3 py-2 text-[11px] text-dh-tsoft">
           {result.steps.map((step, index) => (
             <div key={`${step.name}-${index}`} className="flex gap-2">
-              <span className={step.skipped ? "text-slate-400" : step.ok ? "text-teal-600" : "text-rose-500"}>
+              <span className={step.skipped ? "text-slate-400" : step.ok ? "text-dh-tsoft" : "text-rose-500"}>
                 {step.skipped ? "–" : step.ok ? "✓" : "✕"}
               </span>
               <span className="min-w-0 flex-1">
@@ -398,12 +398,12 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
       hint="口令用于阻止他人打开工作台执行任务；终端 WebSocket 同样校验。"
     >
       {!auth.enabled && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
           ⚠️ 当前未启用登录，任何能访问本服务的人都能操作终端与任务。若本机以外可访问，请立刻设置口令。
         </div>
       )}
       {envManaged && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        <div className="rounded-lg border border-dh-bsoft bg-dh-soft px-3 py-2 text-xs text-dh-muted">
           口令由环境变量 <code>BOSUN_PASSWORD</code> 提供，需改环境变量并重启后端。
         </div>
       )}
@@ -415,7 +415,7 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
               <input
                 type="password"
                 autoComplete="current-password"
-                className="w-52 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-800"
+                className="w-52 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
               />
@@ -425,7 +425,7 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
             <input
               type="password"
               autoComplete="new-password"
-              className="w-52 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-800"
+              className="w-52 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
@@ -434,7 +434,7 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
             <input
               type="password"
               autoComplete="new-password"
-              className="w-52 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-800"
+              className="w-52 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
@@ -452,7 +452,7 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
               <button
                 type="button"
                 onClick={disableLogin}
-                className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-500 hover:bg-rose-50"
+                className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-500 hover:bg-rose-500/20"
               >
                 关闭登录
               </button>
@@ -462,11 +462,11 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
       )}
 
       {auth.enabled && (
-        <div className="border-t border-slate-100 pt-3">
+        <div className="border-t border-dh-bsoft pt-3">
           <button
             type="button"
             onClick={logout}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
           >
             退出登录
           </button>
@@ -546,7 +546,7 @@ export function SettingsView({
           <input
             type="number"
             min={1}
-            className="w-20 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-800"
+            className="w-20 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
             value={settings.max_concurrent}
             onChange={(e) => void onChange({ max_concurrent: Number(e.target.value) })}
           />
@@ -580,7 +580,7 @@ export function SettingsView({
                 aria-label="刷新 Claude 模型列表"
                 disabled={refreshingModels.cc}
                 onClick={() => void refreshModels("cc")}
-                className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 transition hover:border-teal-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {refreshingModels.cc ? "刷新中…" : "刷新"}
               </button>
@@ -618,7 +618,7 @@ export function SettingsView({
                 aria-label="刷新 Codex 模型列表"
                 disabled={refreshingModels.codex}
                 onClick={() => void refreshModels("codex")}
-                className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 transition hover:border-teal-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-teal-400 hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {refreshingModels.codex ? "刷新中…" : "刷新"}
               </button>
@@ -676,7 +676,7 @@ export function SettingsView({
             type="button"
             disabled={restartingBackend}
             onClick={() => void restartBackend()}
-            className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-500 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-500 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >重启后端</button>
         </Field>
       </Section>

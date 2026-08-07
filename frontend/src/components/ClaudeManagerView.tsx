@@ -51,11 +51,11 @@ function formatTime(ts: number | null) {
 }
 
 function categoryClass(category: ClaudeResourceCategory) {
-  if (category === "memory") return "border-teal-300 bg-teal-50 text-teal-700";
-  if (category === "skill") return "border-sky-300 bg-sky-50 text-sky-700";
-  if (category === "rule") return "border-amber-300 bg-amber-50 text-amber-700";
-  if (category === "settings") return "border-violet-300 bg-violet-50 text-violet-700";
-  return "border-slate-200 bg-slate-100 text-slate-600";
+  if (category === "memory") return "border-slate-400/40 bg-slate-400/10 text-dh-tsoft";
+  if (category === "skill") return "border-sky-500/40 bg-sky-500/10 text-sky-300";
+  if (category === "rule") return "border-amber-500/40 bg-amber-500/10 text-amber-400";
+  if (category === "settings") return "border-violet-500/40 bg-violet-500/15 text-violet-300";
+  return "border-dh-bsoft bg-dh-s2 text-dh-tsoft";
 }
 
 function parseError(err: unknown) {
@@ -241,32 +241,32 @@ export function ClaudeManagerView() {
     <div className="flex min-h-full flex-col px-4 py-5 md:px-8 md:py-6">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-slate-800">Claude 全局配置</div>
+          <div className="text-sm font-semibold text-dh-text">Claude 全局配置</div>
           <div className="truncate text-xs text-slate-400" title={root}>
             {root}
           </div>
         </div>
-        <div className="-mx-1 flex max-w-full gap-2 overflow-x-auto px-1 pb-1">
+        <div className="dh-scrollbar-none -mx-1 flex max-w-full gap-2 overflow-x-auto px-1 pb-1">
           <button
-            className="shrink-0 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+            className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500"
             onClick={() => create("skill")}
           >
             + Skill
           </button>
           <button
-            className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100"
+            className="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-400 hover:bg-amber-500/20"
             onClick={() => create("rule")}
           >
             + Rule
           </button>
           <button
-            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            className="shrink-0 rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             onClick={() => create("command")}
           >
             + Command
           </button>
           <button
-            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+            className="shrink-0 rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             onClick={() => create("agent")}
           >
             + Agent
@@ -276,8 +276,8 @@ export function ClaudeManagerView() {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="card flex min-h-[calc(100dvh-13rem)] flex-col overflow-hidden lg:min-h-[260px]">
-          <div className="border-b border-slate-200 p-3">
-            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:flex-wrap lg:overflow-visible lg:pb-0">
+          <div className="border-b border-dh-bsoft p-3">
+            <div className="dh-scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:flex-wrap lg:overflow-visible lg:pb-0">
               {(["all", ...CATEGORY_ORDER] as Filter[]).map((key) => {
                 if (key !== "all" && !counts[key]) return null;
                 const isActive = filter === key;
@@ -287,7 +287,7 @@ export function ClaudeManagerView() {
                     className={`shrink-0 rounded-md px-2 py-1 text-xs transition ${
                       isActive
                         ? "bg-black font-medium text-white ring-1 ring-slate-700"
-                        : "border border-slate-200 text-slate-500 hover:bg-slate-50"
+                        : "border border-dh-bsoft text-dh-muted hover:bg-dh-hover"
                     }`}
                     onClick={() => setFilter(key)}
                   >
@@ -317,8 +317,8 @@ export function ClaudeManagerView() {
                           tabIndex={0}
                           className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${
                             isActive
-                              ? "border-teal-300 bg-teal-50 ring-1 ring-teal-300"
-                              : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                              ? "border-slate-400/40 bg-slate-400/10 ring-1 ring-teal-300"
+                              : "border-transparent hover:border-dh-bsoft hover:bg-dh-hover"
                           }`}
                           onClick={() => choose(item.path)}
                           onKeyDown={(e) => {
@@ -329,7 +329,7 @@ export function ClaudeManagerView() {
                           }}
                         >
                           <div className="flex min-w-0 items-center gap-2">
-                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-dh-text">
                               {item.label}
                             </span>
                             {item.toggleable && (
@@ -337,8 +337,8 @@ export function ClaudeManagerView() {
                                 type="button"
                                 className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
                                   item.enabled
-                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                    : "border-slate-300 bg-slate-100 text-slate-500"
+                                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                                    : "border-dh-border bg-dh-s2 text-dh-muted"
                                 }`}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -350,7 +350,7 @@ export function ClaudeManagerView() {
                               </button>
                             )}
                             {!item.exists && (
-                              <span className="shrink-0 rounded-full border border-slate-200 px-1.5 text-[10px] text-slate-400">
+                              <span className="shrink-0 rounded-full border border-dh-bsoft px-1.5 text-[10px] text-slate-400">
                                 未创建
                               </span>
                             )}
@@ -446,7 +446,7 @@ function EditorPanel({
 
   return (
     <section className={`card flex flex-col overflow-hidden ${className}`}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 p-3 md:gap-3 md:p-4">
+      <div className="flex flex-wrap items-center gap-2 border-b border-dh-bsoft p-3 md:gap-3 md:p-4">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {active && (
@@ -454,7 +454,7 @@ function EditorPanel({
                 {CATEGORY_LABEL[active.category]}
               </span>
             )}
-            <span className="min-w-0 truncate text-sm font-semibold text-slate-800">
+            <span className="min-w-0 truncate text-sm font-semibold text-dh-text">
               {active?.label ?? selected}
             </span>
             {dirty && <span className="text-xs font-medium text-amber-500">未保存</span>}
@@ -463,14 +463,14 @@ function EditorPanel({
             {active?.disk_path ?? ""}
           </div>
         </div>
-        <div className="flex shrink-0 rounded-lg border border-slate-200 bg-slate-900/40 p-0.5">
+        <div className="flex shrink-0 rounded-lg border border-dh-bsoft bg-slate-900/40 p-0.5">
           {(["edit", "preview"] as const).map((key) => (
             <button
               key={key}
               type="button"
               className={`rounded-md px-2.5 py-1 text-xs font-medium ${
                 mode === key
-                  ? "bg-slate-100 text-slate-900"
+                  ? "bg-dh-s2 text-dh-text"
                   : "text-slate-400 hover:bg-slate-800 hover:text-slate-100"
               }`}
               onClick={() => setMode(key)}
@@ -482,8 +482,8 @@ function EditorPanel({
         <button
           className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
             active?.enabled
-              ? "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              ? "border-dh-bsoft bg-dh-surface text-dh-tsoft hover:bg-dh-hover"
+              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
           }`}
           disabled={!active?.toggleable}
           onClick={() => active && onToggle(!active.enabled)}
@@ -492,14 +492,14 @@ function EditorPanel({
           {active?.enabled ? "关闭" : "开启"}
         </button>
         <button
-          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!dirty || saving}
           onClick={onSave}
         >
           {saving ? "保存中" : "保存"}
         </button>
         <button
-          className="shrink-0 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+          className="shrink-0 rounded-lg border border-rose-500/40 bg-dh-surface px-3 py-1.5 text-sm text-rose-400 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={!active?.deletable}
           onClick={onDelete}
         >
@@ -507,7 +507,7 @@ function EditorPanel({
         </button>
         {onClose && (
           <button
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-dh-bsoft bg-dh-surface text-dh-muted hover:bg-dh-hover"
             onClick={onClose}
             aria-label="关闭"
             title="关闭"
@@ -520,7 +520,7 @@ function EditorPanel({
       <div className={`flex min-h-0 flex-1 flex-col ${compact ? "p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]" : "p-4"}`}>
         {mode === "edit" ? (
           <textarea
-            className={`flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono leading-6 text-slate-800 focus:border-teal-500 focus:outline-none disabled:opacity-50 ${
+            className={`flex-1 resize-none rounded-lg border border-dh-bsoft bg-dh-soft px-3 py-2 font-mono leading-6 text-dh-text focus:border-dh-m2 focus:outline-none disabled:opacity-50 ${
               compact ? "min-h-0 text-[16px]" : "min-h-[420px] text-[13px]"
             }`}
             spellCheck={false}
@@ -530,7 +530,7 @@ function EditorPanel({
           />
         ) : (
           <div
-            className={`min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 ${
+            className={`min-h-0 flex-1 overflow-auto rounded-lg border border-dh-bsoft bg-dh-soft px-3 py-2 ${
               compact ? "text-[15px]" : "text-sm"
             }`}
             onClick={() => setMode("edit")}

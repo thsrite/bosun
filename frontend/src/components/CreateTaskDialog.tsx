@@ -223,9 +223,9 @@ export function CreateTaskDialog({
       <div className="space-y-3 text-sm" onPaste={handlePaste}>
         {projects && (
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-slate-600">项目</span>
+            <span className="mb-1.5 block text-xs font-medium text-dh-tsoft">项目</span>
             <select
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-teal-500"
+              className="w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-text outline-none focus:border-dh-m2"
               value={selectedProjectId}
               onChange={(event) => setSelectedProjectId(Number(event.target.value))}
             >
@@ -250,7 +250,7 @@ export function CreateTaskDialog({
           ))}
         </div>
         <textarea
-          className="h-32 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-xs text-slate-800 focus:border-teal-500 focus:outline-none"
+          className="h-32 w-full rounded-lg border border-dh-bsoft bg-dh-soft p-2.5 font-mono text-xs text-dh-text focus:border-dh-m2 focus:outline-none"
           placeholder={`给 ${availableEngines.join("/")} 的指令…`}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -316,14 +316,14 @@ export function CreateTaskDialog({
               type="number"
               min={1}
               max={10}
-              className="w-16 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-slate-800"
+              className="w-16 rounded-lg border border-dh-bsoft bg-dh-soft px-2 py-1 text-dh-text"
               value={priority}
               onChange={(e) => setPriority(Number(e.target.value))}
             />
           </label>
           <label
             className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
-              autoApprove ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-600"
+              autoApprove ? "border-amber-500/40 bg-amber-500/10 text-amber-400" : "border-dh-bsoft text-dh-tsoft"
             }`}
             title={availableEngines.map((item) => `${item}: ${AUTO_APPROVE_FLAG[item]}`).join(" / ")}
           >
@@ -338,13 +338,13 @@ export function CreateTaskDialog({
         <div className="flex flex-col gap-2 pt-2">
           <div className="flex items-center gap-2">
             <button
-              className="ml-auto shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+              className="ml-auto shrink-0 rounded-lg border border-dh-bsoft px-3 py-1.5 text-dh-tsoft hover:bg-dh-hover"
               onClick={onClose}
             >
               取消
             </button>
             <button
-              className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
               disabled={busy || !selectedProject || (!prompt.trim() && attachments.length === 0)}
               onClick={() => submit(false)}
             >

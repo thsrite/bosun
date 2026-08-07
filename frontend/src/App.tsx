@@ -358,8 +358,8 @@ export default function App() {
   return (
     <InstalledEnginesContext.Provider value={installedEngines}>
       <div className="dh-app-shell flex h-full min-w-0 flex-col">
-        <header className="dh-app-header relative z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex flex-wrap items-center gap-2 px-4 py-3 lg:gap-3 lg:px-8">
+        <header className="dh-app-header relative z-50 border-b border-dh-bsoft bg-dh-surface/75 backdrop-blur-xl">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 lg:gap-3 lg:px-8">
             <button
               className="flex min-w-0 items-center gap-2 pr-2 text-left"
               onClick={() => goTab("projects")}
@@ -368,11 +368,11 @@ export default function App() {
                 <img src="/icons/bosun.svg" alt="" className="h-full w-full" />
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-semibold leading-tight text-slate-900">Bosun 工作台</span>
+                <span className="block text-sm font-semibold leading-tight text-dh-text">Bosun 工作台</span>
               </span>
             </button>
 
-            <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            <nav className="dh-scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
               {NAV.filter((n) => n.key !== "claude" || claudeInstalled === true).map((n) => {
                 const active = !inProject && tab === n.key;
                 return (
@@ -382,13 +382,13 @@ export default function App() {
                     className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition lg:px-3 ${
                       active
                         ? "bg-black font-medium text-white ring-1 ring-slate-700"
-                        : "text-slate-600 hover:bg-slate-50"
+                        : "text-dh-tsoft hover:bg-dh-hover"
                     }`}
                   >
                     <span className={active ? "text-white" : "text-slate-400"}>{n.icon}</span>
                     <span>{n.label}</span>
                     {n.key === "tasks" && activeTotal > 0 && (
-                      <span className="rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      <span className="rounded-full bg-emerald-500/15 px-1.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-dh-border">
                         {activeTotal}
                       </span>
                     )}
@@ -400,7 +400,7 @@ export default function App() {
             <div className="flex w-full items-center gap-2 sm:w-auto lg:gap-3">
               {totalWaiting > 0 && (
                 <button
-                  className="flex animate-pulse items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 md:py-1"
+                  className="flex animate-pulse items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 md:py-1"
                   onClick={() => goTab("tasks")}
                   title="有任务在等待你输入/介入"
                 >
@@ -412,7 +412,7 @@ export default function App() {
               <QuotaBadge onModelOptionsUpdated={updateModelOptions} />
               {totalDrafts > 0 && (
                 <button
-                  className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50 lg:px-3"
+                  className="rounded-lg border border-slate-400/30 bg-slate-400/10 px-2.5 py-1.5 text-sm font-medium text-dh-tsoft hover:bg-slate-400/15 disabled:opacity-50 lg:px-3"
                   disabled={startingAll}
                   onClick={() =>
                     runStartAll(async () => {

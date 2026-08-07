@@ -7,9 +7,9 @@ import { useSingleFlight } from "../useSingleFlight";
 import { Modal } from "./Modal";
 
 const SEV: Record<string, string> = {
-  error: "bg-rose-100 text-rose-600",
-  warning: "bg-amber-100 text-amber-600",
-  info: "bg-slate-100 text-slate-500",
+  error: "bg-rose-500/15 text-rose-400",
+  warning: "bg-amber-500/15 text-amber-400",
+  info: "bg-dh-s2 text-dh-muted",
 };
 
 export function FindingsInbox({
@@ -71,7 +71,7 @@ export function FindingsInbox({
     <Modal title={`问题收件箱 · ${project.name}`} onClose={onClose} wide>
       <div className="mb-3 flex items-center gap-3 text-sm">
         <button
-          className="shrink-0 whitespace-nowrap rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          className="shrink-0 whitespace-nowrap rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
           disabled={busy}
           onClick={analyze}
         >
@@ -79,7 +79,7 @@ export function FindingsInbox({
         </button>
         <label
           className={`flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
-            autoApprove ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-600"
+            autoApprove ? "border-amber-500/40 bg-amber-500/10 text-amber-400" : "border-dh-bsoft text-dh-tsoft"
           }`}
           title={availableEngines.map((item) => `${item}: ${AUTO_APPROVE_FLAG[item]}`).join(" / ")}
         >
@@ -110,27 +110,27 @@ export function FindingsInbox({
           <div
             key={f.id}
             className={`rounded-xl border p-3 ${
-              f.status === "muted" ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"
+              f.status === "muted" ? "border-dh-bsoft bg-dh-soft" : "border-dh-bsoft bg-dh-surface"
             }`}
           >
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className={`rounded px-1.5 text-[10px] font-medium uppercase ${SEV[f.severity] ?? SEV.info}`}>
                 {f.severity}
               </span>
-              <span className="rounded bg-slate-100 px-1.5 text-[10px] text-slate-500">{f.source}</span>
+              <span className="rounded bg-dh-s2 px-1.5 text-[10px] text-dh-muted">{f.source}</span>
               {f.status === "muted" && (
                 <span
-                  className="rounded bg-slate-200 px-1.5 text-[10px] text-slate-600"
+                  className="rounded bg-dh-hover px-1.5 text-[10px] text-dh-tsoft"
                   title="反复修复失败, 已降级为仅报告(不再自动修)"
                 >
                   🔇 仅报告
                 </span>
               )}
-              <span className="min-w-0 flex-1 font-medium text-slate-800">{f.title}</span>
+              <span className="min-w-0 flex-1 font-medium text-dh-text">{f.title}</span>
               <div className="ml-auto flex gap-1.5">
                 {f.status === "muted" ? (
                   <button
-                    className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                    className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-xs text-dh-tsoft hover:bg-slate-400/20 disabled:opacity-50"
                     disabled={acting != null}
                     onClick={() => act(f.id, () => api.unmuteFinding(f.id))}
                     title="清除失败记忆, 重新允许自动修"
@@ -147,7 +147,7 @@ export function FindingsInbox({
                   </button>
                 )}
                 <button
-                  className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
                   disabled={acting != null}
                   onClick={() => act(f.id, () => api.dismissFinding(f.id))}
                 >
@@ -156,7 +156,7 @@ export function FindingsInbox({
               </div>
             </div>
             {f.detail && (
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-2.5 font-mono text-[11.5px] leading-relaxed text-slate-600">
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-dh-soft p-2.5 font-mono text-[11.5px] leading-relaxed text-dh-tsoft">
                 {f.detail}
               </pre>
             )}

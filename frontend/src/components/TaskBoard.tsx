@@ -32,9 +32,9 @@ function colOf(status: string): ColKey {
 }
 
 function countTone(col: ColKey): string {
-  if (col === "active") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  if (col === "done") return "bg-sky-50 text-sky-700 ring-sky-200";
-  return "bg-teal-50 text-teal-700 ring-teal-200";
+  if (col === "active") return "bg-emerald-500/10 text-emerald-300 ring-dh-border";
+  if (col === "done") return "bg-sky-500/10 text-sky-300 ring-dh-border";
+  return "bg-slate-400/10 text-dh-tsoft ring-dh-border";
 }
 
 function archiveSeconds(t: Task): number {
@@ -86,13 +86,13 @@ function Column({
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-[60vh] w-[82vw] shrink-0 snap-center flex-col rounded-2xl border bg-slate-50/60 p-3 transition sm:w-[320px] lg:min-w-0 lg:basis-0 lg:flex-1 lg:shrink ${
-        isOver ? "border-teal-300 bg-teal-50/50" : "border-slate-200"
+      className={`flex min-h-[60vh] w-[82vw] shrink-0 snap-center flex-col rounded-2xl border bg-dh-soft p-3 transition sm:w-[320px] lg:min-w-0 lg:basis-0 lg:flex-1 lg:shrink ${
+        isOver ? "border-slate-400/40 bg-slate-400/10" : "border-dh-bsoft"
       }`}
     >
       <div className="mb-3 flex items-center gap-2 px-1">
         <span className={`h-2.5 w-2.5 rounded-full ${col.accent}`} />
-        <span className="text-sm font-semibold text-slate-700">{col.title}</span>
+        <span className="text-sm font-semibold text-dh-tsoft">{col.title}</span>
         <span className={`rounded-full px-2 text-xs font-medium ring-1 ${countTone(col.key)}`}>
           {tasks.length}
         </span>
@@ -142,7 +142,7 @@ function DoneArchiveGroups({
             setOpenKey((cur) => (isOpen ? archive.key : cur === archive.key ? null : cur));
           }}
         >
-          <summary className="sticky top-0 z-10 flex cursor-pointer select-none items-center gap-2 border-b border-slate-800 bg-black/95 px-1 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur">
+          <summary className="sticky top-0 z-10 flex cursor-pointer select-none items-center gap-2 border-b border-slate-800 bg-dh-bg/75 px-1 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur">
             <span>{archive.key}</span>
             <span className="ml-auto rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-slate-300 ring-1 ring-slate-700">
               {archive.tasks.length}
@@ -155,7 +155,7 @@ function DoneArchiveGroups({
         <button
           type="button"
           onClick={() => setShowOlder(true)}
-          className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-2 text-center text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
+          className="w-full rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-3 py-2 text-center text-xs font-medium text-dh-muted hover:bg-dh-hover hover:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
         >
           显示更早的归档 · {olderArchives.length} 天 / {olderTaskCount} 个任务
         </button>
@@ -300,7 +300,7 @@ export function TaskBoard({
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={onDragEnd}>
-      <div className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 lg:mx-0 lg:snap-none lg:overflow-visible lg:px-0">
+      <div className="dh-scrollbar-none -mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 lg:mx-0 lg:snap-none lg:overflow-visible lg:px-0">
         {COLUMNS.map((col) => (
           <Column key={col.key} col={col} tasks={grouped[col.key]}>
             <SortableContext
@@ -308,7 +308,7 @@ export function TaskBoard({
               strategy={verticalListSortingStrategy}
             >
               {grouped[col.key].length === 0 && (
-                <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-400">
+                <div className="rounded-xl border border-dashed border-dh-bsoft py-8 text-center text-xs text-slate-400">
                   {col.key === "backlog" ? "拖任务到这里 / +任务" : "拖拽到此列"}
                 </div>
               )}

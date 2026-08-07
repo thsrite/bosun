@@ -270,7 +270,7 @@ export function ChatView({
       <div className="relative flex-1 overflow-hidden">
         {disconnected && (
           <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-md bg-rose-500/90 px-2 py-1 text-[11px] text-white shadow">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-dh-surface" />
             连接断开，正在重连…
           </div>
         )}
@@ -304,7 +304,7 @@ export function ChatView({
               </div>
             )}
             {events.length === 0 && (
-              <div className="pt-6 text-center text-xs text-slate-500">
+              <div className="pt-6 text-center text-xs text-dh-muted">
                 {live ? "等待模型输出…" : "(无对话记录)"}
               </div>
             )}
@@ -364,7 +364,7 @@ const EventBubble = memo(function EventBubble({ ev }: { ev: ChatEvent }) {
       );
     case "result":
       return (
-        <div className="py-1 text-center text-[11px] text-slate-500">
+        <div className="py-1 text-center text-[11px] text-dh-muted">
           — 本轮完成 · {ev.tokens.toLocaleString()} tok
           {ev.cost ? ` · $${ev.cost.toFixed(3)}` : ""} —
         </div>
@@ -480,7 +480,7 @@ function Composer({
       <div className="flex items-end gap-2">
         <textarea
           ref={inputRef}
-          className="max-h-28 min-h-[2.35rem] flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-[16px] text-slate-100 placeholder-slate-500 focus:border-teal-500 focus:outline-none"
+          className="max-h-28 min-h-[2.35rem] flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-[16px] text-slate-100 placeholder-slate-500 focus:border-dh-m2 focus:outline-none"
           rows={1}
           autoCapitalize="none"
           autoCorrect="off"
@@ -508,7 +508,7 @@ function Composer({
           }}
         />
         <button
-          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-40"
+          className="shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-40"
           onClick={send}
           disabled={!text.trim()}
         >

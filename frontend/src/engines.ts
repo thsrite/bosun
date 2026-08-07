@@ -2,9 +2,9 @@ import type { Engine } from "./types";
 
 /** 引擎展示元数据。新增引擎只改这里，避免各处散落 `cc ? A : B` 的二值兜底。 */
 const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }> = {
-  cc: { name: "Claude Code", short: "CC", badge: "bg-violet-50 text-violet-600" },
-  codex: { name: "Codex", short: "Codex", badge: "bg-emerald-50 text-emerald-600" },
-  omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-50 text-sky-600" },
+  cc: { name: "Claude Code", short: "CC", badge: "bg-violet-500/15 text-violet-300" },
+  codex: { name: "Codex", short: "Codex", badge: "bg-emerald-500/10 text-emerald-300" },
+  omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-500/10 text-sky-300" },
 };
 
 /** 界面里引擎的展示顺序。 */
@@ -17,7 +17,7 @@ export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
   omp: "--auto-approve",
 };
 
-const FALLBACK = { name: "未知引擎", short: "?", badge: "bg-slate-100 text-slate-500" };
+const FALLBACK = { name: "未知引擎", short: "?", badge: "bg-dh-s2 text-dh-muted" };
 
 function meta(engine: string) {
   return ENGINE_META[engine as Engine] ?? { ...FALLBACK, name: engine || FALLBACK.name };

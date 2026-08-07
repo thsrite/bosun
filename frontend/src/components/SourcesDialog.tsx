@@ -93,7 +93,7 @@ export function SourcesDialog({
                 外部 API 拉取的条目会进「问题收件箱」当 finding，你再勾选转任务
               </span>
               <button
-                className="ml-auto shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-700"
+                className="ml-auto shrink-0 rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500"
                 onClick={() => setEditing("new")}
               >
                 ＋ 新增来源
@@ -104,9 +104,9 @@ export function SourcesDialog({
                 <div className="py-6 text-center text-xs text-slate-400">还没有来源，点右上新增</div>
               )}
               {sources.map((s) => (
-                <div key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-                  <span className="font-medium text-slate-800">{s.name}</span>
-                  <span className="rounded bg-slate-100 px-1.5 text-[10px] uppercase text-slate-500">{s.type}</span>
+                <div key={s.id} className="flex items-center gap-2 rounded-lg border border-dh-bsoft px-3 py-2">
+                  <span className="font-medium text-dh-text">{s.name}</span>
+                  <span className="rounded bg-dh-s2 px-1.5 text-[10px] uppercase text-dh-muted">{s.type}</span>
                   {!s.enabled && <span className="text-[10px] text-slate-400">已停用</span>}
                   <span className="truncate font-mono text-[11px] text-slate-400">{s.config.url}</span>
                   <span className="ml-auto shrink-0 text-[11px] text-slate-400">{ago(s.last_pull_at)}</span>
@@ -124,13 +124,13 @@ export function SourcesDialog({
                       拉取
                     </button>
                     <button
-                      className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                      className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-xs text-dh-tsoft hover:bg-dh-hover"
                       onClick={() => setEditing(s)}
                     >
                       编辑
                     </button>
                     <button
-                      className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                      className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-xs text-dh-muted hover:bg-rose-500/20 hover:text-rose-400 disabled:opacity-50"
                       disabled={busy}
                       onClick={() =>
                         act(async () => {
@@ -235,13 +235,13 @@ function SourceForm({
     <div className="space-y-2.5">
       <div className="flex items-center gap-2">
         <input
-          className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5"
+          className="flex-1 rounded-lg border border-dh-bsoft px-2.5 py-1.5"
           autoComplete="off"
           placeholder="来源名称（会作为 finding 的来源标识 ext:名称）"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-dh-muted">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           启用
         </label>
@@ -257,7 +257,7 @@ function SourceForm({
           <option>POST</option>
         </select>
         <input
-          className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 font-mono text-xs"
+          className="flex-1 rounded-lg border border-dh-bsoft px-2.5 py-1.5 font-mono text-xs"
           autoComplete="off"
           placeholder="https://api.example.com/issues"
           value={cfg.url}
@@ -325,10 +325,10 @@ function SourceForm({
       </div>
 
       {test && (
-        <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+        <div className="rounded-lg bg-dh-soft p-2 text-xs text-dh-tsoft">
           测到 {test.count} 条{test.count > 0 && "，样例："}
           {test.sample.map((s, i) => (
-            <div key={i} className="truncate text-slate-500">
+            <div key={i} className="truncate text-dh-muted">
               · {s.title}
             </div>
           ))}
@@ -337,7 +337,7 @@ function SourceForm({
 
       <div className="flex items-center gap-2 pt-1">
         <button
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
           disabled={busy || !cfg.url.trim()}
           onClick={() =>
             run(async (config) => {
@@ -350,11 +350,11 @@ function SourceForm({
           测试连接
         </button>
         <div className="ml-auto flex gap-2">
-          <button className="rounded-lg border border-slate-200 px-3 py-1.5 text-slate-600 hover:bg-slate-50" onClick={onCancel}>
+          <button className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-dh-tsoft hover:bg-dh-hover" onClick={onCancel}>
             取消
           </button>
           <button
-            className="rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            className="rounded-lg bg-teal-600 px-3 py-1.5 font-medium text-white hover:bg-teal-500 disabled:opacity-50"
             disabled={busy || !name.trim() || !cfg.url.trim()}
             onClick={() =>
               run(async (config) => {
@@ -376,7 +376,7 @@ function SourceForm({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[11px] text-slate-500">{label}</span>
+      <span className="text-[11px] text-dh-muted">{label}</span>
       {children}
     </label>
   );

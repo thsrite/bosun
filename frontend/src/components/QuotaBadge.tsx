@@ -53,7 +53,7 @@ const PROVIDERS: {
 ];
 
 function dotColor(pct: number | null): string {
-  if (pct == null) return "bg-slate-300";
+  if (pct == null) return "bg-slate-600";
   if (pct >= 85) return "bg-rose-500";
   if (pct >= 60) return "bg-amber-400";
   return "bg-emerald-500";
@@ -113,7 +113,7 @@ function tempMetric(host: HostMetrics | null): string {
 }
 
 function hostMetricTone(kind: "temp" | "load", value: number | null | undefined): string {
-  if (typeof value !== "number") return "text-slate-500";
+  if (typeof value !== "number") return "text-dh-muted";
   if (kind === "temp") {
     if (value >= 85) return "text-rose-400";
     if (value >= 75) return "text-amber-400";
@@ -152,7 +152,7 @@ function HostMetricStrip({ host }: { host: HostMetrics | null }) {
     },
   ];
   return (
-    <span className="hidden shrink-0 items-center gap-2 border-l border-emerald-500/40 pl-3 lg:flex">
+    <span className="hidden shrink-0 items-center gap-2 border-l border-dh-bsoft pl-3 lg:flex">
       {metrics.map((m) => (
         <span key={m.label} className="flex items-baseline gap-1 whitespace-nowrap" title={m.title}>
           <span className="text-slate-400">{m.label}</span>
@@ -218,10 +218,10 @@ function updateStatusText(tool: EngineToolInfo | null | undefined): string {
 }
 
 function updateStatusClass(tool: EngineToolInfo | null | undefined): string {
-  if (tool?.update_available === true) return "border-amber-200 bg-amber-50 text-amber-700";
-  if (tool?.update_available === false) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (tool?.update_error) return "border-slate-200 bg-slate-50 text-slate-500";
-  return "border-slate-200 bg-white text-slate-500";
+  if (tool?.update_available === true) return "border-amber-500/40 bg-amber-500/10 text-amber-400";
+  if (tool?.update_available === false) return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+  if (tool?.update_error) return "border-dh-bsoft bg-dh-soft text-dh-muted";
+  return "border-dh-bsoft bg-dh-surface text-dh-muted";
 }
 
 function packageText(tool: EngineToolInfo | null | undefined): string {
@@ -254,11 +254,11 @@ function Provider({ label, q }: { label: string; q: ProviderUsage | null | undef
   return (
     <span className="flex items-center gap-1" title={title}>
       <span className={`h-2 w-2 rounded-full ${q?.available ? headerDotColor(worst) : "bg-emerald-300"}`} />
-      <span className="text-emerald-700">{label}</span>
+      <span className="text-dh-tsoft">{label}</span>
       {!q ? (
-        <span className="text-emerald-500">…</span>
+        <span className="text-dh-m2">…</span>
       ) : q.available ? (
-        <span className="tabular-nums text-emerald-700">{usageText(q)}</span>
+        <span className="tabular-nums text-dh-muted">{usageText(q)}</span>
       ) : (
         <span className="text-slate-400">—</span>
       )}
@@ -271,8 +271,8 @@ function CompactProvider({ label, q }: { label: string; q: ProviderUsage | null 
   return (
     <span className="flex min-w-0 items-center gap-1">
       <span className={`h-2 w-2 shrink-0 rounded-full ${q?.available ? headerDotColor(worst) : "bg-emerald-300"}`} />
-      <span className="shrink-0 text-emerald-700">{label}</span>
-      <span className="truncate tabular-nums text-emerald-700">{compactText(q)}</span>
+      <span className="shrink-0 text-dh-tsoft">{label}</span>
+      <span className="truncate tabular-nums text-dh-muted">{compactText(q)}</span>
     </span>
   );
 }
@@ -281,13 +281,13 @@ function UsageBar({ label, pct, reset }: { label: string; pct: number | null | u
   const n = typeof pct === "number" ? pct : 0;
   return (
     <div className="min-w-0">
-      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-dh-muted">
         <span className="min-w-0 truncate" title={`${label} · 重置：${formatReset(reset)}`}>
           {label} · {formatReset(reset)}
         </span>
         <span className="tabular-nums">{pctText(pct)}</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+      <div className="h-1.5 overflow-hidden rounded-full bg-dh-s2">
         <div
           className={`h-full rounded-full ${n >= 85 ? "bg-rose-400" : n >= 60 ? "bg-amber-400" : "bg-emerald-400"}`}
           style={{ width: `${Math.min(100, Math.max(0, n))}%` }}
@@ -319,11 +319,11 @@ function ToolVersionPanel({
   const statusText = state?.checking ? "检测中" : state?.updating ? "更新中" : updateStatusText(tool);
 
   return (
-    <div className="mt-3 border-t border-slate-100 pt-3">
+    <div className="mt-3 border-t border-dh-bsoft pt-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="min-w-[180px] flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-slate-700">版本 {versionText(tool)}</span>
+            <span className="text-xs font-semibold text-dh-tsoft">版本 {versionText(tool)}</span>
             <span
               className={`max-w-[180px] truncate rounded-full border px-2 py-0.5 text-[11px] ${updateStatusClass(tool)}`}
               title={statusText}
@@ -338,7 +338,7 @@ function ToolVersionPanel({
         <div className="flex shrink-0 gap-1.5">
           <button
             type="button"
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onRefresh(engine)}
             disabled={busy}
             title="刷新版本"
@@ -347,7 +347,7 @@ function ToolVersionPanel({
           </button>
           <button
             type="button"
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onCheck(engine)}
             disabled={!canCheck}
             title={checkTitle(tool)}
@@ -356,7 +356,7 @@ function ToolVersionPanel({
           </button>
           <button
             type="button"
-            className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onUpdate(engine)}
             disabled={!canUpdate}
             title={updateTitle(tool)}
@@ -366,19 +366,19 @@ function ToolVersionPanel({
         </div>
       </div>
       {(tool?.error || state?.error || result?.error) && (
-        <div className="mt-2 rounded bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+        <div className="mt-2 rounded bg-dh-soft px-2 py-1 text-[11px] text-dh-muted">
           {state?.error || result?.error || tool?.error}
         </div>
       )}
       {result && (
-        <div className={`mt-2 rounded px-2 py-1 text-[11px] ${result.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+        <div className={`mt-2 rounded px-2 py-1 text-[11px] ${result.ok ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-400"}`}>
           {result.ok
             ? `更新完成：${result.before_version || "未知"} → ${result.after_version || "未知"}`
             : `更新失败${result.exit_code != null ? `（退出码 ${result.exit_code}）` : ""}`}
         </div>
       )}
       {result?.model_options_error && (
-        <div className="mt-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+        <div className="mt-2 rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-400">
           CLI 已更新，但模型列表刷新失败：{result.model_options_error}
         </div>
       )}
@@ -412,20 +412,20 @@ function ProviderDetail({
 }) {
   const worst = worstPct(q);
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
+    <div className="rounded-lg border border-dh-bsoft p-3">
       <div className="mb-2 flex items-center gap-2">
-        <span className={`h-2.5 w-2.5 rounded-full ${q?.available ? dotColor(worst) : "bg-slate-300"}`} />
+        <span className={`h-2.5 w-2.5 rounded-full ${q?.available ? dotColor(worst) : "bg-slate-600"}`} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-900" title={label}>{label}</div>
+          <div className="truncate text-sm font-semibold text-dh-text" title={label}>{label}</div>
           <div className="text-[11px] text-slate-400">{note}</div>
         </div>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] ${q?.available ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] ${q?.available ? "bg-emerald-500/10 text-emerald-300" : "bg-dh-s2 text-dh-muted"}`}>
           {quotaUnsupported ? "无额度接口" : !q ? "读取中" : q.available ? "可用" : "不可用"}
         </span>
       </div>
       {q?.available ? (
         <div className="space-y-2">
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] text-dh-muted">
             {q.plan ? `套餐：${q.plan} · ` : ""}缓存：{formatAge(q.cached_age)}
           </div>
           <div className={`grid gap-2 ${hasFiveHour(q) ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -434,7 +434,7 @@ function ProviderDetail({
           </div>
         </div>
       ) : (
-        <div className="rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-500">
+        <div className="rounded-md bg-dh-soft px-2 py-1.5 text-xs text-dh-muted">
           {quotaUnsupported
             ? "自带 provider 凭据，没有订阅额度接口，不参与额度阈值拦截"
             : q?.error || "正在读取状态"}
@@ -552,7 +552,7 @@ export function QuotaBadge({
   // 一个引擎都没装：只留宿主机指标，别显示空的额度条
   if (providers.length === 0) {
     return (
-      <span className="hidden items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs md:flex" title={hostTitle(host)}>
+      <span className="hidden items-center gap-3 rounded-full border border-dh-bsoft bg-dh-soft/70 px-3 py-1 text-xs md:flex" title={hostTitle(host)}>
         <HostMetricStrip host={host} />
       </span>
     );
@@ -562,20 +562,20 @@ export function QuotaBadge({
     <>
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs hover:bg-emerald-100 md:hidden"
+        className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full border border-dh-bsoft bg-dh-soft/70 px-3 py-1 text-xs hover:bg-dh-hover md:hidden"
         onClick={() => setOpen(true)}
         title={statusTitle}
       >
         {usageProviders.map((p, i) => (
           <span key={p.engine} className="flex min-w-0 items-center gap-2">
-            {i > 0 && <span className="shrink-0 text-emerald-200">|</span>}
+            {i > 0 && <span className="shrink-0 text-dh-m2">|</span>}
             <CompactProvider label={p.chip} q={q?.[p.usageKey!]} />
           </span>
         ))}
       </button>
       <button
         type="button"
-        className="hidden max-w-full items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs hover:bg-emerald-100 md:flex"
+        className="hidden max-w-full items-center gap-3 rounded-full border border-dh-bsoft bg-dh-soft/70 px-3 py-1 text-xs hover:bg-dh-hover md:flex"
         onClick={() => setOpen(true)}
         title={`${statusTitle}；${hostTitle(host)}`}
       >
@@ -608,7 +608,7 @@ export function QuotaBadge({
               ))}
             </div>
             {usageProviders.length > 0 && (
-              <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              <div className="rounded-lg bg-dh-soft px-3 py-2 text-xs text-dh-muted">
                 周用量执行保护阈值：{q?.block_pct ?? 90}%
               </div>
             )}

@@ -106,19 +106,19 @@ function EditableTaskTitle({
         onBlur={() => void commit()}
         placeholder="任务标题"
         aria-label={`重命名任务 #${task.id}`}
-        className="min-w-0 flex-1 rounded border border-teal-400 bg-white px-1.5 py-0.5 text-sm font-medium text-slate-800 outline-none focus:ring-1 focus:ring-teal-400"
+        className="min-w-0 flex-1 rounded border border-teal-400 bg-dh-surface px-1.5 py-0.5 text-sm font-medium text-dh-text outline-none focus:ring-1 focus:ring-teal-400"
       />
     );
   }
 
   return (
     <>
-      <span className="min-w-0 truncate text-sm font-medium text-slate-800">
+      <span className="min-w-0 truncate text-sm font-medium text-dh-text">
         {task.title || fallback}
       </span>
       <button
         type="button"
-        className="shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+        className="shrink-0 rounded p-0.5 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
         title="重命名标题"
         aria-label={`重命名任务 #${task.id}`}
         onClick={begin}
@@ -143,7 +143,7 @@ function DraggableTaskRow({ task, children }: { task: Task; children: ReactNode 
         type="button"
         {...attributes}
         {...listeners}
-        className="absolute left-2 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 active:cursor-grabbing"
+        className="absolute left-2 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 active:cursor-grabbing"
         title="拖到等待执行"
         aria-label={`拖动任务 #${task.id}`}
         onClick={(event) => event.stopPropagation()}
@@ -161,7 +161,7 @@ function PausedDropZone({ children }: { children: ReactNode }) {
     <section
       ref={setNodeRef}
       className={`space-y-3 border-t pt-5 transition-colors ${
-        isOver ? "border-violet-400 bg-violet-50/60" : "border-slate-200"
+        isOver ? "border-violet-400 bg-violet-500/10" : "border-dh-bsoft"
       }`}
     >
       {children}
@@ -211,7 +211,7 @@ function MobileTaskCard({
     <div
       role="button"
       tabIndex={0}
-      className="flex flex-col gap-1.5 px-3 py-3 text-left hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:hidden"
+      className="flex flex-col gap-1.5 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:hidden"
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -356,11 +356,11 @@ function WorkspaceTabs({
   refreshing: boolean;
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2">
+    <div className="dh-scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-dh-bsoft bg-dh-surface px-3 py-2">
       <button
         type="button"
         className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
-          activeId === null ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+          activeId === null ? "bg-slate-900 text-white" : "text-dh-tsoft hover:bg-dh-hover"
         }`}
         onClick={onSelectList}
       >
@@ -370,7 +370,7 @@ function WorkspaceTabs({
         <div
           key={w.id}
           className={`flex shrink-0 items-center gap-1 rounded-lg py-1.5 pl-3 pr-1 text-sm ${
-            activeId === w.id ? "bg-teal-600 text-white" : "text-slate-600 hover:bg-slate-100"
+            activeId === w.id ? "bg-teal-600 text-white" : "text-dh-tsoft hover:bg-dh-hover"
           }`}
         >
           <button
@@ -390,7 +390,7 @@ function WorkspaceTabs({
           <button
             type="button"
             className={`rounded p-0.5 text-xs ${
-              activeId === w.id ? "text-teal-100 hover:bg-teal-700" : "text-slate-400 hover:bg-slate-200"
+              activeId === w.id ? "text-teal-100 hover:bg-teal-500" : "text-slate-400 hover:bg-dh-hover"
             }`}
             onClick={() => onClose(w.id)}
             title="关闭工作台"
@@ -401,22 +401,22 @@ function WorkspaceTabs({
       ))}
       <button
         type="button"
-        className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+        className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm text-dh-muted hover:bg-dh-hover"
         onClick={onNew}
         title="新建工作台"
       >
         ＋
       </button>
-      <div className="ml-auto flex shrink-0 items-center gap-x-3 pl-3 text-xs text-slate-500">
-        <span className="text-emerald-700">
+      <div className="ml-auto flex shrink-0 items-center gap-x-3 pl-3 text-xs text-dh-muted">
+        <span className="text-emerald-300">
           正在运行{" "}
-          <span className="font-semibold tabular-nums text-emerald-700">
+          <span className="font-semibold tabular-nums text-emerald-300">
             {runningTotal}/{maxConcurrent}
           </span>
         </span>
         {hasPendingUpdates && (
           <span
-            className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-400"
             title="后台事件已到达，下拉刷新列表"
           >
             {refreshing ? "刷新中…" : "有更新"}
@@ -693,6 +693,7 @@ export function ActiveTasksView({
     }
   }
 
+
   async function restorePausedTask(task: Task) {
     if (transitioningTaskId !== null) return;
     setTransitioningTaskId(task.id);
@@ -739,15 +740,15 @@ export function ActiveTasksView({
       />
       <div className={activeWorkspace ? "hidden" : "min-h-0 flex-1 overflow-auto"}>
         <div className="space-y-5 px-4 py-5 md:px-8 md:py-6">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-4">
+      <div className="flex flex-wrap items-center gap-2 border-b border-dh-bsoft pb-4">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-slate-800">运行任务</div>
+          <div className="text-sm font-semibold text-dh-text">运行任务</div>
           <div className="mt-1 text-xs text-slate-400">
             {activeTasks.length} 个活动任务 · {running} 运行 · {review} 待核对 · {needsInput} 待介入 · {queued} 排队
           </div>
         </div>
         <button
-          className="ml-auto rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-sky-950/20 hover:bg-sky-700 disabled:opacity-50"
+          className="ml-auto rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-teal-950/20 hover:bg-teal-500 disabled:opacity-50"
           onClick={() => setShowCreate(true)}
           disabled={projects.length === 0}
           title={projects.length === 0 ? "请先添加项目" : "新建任务"}
@@ -755,7 +756,7 @@ export function ActiveTasksView({
           + 新建任务
         </button>
         <button
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          className="rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
           onClick={changed}
         >
           ↻ 刷新
@@ -763,8 +764,8 @@ export function ActiveTasksView({
       </div>
 
       {attentionTasks.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
-          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800">
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-400">
             <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
             {attentionTasks.length} 个任务需要处理
           </div>
@@ -775,21 +776,21 @@ export function ActiveTasksView({
               return (
                 <button
                   key={t.id}
-                  className="min-w-0 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-sm hover:border-amber-300 hover:bg-amber-50/60"
+                  className="min-w-0 rounded-lg border border-amber-500/40 bg-dh-surface px-3 py-2 text-left text-sm hover:border-amber-500/40 hover:bg-amber-500/20"
                   onClick={() => setOpenTaskId(t.id)}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-slate-400">#{t.id}</span>
                     <EngineBadge engine={t.engine} />
-                    <span className={`rounded bg-slate-100 px-1.5 text-[10px] font-medium ${s.text}`}>
+                    <span className={`rounded bg-dh-s2 px-1.5 text-[10px] font-medium ${s.text}`}>
                       {attentionLabel(t)}
                     </span>
                     <span className="min-w-0 truncate text-xs text-slate-400">{p?.name ?? `项目 ${t.project_id}`}</span>
                   </div>
-                  <div className="mt-1 truncate font-medium text-slate-800">{t.title || taskPromptText(t)}</div>
+                  <div className="mt-1 truncate font-medium text-dh-text">{t.title || taskPromptText(t)}</div>
                   {t.report_summary && (
                     // agent 回报的处理摘要：待人工处理时先看结论，不用点进终端翻日志
-                    <div className="mt-1 line-clamp-2 text-xs text-slate-500" title={t.report_summary}>
+                    <div className="mt-1 line-clamp-2 text-xs text-dh-muted" title={t.report_summary}>
                       {t.report_summary}
                     </div>
                   )}
@@ -801,13 +802,13 @@ export function ActiveTasksView({
       )}
 
       {activeTasks.length === 0 ? (
-          <div className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center ${totalArchivedCount > 0 || pausedTasks.length > 0 ? "min-h-32" : "min-h-[45vh]"}`}>
-          <div className="text-sm font-medium text-slate-600">当前没有运行中的任务</div>
+          <div className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-dh-bsoft bg-dh-soft text-center ${totalArchivedCount > 0 || pausedTasks.length > 0 ? "min-h-32" : "min-h-[45vh]"}`}>
+          <div className="text-sm font-medium text-dh-tsoft">当前没有运行中的任务</div>
           <div className="mt-1 text-xs text-slate-400">从项目看板创建任务并执行后，会出现在这里。</div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="hidden grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-400 md:grid">
+        <div className="overflow-hidden rounded-xl border border-dh-bsoft bg-dh-surface">
+          <div className="hidden grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] gap-3 border-b border-dh-bsoft bg-dh-soft px-3 py-2 text-xs font-medium text-slate-400 md:grid">
             <span>状态</span>
             <span>项目</span>
             <span>任务</span>
@@ -815,16 +816,16 @@ export function ActiveTasksView({
             <span>Token</span>
             <span className="text-right">操作</span>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-dh-bsoft">
             {activeTasks.map((t) => {
               const p = projectById.get(t.project_id);
               const s = STATUS_STYLE[statusKey(t)] ?? STATUS_STYLE.draft;
               const actions = (
                 <>
-                  <span className="text-teal-700">终端</span>
+                  <span className="text-dh-tsoft">终端</span>
                   <button
                     type="button"
-                    className="rounded-md px-1.5 py-1 text-[11px] font-normal text-violet-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-50"
+                    className="rounded-md px-1.5 py-1 text-[11px] font-normal text-violet-300 hover:bg-violet-500/20 hover:text-violet-300 disabled:opacity-50"
                     disabled={transitioningTaskId !== null}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -835,7 +836,7 @@ export function ActiveTasksView({
                   </button>
                   <button
                     type="button"
-                    className="group/complete inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-normal text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-wait disabled:opacity-50"
+                    className="group/complete inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-normal text-slate-400 transition-colors hover:bg-emerald-500/20 hover:text-emerald-300 disabled:cursor-wait disabled:opacity-50"
                     disabled={completingTaskId !== null}
                     title="直接标记为完成"
                     onClick={(event) => {
@@ -847,7 +848,7 @@ export function ActiveTasksView({
                       "处理中…"
                     ) : (
                       <>
-                        <span className="grid h-4 w-4 place-items-center rounded-full border border-slate-200 text-[10px] leading-none transition-colors group-hover/complete:border-emerald-200">
+                        <span className="grid h-4 w-4 place-items-center rounded-full border border-dh-bsoft text-[10px] leading-none transition-colors group-hover/complete:border-emerald-500/40">
                           ✓
                         </span>
                         <span>完成</span>
@@ -875,7 +876,7 @@ export function ActiveTasksView({
                 <div
                   role="button"
                   tabIndex={0}
-                  className="hidden w-full cursor-pointer gap-3 px-3 py-3 text-left hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:grid md:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] md:items-center"
+                  className="hidden w-full cursor-pointer gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:grid md:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] md:items-center"
                   onClick={() => setOpenTaskId(t.id)}
                   onKeyDown={(event) => {
                     if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -887,7 +888,7 @@ export function ActiveTasksView({
                     <span className={`h-2.5 w-2.5 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
                     <span className={`text-xs font-medium ${s.text}`}>{s.label}</span>
                   </div>
-                  <div className="min-w-0 truncate text-xs text-slate-500" title={p?.path}>
+                  <div className="min-w-0 truncate text-xs text-dh-muted" title={p?.path}>
                     {p?.name ?? `项目 ${t.project_id}`}
                   </div>
                   <div className="min-w-0">
@@ -898,10 +899,10 @@ export function ActiveTasksView({
                     </div>
                     {t.title && <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(t)}</div>}
                   </div>
-                  <div className="text-xs tabular-nums text-slate-500">
+                  <div className="text-xs tabular-nums text-dh-muted">
                     {fmtDur(t.started_at, t.ended_at, t.elapsed_accum)}
                   </div>
-                  <div className="text-xs tabular-nums text-slate-500">
+                  <div className="text-xs tabular-nums text-dh-muted">
                     {t.tokens != null ? t.tokens.toLocaleString() : "—"}
                   </div>
                   <div className="flex items-center justify-end gap-2 text-xs font-medium">
@@ -918,9 +919,9 @@ export function ActiveTasksView({
       <PausedDropZone>
         <div className="flex items-end gap-3 px-1">
           <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <div className="flex items-center gap-2 text-sm font-semibold text-dh-text">
               <span>等待执行</span>
-              <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-600 ring-1 ring-violet-200">
+              <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300 ring-1 ring-dh-border">
                 {pausedTasks.length}
               </span>
             </div>
@@ -928,15 +929,15 @@ export function ActiveTasksView({
           </div>
         </div>
         {pausedTasks.length === 0 ? (
-          <div className="flex min-h-28 items-center justify-center rounded-xl border border-dashed border-violet-200 bg-violet-50/30 px-4 text-center text-sm text-slate-400">
+          <div className="flex min-h-28 items-center justify-center rounded-xl border border-dashed border-violet-500/40 bg-violet-500/10 px-4 text-center text-sm text-slate-400">
             把运行中或归档任务拖到这里
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-violet-200 bg-white">
-            <div className="hidden grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_176px] gap-3 border-b border-violet-100 bg-violet-50/50 px-3 py-2 text-xs font-medium text-slate-400 md:grid">
+          <div className="overflow-hidden rounded-xl border border-violet-500/40 bg-dh-surface">
+            <div className="hidden grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_176px] gap-3 border-b border-violet-500/25 bg-violet-500/10 px-3 py-2 text-xs font-medium text-slate-400 md:grid">
               <span>状态</span><span>项目</span><span>任务</span><span>时长</span><span>Token</span><span className="text-right">操作</span>
             </div>
-            <div className="divide-y divide-violet-100">
+            <div className="divide-y divide-violet-500/25">
               {pausedTasks.map((task) => {
                 const project = projectById.get(task.project_id);
                 const restoringToArchive = ARCHIVED_STATUSES.has(task.paused_from_status ?? "");
@@ -945,7 +946,7 @@ export function ActiveTasksView({
                   <>
                     <button
                       type="button"
-                      className="rounded-md bg-violet-600 px-2.5 py-1.5 text-white hover:bg-violet-700 disabled:opacity-50"
+                      className="rounded-md bg-teal-600 px-2.5 py-1.5 text-white hover:bg-teal-500 disabled:opacity-50"
                       disabled={busy}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -956,7 +957,7 @@ export function ActiveTasksView({
                     </button>
                     <button
                       type="button"
-                      className="group/complete inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-slate-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-wait disabled:opacity-50"
+                      className="group/complete inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-dh-muted transition-colors hover:bg-emerald-500/20 hover:text-emerald-300 disabled:cursor-wait disabled:opacity-50"
                       disabled={busy}
                       title="标记为完成并移入归档"
                       onClick={(event) => {
@@ -968,7 +969,7 @@ export function ActiveTasksView({
                         "处理中…"
                       ) : (
                         <>
-                          <span className="grid h-4 w-4 place-items-center rounded-full border border-slate-200 text-[10px] leading-none transition-colors group-hover/complete:border-emerald-200">
+                          <span className="grid h-4 w-4 place-items-center rounded-full border border-dh-bsoft text-[10px] leading-none transition-colors group-hover/complete:border-emerald-500/40">
                             ✓
                           </span>
                           <span>完成</span>
@@ -977,7 +978,7 @@ export function ActiveTasksView({
                     </button>
                     <button
                       type="button"
-                      className="rounded-md px-2 py-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                      className="rounded-md px-2 py-1.5 text-dh-muted hover:bg-dh-hover hover:text-slate-50 disabled:opacity-50"
                       disabled={busy}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -996,7 +997,7 @@ export function ActiveTasksView({
                     projectPath={project?.path}
                     dotClass="bg-violet-400"
                     statusLabel="等待执行"
-                    statusTextClass="text-violet-600"
+                    statusTextClass="text-violet-300"
                     titleFallback={taskPromptText(task)}
                     subtitle={taskPromptText(task)}
                     onOpen={() => setOpenTaskId(task.id)}
@@ -1006,7 +1007,7 @@ export function ActiveTasksView({
                   <div
                     role="button"
                     tabIndex={0}
-                    className="hidden gap-3 px-3 py-3 text-left hover:bg-violet-50/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 md:grid md:grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_248px] md:items-center"
+                    className="hidden gap-3 px-3 py-3 text-left hover:bg-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 md:grid md:grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_248px] md:items-center"
                     onClick={() => setOpenTaskId(task.id)}
                     onKeyDown={(event) => {
                       if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -1016,9 +1017,9 @@ export function ActiveTasksView({
                   >
                     <div className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full bg-violet-400" />
-                      <span className="text-xs font-medium text-violet-600">等待执行</span>
+                      <span className="text-xs font-medium text-violet-300">等待执行</span>
                     </div>
-                    <div className="min-w-0 truncate text-xs text-slate-500" title={project?.path}>
+                    <div className="min-w-0 truncate text-xs text-dh-muted" title={project?.path}>
                       {project?.name ?? `项目 ${task.project_id}`}
                     </div>
                     <div className="min-w-0">
@@ -1029,8 +1030,8 @@ export function ActiveTasksView({
                       </div>
                       <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(task)}</div>
                     </div>
-                    <div className="text-xs tabular-nums text-slate-500">{fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</div>
-                    <div className="text-xs tabular-nums text-slate-500">{task.tokens != null ? task.tokens.toLocaleString() : "—"}</div>
+                    <div className="text-xs tabular-nums text-dh-muted">{fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</div>
+                    <div className="text-xs tabular-nums text-dh-muted">{task.tokens != null ? task.tokens.toLocaleString() : "—"}</div>
                     <div className="flex items-center justify-end gap-1.5 text-xs font-medium">
                       {actions}
                     </div>
@@ -1044,17 +1045,17 @@ export function ActiveTasksView({
       </PausedDropZone>
 
       {totalArchivedCount > 0 && (
-        <section className="space-y-3 border-t border-slate-200 pt-5">
+        <section className="space-y-3 border-t border-dh-bsoft pt-5">
           <div className="flex flex-wrap items-end gap-3">
             <div>
-              <div className="text-sm font-semibold text-slate-800">归档任务</div>
+              <div className="text-sm font-semibold text-dh-text">归档任务</div>
               <div className="mt-1 text-xs text-slate-400">{totalArchivedCount} 个过往任务 · 按日期倒序</div>
             </div>
             <select
               aria-label="按项目筛选归档任务"
               value={archiveProjectId}
               onChange={(event) => setArchiveProjectId(event.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-teal-500 sm:ml-auto sm:w-44"
+              className="w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-tsoft outline-none focus:border-dh-m2 sm:ml-auto sm:w-44"
             >
               <option value="">全部项目</option>
               {archivedProjects.map((project) => (
@@ -1068,7 +1069,7 @@ export function ActiveTasksView({
                 value={archiveQuery}
                 onChange={(event) => setArchiveQuery(event.target.value)}
                 placeholder="搜索任务编号、项目、标题或指令…"
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-700 outline-none focus:border-teal-500"
+                className="w-full rounded-lg border border-dh-bsoft bg-dh-surface py-2 pl-8 pr-3 text-sm text-dh-tsoft outline-none focus:border-dh-m2"
               />
             </div>
             {(archiveQuery.trim() || archiveProjectId) && (
@@ -1076,7 +1077,7 @@ export function ActiveTasksView({
             )}
           </div>
           {archivedCount === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-10 text-center text-sm text-slate-400">
+            <div className="rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-4 py-10 text-center text-sm text-slate-400">
               没有匹配的归档任务
             </div>
           ) : (
@@ -1084,29 +1085,29 @@ export function ActiveTasksView({
               {visibleArchivedGroups.map((group, groupIndex) => {
                 const expanded = isArchiveDateOpen(group.date, groupIndex);
                 return (
-                <div key={group.date} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div key={group.date} className="overflow-hidden rounded-xl border border-dh-bsoft bg-dh-surface">
                   <button
                     type="button"
                     aria-expanded={expanded}
                     onClick={() => toggleArchiveDate(group.date, groupIndex)}
-                    className={`flex w-full items-center px-3 py-2 text-left hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${expanded ? "border-b border-slate-100 bg-slate-50" : "bg-slate-50"}`}
+                    className={`flex w-full items-center px-3 py-2 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 ${expanded ? "border-b border-dh-bsoft bg-dh-soft" : "bg-dh-soft"}`}
                   >
                     <span className={`mr-2 text-[10px] text-slate-400 transition-transform ${expanded ? "rotate-90" : ""}`}>▶</span>
-                    <span className="text-xs font-semibold text-slate-600">{group.date}</span>
+                    <span className="text-xs font-semibold text-dh-tsoft">{group.date}</span>
                     <span className="ml-auto rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-100 ring-1 ring-inset ring-slate-700">
                       {group.tasks.length}
                     </span>
                   </button>
-                  <div className={`divide-y divide-slate-100 ${expanded ? "" : "hidden"}`}>
+                  <div className={`divide-y divide-dh-bsoft ${expanded ? "" : "hidden"}`}>
                     {group.tasks.map((task) => {
                       const project = projectById.get(task.project_id);
                       const style = STATUS_STYLE[statusKey(task)] ?? STATUS_STYLE.done;
                       const actions = (
                         <>
-                          <span className="text-teal-700">查看记录</span>
+                          <span className="text-dh-tsoft">查看记录</span>
                           <button
                             type="button"
-                            className="rounded-md px-1.5 py-1 text-[11px] font-normal text-violet-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-50"
+                            className="rounded-md px-1.5 py-1 text-[11px] font-normal text-violet-300 hover:bg-violet-500/20 hover:text-violet-300 disabled:opacity-50"
                             disabled={transitioningTaskId !== null}
                             onClick={(event) => {
                               event.stopPropagation();
@@ -1135,7 +1136,7 @@ export function ActiveTasksView({
                         <div
                           role="button"
                           tabIndex={0}
-                          className="hidden w-full gap-3 px-3 py-3 text-left hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:grid md:grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_132px] md:items-center"
+                          className="hidden w-full gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 md:grid md:grid-cols-[96px_120px_minmax(0,1fr)_96px_92px_132px] md:items-center"
                           onClick={() => setOpenTaskId(task.id)}
                           onKeyDown={(event) => {
                             if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -1147,7 +1148,7 @@ export function ActiveTasksView({
                             <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
                             <span className={`text-xs font-medium ${style.text}`}>{style.label}</span>
                           </div>
-                          <div className="min-w-0 truncate text-xs text-slate-500" title={project?.path}>
+                          <div className="min-w-0 truncate text-xs text-dh-muted" title={project?.path}>
                             {project?.name ?? `项目 ${task.project_id}`}
                           </div>
                           <div className="min-w-0">
@@ -1158,10 +1159,10 @@ export function ActiveTasksView({
                             </div>
                             {task.title && <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(task)}</div>}
                           </div>
-                          <div className="text-xs tabular-nums text-slate-500">
+                          <div className="text-xs tabular-nums text-dh-muted">
                             {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}
                           </div>
-                          <div className="text-xs tabular-nums text-slate-500">
+                          <div className="text-xs tabular-nums text-dh-muted">
                             {task.tokens != null ? task.tokens.toLocaleString() : "—"}
                           </div>
                           <div className="flex items-center justify-end gap-2 text-xs font-medium">
@@ -1179,7 +1180,7 @@ export function ActiveTasksView({
                 <button
                   type="button"
                   onClick={() => setShowOlderArchives(true)}
-                  className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-2.5 text-center text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
+                  className="w-full rounded-xl border border-dashed border-dh-bsoft bg-dh-soft px-4 py-2.5 text-center text-xs font-medium text-dh-muted hover:bg-dh-hover hover:text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500"
                 >
                   显示更早的归档 · {olderGroups.length} 天 / {olderTaskCount} 个任务
                 </button>

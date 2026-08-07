@@ -51,7 +51,7 @@ function tempMetric(host: HostMetrics | null): string {
 }
 
 function hostMetricTone(kind: "temp" | "load", value: number | null | undefined): string {
-  if (typeof value !== "number") return "text-slate-500";
+  if (typeof value !== "number") return "text-dh-muted";
   if (kind === "temp") {
     if (value >= 85) return "text-rose-400";
     if (value >= 75) return "text-amber-400";
@@ -120,7 +120,7 @@ function TokenIcon() {
 function ChartPanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
   return (
     <div className="card flex-1 p-4">
-      <div className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-slate-800">
+      <div className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-dh-text">
         <span className="inline-flex h-5 w-5 items-center justify-center" aria-hidden="true">{icon}</span>
         {title}
       </div>
@@ -210,22 +210,22 @@ export function HomeView({
   return (
     <div className="space-y-5 px-4 py-5 md:space-y-6 md:px-8 md:py-6">
       {/* 健康概览条：分隔单元格，全部顶对齐 */}
-      <div className="card grid grid-cols-3 items-stretch divide-slate-100 md:flex md:flex-wrap md:divide-x">
+      <div className="card grid grid-cols-3 items-stretch divide-dh-bsoft md:flex md:flex-wrap md:divide-x">
         <div className="flex items-center gap-2.5 px-3 py-2.5 md:px-5 md:py-3.5">
           <GlowDot tone={healthTone} size={10} />
           <div>
             <div className="text-xs text-slate-400">总体健康</div>
-            <div className="text-lg font-semibold text-slate-900 md:text-xl">{health}%</div>
+            <div className="text-lg font-semibold text-dh-text md:text-xl">{health}%</div>
           </div>
         </div>
         <Stat label="项目" value={projects.length} />
         <Stat label="任务总数" value={ov?.total_tasks ?? "—"} />
-        <Stat label="正在运行" value={running} tone="text-emerald-600" />
-        <Stat label="人工发现" value={manualOpen} tone="text-amber-600" />
-        <Stat label="自动发现" value={autoOpen} tone="text-violet-600" />
-        <Stat label="已修复" value={fixed} tone="text-emerald-600" />
+        <Stat label="正在运行" value={running} tone="text-emerald-300" />
+        <Stat label="人工发现" value={manualOpen} tone="text-amber-400" />
+        <Stat label="自动发现" value={autoOpen} tone="text-violet-300" />
+        <Stat label="已修复" value={fixed} tone="text-emerald-300" />
         <Stat label="成功率" value={ov ? `${ov.success_rate}%` : "—"} />
-        <div className="col-span-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2.5 text-xs text-slate-400 md:ml-auto md:px-5 md:pb-0">
+        <div className="col-span-3 mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-dh-bsoft px-3 pb-2.5 pt-2 text-xs text-slate-400 md:ml-auto md:mt-0 md:border-0 md:px-5 md:pb-0 md:pt-0">
           {autopilotRunning > 0 && (
             <span className="shrink-0 font-medium text-emerald-500">🤖 {autopilotRunning} 自愈中</span>
           )}
@@ -250,10 +250,10 @@ export function HomeView({
                     : "border-l-sky-400"
               }`}
             >
-              <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-              <div className="mt-1 text-xs leading-relaxed text-slate-500">{item.detail}</div>
+              <div className="text-sm font-semibold text-dh-text">{item.title}</div>
+              <div className="mt-1 text-xs leading-relaxed text-dh-muted">{item.detail}</div>
               {item.action && (
-                <div className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+                <div className="mt-2 rounded-md bg-dh-soft px-2 py-1.5 text-xs text-dh-tsoft">
                   初步方案：{item.action}
                 </div>
               )}
@@ -390,7 +390,7 @@ export function HomeView({
               ...(showCodex ? [["Codex", q?.codex]] : []),
             ].map(([name, u]: any) => (
               <div key={name} className="card p-4">
-                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-dh-text">
                   <GlowDot
                     tone={
                       !u?.available
@@ -414,11 +414,11 @@ export function HomeView({
                       .filter(([lbl, pct]: any) => lbl !== "5 小时窗" || typeof pct === "number")
                       .map(([lbl, pct]: any) => (
                       <div key={lbl}>
-                        <div className="mb-1 flex justify-between text-[11px] text-slate-500">
+                        <div className="mb-1 flex justify-between text-[11px] text-dh-muted">
                           <span>{lbl}</span>
                           <span className="tabular-nums">{pct ?? "?"}%</span>
                         </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-2 overflow-hidden rounded-full bg-dh-s2">
                           <div
                             className={`h-full rounded-full ${
                               (pct ?? 0) >= 85 ? "bg-rose-400" : (pct ?? 0) >= 60 ? "bg-amber-400" : "bg-emerald-400"
@@ -478,18 +478,18 @@ export function HomeView({
       {tab === "projects" && (
       <div>
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">项目</span>
+          <span className="text-sm font-semibold text-dh-tsoft">项目</span>
           <span className="text-xs text-slate-400">{projects.length}</span>
           <button
             onClick={onProposals}
-            className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            className="ml-auto rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
             title="自进化提案"
           >
             🧬<span className="hidden sm:inline"> 自进化提案</span>
           </button>
           <button
             onClick={onAddProject}
-            className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+            className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-500"
           >
             ＋<span className="hidden sm:inline"> 添加 / 扫描路径</span>
           </button>
@@ -524,7 +524,7 @@ export function HomeView({
                 className="card group flex h-full cursor-pointer flex-col p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="flex items-start gap-2">
-                  <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{p.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold text-dh-text">{p.name}</span>
                   {p.running > 0 && (
                     <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-500">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
@@ -533,7 +533,7 @@ export function HomeView({
                   )}
                   <button
                     type="button"
-                    className="-mr-1 -mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 opacity-100 transition hover:bg-rose-50 hover:text-rose-600 focus:bg-rose-50 focus:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
+                    className="-mr-1 -mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 opacity-100 transition hover:bg-rose-500/20 hover:text-rose-400 focus:bg-rose-500/10 focus:text-rose-400 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                     title="删除项目"
                     aria-label={`删除项目 ${p.name}`}
                     onClick={(e) => {
@@ -550,7 +550,7 @@ export function HomeView({
                 {p.autopilot && (
                   <div className="mt-2 text-[11px]">
                     {p.autopilot.status === "running" ? (
-                      <span className="flex items-center gap-1 font-medium text-emerald-600">
+                      <span className="flex items-center gap-1 font-medium text-emerald-300">
                         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                         🤖 自愈中 · 第 {p.autopilot.iteration}/{p.autopilot.max_iterations} 轮
                       </span>
@@ -580,27 +580,27 @@ export function HomeView({
                   )}
                 </div>
                 <div className="mt-auto flex flex-wrap gap-1.5 pt-3 text-[11px]">
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-600">{p.task_total} 任务</span>
+                  <span className="rounded-md bg-dh-s2 px-2 py-0.5 text-dh-tsoft">{p.task_total} 任务</span>
                   {draft > 0 && (
-                    <span className="rounded-md bg-teal-50 px-2 py-0.5 text-teal-600">{draft} 待办</span>
+                    <span className="rounded-md bg-slate-400/10 px-2 py-0.5 text-dh-tsoft">{draft} 待办</span>
                   )}
                   {p.manual_open > 0 && (
-                    <span className="rounded-md bg-amber-50 px-2 py-0.5 text-amber-600">
+                    <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-amber-400">
                       人工 {p.manual_open}
                     </span>
                   )}
                   {p.auto_open > 0 && (
-                    <span className="rounded-md bg-violet-50 px-2 py-0.5 text-violet-600">
+                    <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-violet-300">
                       自动 {p.auto_open}
                     </span>
                   )}
                   {p.fixed_findings > 0 && (
-                    <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-600">
+                    <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
                       已修 {p.fixed_findings}
                     </span>
                   )}
                   {p.policy_count > 0 && (
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-500" title="已启用的定时自愈策略">
+                    <span className="rounded-md bg-dh-s2 px-2 py-0.5 text-dh-muted" title="已启用的定时自愈策略">
                       🕒 {p.policy_count} 策略
                     </span>
                   )}
@@ -619,7 +619,7 @@ function Stat({ label, value, tone }: { label: string; value: any; tone?: string
   return (
     <div className="px-3 py-2.5 md:px-5 md:py-3.5">
       <div className="text-xs text-slate-400">{label}</div>
-      <div className={`text-lg font-semibold md:text-xl ${tone ?? "text-slate-900"}`}>{value}</div>
+      <div className={`text-lg font-semibold md:text-xl ${tone ?? "text-dh-text"}`}>{value}</div>
     </div>
   );
 }
@@ -652,7 +652,7 @@ function HostMetricsLine({ host }: { host: HostMetrics | null }) {
     },
   ];
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 whitespace-nowrap border-slate-100 text-slate-400 md:border-l md:pl-3">
+    <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 whitespace-nowrap border-dh-bsoft text-slate-400 md:border-l md:pl-3">
       {metrics.map((m) => (
         <span key={m.label} className="flex items-baseline gap-1" title={m.title}>
           <span>{m.label}</span>

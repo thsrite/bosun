@@ -1121,19 +1121,19 @@ function TerminalView({
       <div className="relative min-h-0 flex-1">
         {disconnected && (
           <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-md bg-rose-500/90 px-2 py-1 text-[11px] text-white shadow">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-dh-surface" />
             连接断开，正在重连…
           </div>
         )}
         {pastingImages && (
-          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-md bg-teal-600/95 px-2.5 py-1 text-[11px] font-medium text-white shadow">
+          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-md bg-teal-700/95 px-2.5 py-1 text-[11px] font-medium text-white shadow">
             图片上传中…
           </div>
         )}
         {!atBottom && (
           <button
             type="button"
-            className="absolute bottom-3 right-4 z-10 rounded-md bg-slate-700/90 px-2 py-1 text-[11px] font-medium text-slate-100 shadow hover:bg-slate-600"
+            className="absolute bottom-3 right-4 z-10 rounded-lg bg-dh-hover/70 px-2 py-1 text-[11px] font-medium text-slate-100 shadow ring-1 ring-white/10 backdrop-blur-md hover:bg-dh-hover"
             onClick={scrollToLatest}
             title="跳到最新输出"
           >
@@ -1704,24 +1704,24 @@ export function TerminalPanel({
       <div
         className={
           embedded
-            ? "relative box-border flex h-full min-h-0 w-full flex-col overflow-hidden bg-white"
+            ? "relative box-border flex h-full min-h-0 w-full flex-col overflow-hidden bg-dh-surface"
             : fullscreen
-              ? "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-white shadow-2xl"
-              : "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-white shadow-2xl lg:w-[48%] lg:min-w-[560px]"
+              ? "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-dh-surface shadow-2xl"
+              : "relative box-border flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden bg-dh-surface shadow-2xl lg:w-[48%] lg:min-w-[560px]"
         }
         style={embedded ? undefined : terminalPanelBodyStyle()}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
         {showAttention && (
-          <div className="absolute right-3 top-16 z-20 w-[min(360px,calc(100%-1.5rem))] rounded-xl border border-amber-200 bg-white p-3 shadow-xl">
+          <div className="absolute right-3 top-16 z-20 w-[min(360px,calc(100%-1.5rem))] rounded-xl border border-amber-500/40 bg-dh-surface p-3 shadow-xl">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <div className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+              <div className="min-w-0 flex-1 text-sm font-semibold text-dh-text">
                 其他任务需要处理
               </div>
               <button
-                className="rounded-md px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                className="rounded-md px-1.5 py-0.5 text-xs text-slate-400 hover:bg-dh-hover hover:text-slate-50"
                 onClick={dismissAttention}
                 title="关闭提醒"
               >
@@ -1734,7 +1734,7 @@ export function TerminalPanel({
                 return (
                   <button
                     key={t.id}
-                    className="flex w-full items-start gap-2 rounded-lg border border-slate-100 px-2.5 py-2 text-left hover:border-amber-200 hover:bg-amber-50/60"
+                    className="flex w-full items-start gap-2 rounded-lg border border-dh-bsoft px-2.5 py-2 text-left hover:border-amber-500/40 hover:bg-amber-500/20"
                     onClick={() => {
                       dismissAttention();
                       switchToTask(t);
@@ -1749,19 +1749,19 @@ export function TerminalPanel({
                           {waitingStyle.label}
                         </span>
                       </span>
-                      <span className="mt-0.5 block truncate text-sm font-medium text-slate-800">
+                      <span className="mt-0.5 block truncate text-sm font-medium text-dh-text">
                         {t.title || taskPromptText(t)}
                       </span>
                       {t.report_summary && (
                         <span
-                          className="mt-0.5 line-clamp-2 block text-xs text-slate-500"
+                          className="mt-0.5 line-clamp-2 block text-xs text-dh-muted"
                           title={t.report_summary}
                         >
                           {t.report_summary}
                         </span>
                       )}
                     </span>
-                    <span className="shrink-0 text-xs font-medium text-teal-700">跳转</span>
+                    <span className="shrink-0 text-xs font-medium text-dh-tsoft">跳转</span>
                   </button>
                 );
               })}
@@ -1772,11 +1772,11 @@ export function TerminalPanel({
           </div>
         )}
         {/* 头部 */}
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-200 px-4 py-3">
+        <div className="dh-scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-dh-bsoft px-4 py-3">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
           <span className="shrink-0 font-mono text-sm text-slate-400">#{detail.id}</span>
           <select
-            className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-xs font-medium uppercase text-slate-600 disabled:opacity-50"
+            className="shrink-0 rounded border border-dh-bsoft bg-dh-s2 px-1.5 py-0.5 text-xs font-medium uppercase text-dh-tsoft disabled:opacity-50"
             value={detail.engine}
             disabled={busy}
             onChange={(e) => void switchEngine(e.target.value as Engine)}
@@ -1788,16 +1788,16 @@ export function TerminalPanel({
           </select>
           <span className={`shrink-0 whitespace-nowrap text-sm font-medium ${s.text}`}>{s.label}</span>
           {canSwitch && (
-            <div className="flex shrink-0 items-center rounded-lg border border-slate-200 bg-white text-xs text-slate-500">
+            <div className="flex shrink-0 items-center rounded-lg border border-dh-bsoft bg-dh-surface text-xs text-dh-muted">
               <button
-                className="px-2 py-1 hover:bg-slate-50"
+                className="px-2 py-1 hover:bg-dh-hover"
                 onClick={() => switchBy(-1)}
                 title="上一个任务（Alt/Option + Shift + ↑）"
               >
                 ‹
               </button>
               <span
-                className="border-x border-slate-100 px-2 py-1 tabular-nums"
+                className="border-x border-dh-bsoft px-2 py-1 tabular-nums"
                 title="快捷键：Alt/Option + Shift + ↑ / ↓"
               >
                 {currentIdx + 1}/{switchableTasks.length}
@@ -1809,7 +1809,7 @@ export function TerminalPanel({
                 ⌥/Alt ⇧ ↑↓
               </span>
               <button
-                className="px-2 py-1 hover:bg-slate-50"
+                className="px-2 py-1 hover:bg-dh-hover"
                 onClick={() => switchBy(1)}
                 title="下一个任务（Alt/Option + Shift + ↓）"
               >
@@ -1820,7 +1820,7 @@ export function TerminalPanel({
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* 移动端：详情 toggle，展开下方操作 + 任务信息；桌面端不显示(操作常驻) */}
             <button
-              className="whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 md:hidden"
+              className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover md:hidden"
               onClick={() =>
                 setShowDetails((v) => {
                   if (!v) setMetaCollapsed(false); // 展开时同时展开任务信息
@@ -1835,7 +1835,7 @@ export function TerminalPanel({
             <div className={`${showDetails ? "flex" : "hidden"} items-center gap-1.5 md:flex`}>
               {canComplete && (
                 <button
-                  className="whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-sky-600 hover:bg-sky-50 disabled:opacity-50"
+                  className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
                   disabled={busy}
                   onClick={doComplete}
                   title="标记完成并切到下一个任务"
@@ -1844,14 +1844,14 @@ export function TerminalPanel({
                 </button>
               )}
               <button
-                className="whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover"
                 onClick={downloadLog}
                 title="下载日志"
               >
                 ⬇<span className="hidden sm:inline"> 日志</span>
               </button>
               <button
-                className="whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-muted hover:bg-rose-500/20 hover:text-rose-400 disabled:opacity-50"
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
@@ -1870,7 +1870,7 @@ export function TerminalPanel({
             {/* 全屏：仅抽屉模式且桌面端有意义（移动端抽屉本来就是全宽） */}
             {!embedded && (
               <button
-                className="hidden whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 lg:inline-block"
+                className="hidden whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover lg:inline-block"
                 onClick={() => setFullscreen((v) => !v)}
                 title={fullscreen ? "退出全屏" : "全屏"}
               >
@@ -1879,7 +1879,7 @@ export function TerminalPanel({
             )}
             {/* 关闭：始终常驻，移动端也能随时退出 */}
             <button
-              className="whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover"
               onClick={onClose}
               title="关闭"
             >
@@ -1892,39 +1892,39 @@ export function TerminalPanel({
         <div className={`${showDetails ? "block" : "hidden"} md:block`}>
         {metaCollapsed && !editing ? (
           <button
-            className="flex w-full items-center gap-2 border-b border-slate-200 bg-slate-50/60 px-4 py-2 text-left"
+            className="flex w-full items-center gap-2 border-b border-dh-bsoft bg-dh-soft px-4 py-2 text-left"
             onClick={() => setMetaCollapsed(false)}
             title="展开任务详情"
           >
-            <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+            <div className="min-w-0 flex-1 truncate text-sm font-semibold text-dh-text">
               {detail.title || taskPromptText(detail)}
             </div>
             <span className="shrink-0 text-xs text-slate-400">详情 ▾</span>
           </button>
         ) : (
-        <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3">
+        <div className="border-b border-dh-bsoft bg-dh-soft px-4 py-3">
           {editing ? (
             <div className="mb-2 space-y-2">
               <input
-                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 focus:border-teal-500 focus:outline-none"
+                className="w-full rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1 text-sm text-dh-text focus:border-dh-m2 focus:outline-none"
                 placeholder="简短标题"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
               />
               <textarea
-                className="h-24 w-full rounded-lg border border-slate-200 bg-white p-2 font-mono text-xs text-slate-800 focus:border-teal-500 focus:outline-none"
+                className="h-24 w-full rounded-lg border border-dh-bsoft bg-dh-surface p-2 font-mono text-xs text-dh-text focus:border-dh-m2 focus:outline-none"
                 value={editPrompt}
                 onChange={(e) => setEditPrompt(e.target.value)}
               />
               <div className="flex justify-end gap-2">
                 <button
-                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  className="rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover"
                   onClick={() => setEditing(false)}
                 >
                   取消
                 </button>
                 <button
-                  className="rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                  className="rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-50"
                   disabled={busy}
                   onClick={saveEdit}
                 >
@@ -1935,24 +1935,24 @@ export function TerminalPanel({
           ) : (
             <div className="mb-2 flex items-start gap-2">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">
+                <div className="text-sm font-semibold text-dh-text">
                   {detail.title || taskPromptText(detail)}
                 </div>
                 {detail.title && (
-                  <div className="mt-0.5 line-clamp-2 text-xs text-slate-500" title={taskPromptText(detail)}>
+                  <div className="mt-0.5 line-clamp-2 text-xs text-dh-muted" title={taskPromptText(detail)}>
                     {taskPromptText(detail)}
                   </div>
                 )}
               </div>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <button
-                  className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"
+                  className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-xs text-dh-muted hover:bg-dh-hover"
                   onClick={startEdit}
                 >
                   编辑
                 </button>
                 <button
-                  className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"
+                  className="rounded-lg border border-dh-bsoft px-2 py-0.5 text-xs text-dh-muted hover:bg-dh-hover"
                   onClick={() => setMetaCollapsed(true)}
                   title="折叠任务详情"
                 >
@@ -1961,7 +1961,7 @@ export function TerminalPanel({
               </div>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-500 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-dh-muted sm:grid-cols-4">
             <Meta label="优先级" value={`P${detail.priority}`} />
             <Meta label="类型" value={detail.kind === "repair" ? "修复" : detail.kind} />
             <Meta label="退出码" value={detail.exit_code ?? "—"} />
@@ -1975,7 +1975,7 @@ export function TerminalPanel({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {!isFinished && active && canSession && detail.session_cleared && (
               <button
-                className="rounded-lg border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                className="rounded-lg border border-amber-500/40 px-2.5 py-1 text-xs font-medium text-amber-400 hover:bg-amber-500/20 disabled:opacity-50"
                 disabled={busy}
                 onClick={doRecover}
                 title="终端里检测到 /clear：停止当前执行器，从原始会话重新加载上下文继续"
@@ -1992,7 +1992,7 @@ export function TerminalPanel({
             )}
             {isFinished && (
               <button
-                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
                 disabled={busy}
                 onClick={doRerun}
                 title="用同样指令全新跑一遍(新会话)"
@@ -2003,14 +2003,14 @@ export function TerminalPanel({
             {isFinished && canSession && (
               <>
                 <button
-                  className="rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                  className="rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500 disabled:opacity-50"
                   disabled={busy}
                   onClick={() => doContinue(false)}
                 >
                   ▶ 继续会话
                 </button>
                 <button
-                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-50"
                   disabled={busy}
                   onClick={() => doContinue(true)}
                   title="恢复会话后自动 /compact 压缩上下文"
@@ -2021,7 +2021,7 @@ export function TerminalPanel({
             )}
             {canSession && (
               <button
-                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover"
                 onClick={doExport}
                 title="导出完整上下文 bundle 分享给别人"
               >
@@ -2038,17 +2038,17 @@ export function TerminalPanel({
 
         {/* 权限请求卡片(SDK 结构化: 点允许/拒绝, 不用去终端敲) */}
         {perm && (
-          <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+          <div className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-400">
               <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
               需要授权：{perm.tool}
             </div>
-            <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-2 text-[11px] text-slate-600">
+            <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-dh-surface p-2 text-[11px] text-dh-tsoft">
               {perm.input}
             </pre>
             <div className="mt-2 flex justify-end gap-2">
               <button
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                className="rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/20 disabled:opacity-50"
                 disabled={busy}
                 onClick={() => respondPerm(false)}
               >
@@ -2112,7 +2112,7 @@ export function TerminalPanel({
                   >
                     原始终端
                   </button>
-                  <span className="ml-1 text-[11px] text-slate-500">历史视图会随窗口宽度自动排版</span>
+                  <span className="ml-1 text-[11px] text-dh-muted">历史视图会随窗口宽度自动排版</span>
                 </div>
                 <div className="min-h-0 flex-1">
                   {historyMode === "history" ? (
@@ -2120,7 +2120,7 @@ export function TerminalPanel({
                   ) : detail.log_path ? (
                     <TerminalView key={`terminal-${detail.id}`} taskId={detail.id} live={false} />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-slate-500">
+                    <div className="flex h-full items-center justify-center text-xs text-dh-muted">
                       该待执行任务还没有原始终端日志
                     </div>
                   )}
@@ -2171,7 +2171,7 @@ function Meta({ label, value, span2 }: { label: string; value: any; span2?: bool
   return (
     <div className={span2 ? "col-span-2" : ""}>
       <span className="text-slate-400">{label}：</span>
-      <span className="text-slate-600">{value}</span>
+      <span className="text-dh-tsoft">{value}</span>
     </div>
   );
 }
