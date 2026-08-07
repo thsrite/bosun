@@ -461,8 +461,8 @@ function TerminalView({
     const disposeImeFix = isTouchDevice() ? installMobileImeInsertTextFix(term) : () => {};
     fit.fit();
     // 桌面端挂载即聚焦可直接打字；移动端不自动聚焦（打开面板不弹输入法），
-    // 由 onTouchEnd 的「轻点终端」手势聚焦 xterm 隐藏 textarea 弹出输入法，
-    // 键入直接进 PTY——@ 文件引用、/ 命令补全等都由 CLI 自身在终端里渲染。
+    // 键盘由按键栏的「输入占位条」唤起，键入直接进 PTY——@ 文件引用、/ 命令补全
+    // 等都由 CLI 自身在终端里渲染。
     // 输入法弹出时 visualViewport 机制会收缩面板高度并 refit，不会盖住终端内容。
     const isDesktopLayout = () => window.matchMedia("(min-width: 768px)").matches;
     if (isDesktopLayout()) term.focus();
@@ -523,10 +523,10 @@ function TerminalView({
       // http(非安全上下文，手机连局域网 IP 的常态)没有 navigator.clipboard，退回 execCommand。
       // canvas 渲染下 xterm 选区不是原生 DOM 选区，iOS 对无选区的 execCommand 直接返回 false，
       // 所以造一个临时 readonly textarea 选区(readonly 避免 iOS 弹键盘)承载要复制的文本。
-        const prevActive = document.activeElement;
       const legacyCopy = () => {
-        const ta = document.createElement("textarea");
+        const prevActive = document.activeElement;
         ta.value = selection;
+        const ta = document.createElement("textarea");
         ta.setAttribute("readonly", "");
         ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
         document.body.appendChild(ta);
@@ -851,7 +851,6 @@ function TerminalView({
     let tStartY = 0;
     let tLastY = 0;
     let tStartAt = 0;
-    let tapFocusUntil = 0;
     let tRemainder = 0;
     let tActive = false;
     let tScrollStarted = false;
@@ -1064,8 +1063,8 @@ function TerminalView({
         }
       }
       if (tScrollStarted) startFling(); // 松手按末速甩滚，撞顶/底或衰减尽自停
-      // 移动端「轻点终端」＝想输入：聚焦 xterm 隐藏 textarea 弹出输入法，键入直进 PTY，
-      // 与桌面端点击终端即可打字一致。纵向拖动(滚历史)、长按选区、pinch 都不算轻点。
+      // 移动端轻点终端正文不再弹输入法（TUI 隐藏真实光标且停位不可测，「点到输入行才弹」
+      // 无法可靠判定；正文轻点以阅读/滚动/点链接为主）。键盘统一从按键栏的输入占位条唤起。
       const tapLike =
         wasActive &&
         !wasSelecting &&
@@ -1073,62 +1072,8 @@ function TerminalView({
         e.type === "touchend" &&
         performance.now() - tStartAt < 350;
       if (tapLike && term.hasSelection()) {
-      // 只有点到「输入行附近」才弹输入法：TUI 输入框/shell 提示符都在光标所在屏幕行，
-      // 向上放宽 2 行容纳输入框边框；正文/历史区域轻点用于阅读滚动，不该误弹键盘。
-      // 正文轻点不拦默认链，链接仍走浏览器补发的模拟事件正常打开。
-      const tapNearCursorRow = (touch: Touch): boolean => {
-        const screen = term.element?.querySelector(".xterm-screen");
-        const rect = (screen ?? terminalHost).getBoundingClientRect();
-        if (rect.height <= 0 || term.rows <= 0) return true;
-        const tapRow = ((touch.clientY - rect.top) / rect.height) * term.rows;
-        const buf = term.buffer.active;
-        const cursorScreenRow = buf.baseY + buf.cursorY - buf.viewportY;
-        return tapRow >= cursorScreenRow - 2;
-      };
-        // 有选区时轻点＝取消选区（对应原生选区点击空白收起的习惯），本次不弹输入法
+        // 有选区时轻点＝取消选区（对应原生选区点击空白收起的习惯）
         term.clearSelection();
-      } else if (
-        tapLike &&
-        liveRef.current &&
-        !isDesktopLayout() &&
-        !hasNativeTerminalSelection() &&
-        !term.hasSelection() &&
-        e.changedTouches[0] &&
-        tapNearCursorRow(e.changedTouches[0])
-      ) {
-        // 轻点（区别于稍长的按压：那种 iOS 不补发模拟鼠标事件，键盘就能正常保持）的默认
-        // 动作链——补发模拟鼠标事件 + 「点在不可聚焦区域」整链结束后收键盘——是输入法
-        // 一闪即收的根源。在 mousedown/click 上拦不住（失焦发生在整条链之后），唯一可靠的
-        // 拦截点是 touchend 本身 preventDefault（监听须为非 passive）。
-        if (e.cancelable) e.preventDefault();
-        // 链接激活（WebLinksAddon/硬折行 provider）与 PTY 鼠标上报依赖那串模拟事件；
-        // 改为手工重放等价的 mousemove→mousedown→mouseup 给 xterm。合成事件不触发浏览器
-        // 默认动作，不会再抢焦点。
-        const touch = e.changedTouches[0];
-        if (touch && term.element) {
-          for (const [type, buttons] of [
-            ["mousemove", 0],
-            ["mousedown", 1],
-            ["mouseup", 0],
-          ] as const) {
-            term.element.dispatchEvent(
-              new MouseEvent(type, {
-                bubbles: true,
-                button: 0,
-                buttons,
-                clientX: touch.clientX,
-                clientY: touch.clientY,
-              }),
-            );
-          }
-        }
-        // iOS 陷阱：textarea 可能仍是 activeElement 但键盘已被收起（上次抖动的残留状态），
-        // 此时 focus() 是空操作、键盘不会再弹。先 blur 再 focus 强制重新召唤键盘。
-        if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
-        term.focus();
-        // 兜底窗口：万一浏览器仍补发了模拟事件（老 WebKit 对 preventDefault 支持不全），
-        // mousedown 会被 preventDefault 掉焦点转移，click 再补一次聚焦。
-        tapFocusUntil = performance.now() + 500;
       }
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
       selectionResumeTimer = window.setTimeout(() => {
@@ -1136,25 +1081,8 @@ function TerminalView({
         maybeResumeDeferredWrites();
       }, 150);
     };
-    // 轻点聚焦的兜底：touchend 里的 focus 可能被随后的模拟 mousedown 默认行为 blur 掉，
-    // 在模拟事件链最后的 click 上再聚焦一次（仍属用户手势，允许弹出输入法）。
-    const onTerminalTapFocusClick = () => {
-      if (performance.now() > tapFocusUntil) return;
-      tapFocusUntil = 0;
-      term.focus();
-    };
-    terminalHost.addEventListener("click", onTerminalTapFocusClick);
-    // 根治：轻点窗口内拦掉模拟 mousedown 的默认行为，焦点根本不发生转移，
-    // 输入法不再经历「弹出→被 blur 收起→click 补聚焦」的抖动（抖动经常以收起告终）。
-    // 窗口只在移动端轻点聚焦分支里开启，桌面端选区拖拽不受影响。
-    const onTerminalTapMousedown = (e: MouseEvent) => {
-      if (performance.now() > tapFocusUntil) return;
-      e.preventDefault();
-    };
-    terminalHost.addEventListener("mousedown", onTerminalTapMousedown, true);
     const touchCaptureOptions = { capture: true, passive: false } as AddEventListenerOptions;
-    // touchend 必须非 passive：轻点聚焦分支要 preventDefault 掉「模拟鼠标事件 + 收键盘」默认链
-    const touchEndCaptureOptions = { capture: true, passive: false } as AddEventListenerOptions;
+    const touchEndCaptureOptions = { capture: true, passive: true } as AddEventListenerOptions;
     terminalHost.addEventListener("pointerdown", focusTerminal);
     // xterm 会先在内部 viewport 处理滚轮/翻页键并同步触发 onScroll。如果等事件冒泡到
     // terminalHost 才标记，onScroll 看不到“用户滚动”，下一帧的新输出仍会把视图拉回底部。
@@ -1199,8 +1127,6 @@ function TerminalView({
       scrollDisposable.dispose();
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
-      terminalHost.removeEventListener("click", onTerminalTapFocusClick);
-      terminalHost.removeEventListener("mousedown", onTerminalTapMousedown, true);
       terminalHost.removeEventListener("copy", onTerminalCopy);
       terminalHost.removeEventListener("paste", onTerminalPaste, true);
       terminalHost.removeEventListener("wheel", markUserScroll, userScrollCaptureOptions);
@@ -1262,8 +1188,16 @@ function TerminalView({
           connected={connected}
           onSend={sendTerminalData}
           onPaste={pasteTerminalData}
-        />
+          onFocusTerminal={() => {
+            const term = termRef.current;
+            if (!term) return;
+            // iOS 残留态：textarea 仍是 activeElement 但键盘已收起时 focus() 是空操作，
+            // 先 blur 再 focus 强制重新召唤键盘。
+            if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
+            term.focus();
+          }}
       )}
+        />
     </div>
   );
 }
@@ -1273,13 +1207,15 @@ function TerminalMobileComposer({
   connected,
   onSend,
   onPaste,
-}: {
+  onFocusTerminal,
   taskId: number;
+}: {
   connected: boolean;
   onSend: (data: string) => void;
   onPaste: (data: string) => void;
-}) {
+  onFocusTerminal: () => void;
   const [uploading, setUploading] = useState(false);
+}) {
 
   const sendKey = (data: string) => {
     if (!connected) return;
@@ -1313,8 +1249,17 @@ function TerminalMobileComposer({
 
   return (
     <div className="dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
-      {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
-          文本输入直接轻点终端区域弹输入法键入。 */}
+      {/* 「终端输入框」占位条：键盘唯一从这里唤起（轻点终端正文只滚动/点链接，不再误弹
+          输入法）。点击后聚焦 xterm 隐藏 textarea，键入直进 PTY。 */}
+      <button
+        type="button"
+        className="w-full rounded-md border border-dh-border bg-dh-soft px-2.5 py-1.5 text-left text-[12px] text-dh-muted active:bg-dh-hover disabled:opacity-40"
+        disabled={!connected}
+        onClick={onFocusTerminal}
+      >
+        ⌨ 点此唤起键盘，输入直达终端…
+      </button>
+      {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。 */}
       <div className="grid grid-cols-6 gap-1.5">
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b")} label="Esc" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\t")} label="Tab" />
