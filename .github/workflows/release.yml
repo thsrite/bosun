@@ -64,7 +64,7 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-13
+          - runner: macos-15-intel  # macos-13 已退役，这是 GitHub 现存的 Intel 镜像
             arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
