@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { api } from "./api";
 import { AttachmentPicker } from "./components/AttachmentPicker";
+import { isCoarsePointer } from "./pointer";
 
 // ---- 全局 overlay 状态(模块级 + 订阅) ----
 type Toast = {
@@ -221,7 +222,8 @@ export function OverlayHost() {
             </div>
             {dlg.kind === "prompt" && (
               <input
-                autoFocus
+                // 触屏不 autoFocus（同 CreateTaskDialog：iOS 弹窗 autofocus 键盘闪现即收陷阱）
+                autoFocus={!isCoarsePointer()}
                 className="mt-3 w-full rounded-lg border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm text-dh-text focus:border-dh-m2 focus:outline-none"
                 value={promptVal}
                 onChange={(e) => setPromptVal(e.target.value)}

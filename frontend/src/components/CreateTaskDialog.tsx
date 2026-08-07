@@ -5,6 +5,7 @@ import { guardQuota } from "../quota";
 import type { Engine, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
 import { useAvailableEngines } from "../installedEngines";
+import { isCoarsePointer } from "../pointer";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { Modal } from "./Modal";
 import { AUTO_APPROVE_FLAG, ENGINE_ORDER, engineName } from "../engines";
@@ -254,7 +255,9 @@ export function CreateTaskDialog({
           placeholder={`给 ${availableEngines.join("/")} 的指令…`}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          autoFocus={!projects}
+          // 触屏不 autoFocus：iOS/WebKit 对动态插入弹窗里的 autofocus 输入框会「键盘闪现即收、
+          // 元素却保持聚焦」，之后点击已聚焦元素 focus() 是空操作，键盘要点很多次才弹得出来。
+          autoFocus={!projects && !isCoarsePointer()}
         />
         <div className="rounded-lg border-2 border-dashed border-teal-500 bg-slate-900 p-3 shadow-inner shadow-black/20">
           <div className="flex items-center gap-2">

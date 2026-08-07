@@ -249,7 +249,10 @@ function usePwaResumeViewportRecovery() {
           keyboardOpen ? "0px" : "env(safe-area-inset-bottom)",
         );
       }
-      window.scrollTo(0, 0);
+      // 输入法打开（有聚焦的输入元素）时不要强制回滚页面：iOS 会为露出焦点元素平移视口，
+      // 这里 0/80/250/700ms 的连续 scrollTo(0,0) 会跟它打架，把刚弹出的键盘顶掉。
+      // PWA 恢复(白屏/错位)场景都发生在无输入焦点时，守卫不影响原目的。
+      if (!hasFocusedTextInput()) window.scrollTo(0, 0);
     };
 
     const schedule = () => {
@@ -1071,10 +1074,38 @@ function TerminalView({
         !hasNativeTerminalSelection() &&
         !term.hasSelection()
       ) {
+        // 轻点（区别于稍长的按压：那种 iOS 不补发模拟鼠标事件，键盘就能正常保持）的默认
+        // 动作链——补发模拟鼠标事件 + 「点在不可聚焦区域」整链结束后收键盘——是输入法
+        // 一闪即收的根源。在 mousedown/click 上拦不住（失焦发生在整条链之后），唯一可靠的
+        // 拦截点是 touchend 本身 preventDefault（监听须为非 passive）。
+        if (e.cancelable) e.preventDefault();
+        // 链接激活（WebLinksAddon/硬折行 provider）与 PTY 鼠标上报依赖那串模拟事件；
+        // 改为手工重放等价的 mousemove→mousedown→mouseup 给 xterm。合成事件不触发浏览器
+        // 默认动作，不会再抢焦点。
+        const touch = e.changedTouches[0];
+        if (touch && term.element) {
+          for (const [type, buttons] of [
+            ["mousemove", 0],
+            ["mousedown", 1],
+            ["mouseup", 0],
+          ] as const) {
+            term.element.dispatchEvent(
+              new MouseEvent(type, {
+                bubbles: true,
+                button: 0,
+                buttons,
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+              }),
+            );
+          }
+        }
+        // iOS 陷阱：textarea 可能仍是 activeElement 但键盘已被收起（上次抖动的残留状态），
+        // 此时 focus() 是空操作、键盘不会再弹。先 blur 再 focus 强制重新召唤键盘。
+        if (term.textarea && document.activeElement === term.textarea) term.textarea.blur();
         term.focus();
-        // 浏览器会对这次轻点补发模拟鼠标事件，落在不可聚焦画布上的 mousedown 默认行为
-        // 会把刚聚焦的 textarea 又 blur 掉（表现为输入法一闪就收）。标记一个短窗口，
-        // 让链尾的 click（晚于 mousedown）再补一次聚焦兜底。
+        // 兜底窗口：万一浏览器仍补发了模拟事件（老 WebKit 对 preventDefault 支持不全），
+        // mousedown 会被 preventDefault 掉焦点转移，click 再补一次聚焦。
         tapFocusUntil = performance.now() + 500;
       }
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
@@ -1091,8 +1122,17 @@ function TerminalView({
       term.focus();
     };
     terminalHost.addEventListener("click", onTerminalTapFocusClick);
+    // 根治：轻点窗口内拦掉模拟 mousedown 的默认行为，焦点根本不发生转移，
+    // 输入法不再经历「弹出→被 blur 收起→click 补聚焦」的抖动（抖动经常以收起告终）。
+    // 窗口只在移动端轻点聚焦分支里开启，桌面端选区拖拽不受影响。
+    const onTerminalTapMousedown = (e: MouseEvent) => {
+      if (performance.now() > tapFocusUntil) return;
+      e.preventDefault();
+    };
+    terminalHost.addEventListener("mousedown", onTerminalTapMousedown, true);
     const touchCaptureOptions = { capture: true, passive: false } as AddEventListenerOptions;
-    const touchEndCaptureOptions = { capture: true, passive: true } as AddEventListenerOptions;
+    // touchend 必须非 passive：轻点聚焦分支要 preventDefault 掉「模拟鼠标事件 + 收键盘」默认链
+    const touchEndCaptureOptions = { capture: true, passive: false } as AddEventListenerOptions;
     terminalHost.addEventListener("pointerdown", focusTerminal);
     // xterm 会先在内部 viewport 处理滚轮/翻页键并同步触发 onScroll。如果等事件冒泡到
     // terminalHost 才标记，onScroll 看不到“用户滚动”，下一帧的新输出仍会把视图拉回底部。
@@ -1138,6 +1178,7 @@ function TerminalView({
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
       terminalHost.removeEventListener("click", onTerminalTapFocusClick);
+      terminalHost.removeEventListener("mousedown", onTerminalTapMousedown, true);
       terminalHost.removeEventListener("copy", onTerminalCopy);
       terminalHost.removeEventListener("paste", onTerminalPaste, true);
       terminalHost.removeEventListener("wheel", markUserScroll, userScrollCaptureOptions);
