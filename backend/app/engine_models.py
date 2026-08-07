@@ -1,16 +1,20 @@
 """Discover model choices exposed by the installed Claude Code / Codex CLI."""
 from __future__ import annotations
 
-import fcntl
 import json
 import os
-import pty
 import re
-import select
 import struct
 import subprocess
-import termios
+import sys
+import threading
 import time
+
+if sys.platform != "win32":
+    import fcntl
+    import pty
+    import select
+    import termios
 
 from . import db
 from .env import child_env
@@ -74,7 +78,68 @@ def parse_claude_model_picker(output: str) -> list[dict[str, str]]:
     return options
 
 
+def _capture_claude_model_picker_windows(binary: str) -> str:
+    """Windows 走 pty_compat（ConPTY）：读线程收流，主循环限时等选择器渲染完。"""
+    from .pty_compat import PtyProcess
+
+    try:
+        proc = PtyProcess.spawn(
+            [binary, "--safe-mode", "--ax-screen-reader"],
+            env=child_env({"TERM": "xterm-256color", "NO_COLOR": "1", "FORCE_COLOR": "0"}),
+            dimensions=(40, 120),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ModelDiscoveryError(f"无法启动 Claude CLI：{exc}") from exc
+
+    chunks: list[bytes] = []
+    stop = threading.Event()
+
+    def _pump() -> None:
+        total = 0
+        while not stop.is_set() and total <= _MAX_PICKER_BYTES:
+            try:
+                chunk = proc.read(16_384)
+            except (EOFError, OSError):
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+
+    reader = threading.Thread(target=_pump, daemon=True)
+    reader.start()
+    started_at = time.monotonic()
+    command_sent = False
+    try:
+        while time.monotonic() - started_at < _CLAUDE_PICKER_TIMEOUT_SECONDS:
+            if not command_sent and time.monotonic() - started_at >= 1:
+                proc.write(b"/model\r")
+                command_sent = True
+            output = b"".join(chunks).decode("utf-8", errors="replace")
+            plain = _without_ansi(output)
+            if "Select model" in plain and "Enter to set" in plain:
+                return output
+            if not proc.isalive():
+                break
+            time.sleep(0.2)
+    finally:
+        stop.set()
+        if proc.isalive():
+            try:
+                proc.write(b"\x1b\x03")
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                proc.terminate(force=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+    raise ModelDiscoveryError("读取 Claude CLI 模型选择器超时或提前退出")
+
+
 def _capture_claude_model_picker(binary: str) -> str:
+    if sys.platform == "win32":
+        return _capture_claude_model_picker_windows(binary)
     master_fd, slave_fd = pty.openpty()
     try:
         fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))

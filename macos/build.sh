@@ -139,7 +139,9 @@ enum BosunConfig {
 }
 EOF
 
+# 显式钉最低部署版本：swiftc 默认按构建机系统版本，若在新系统上构建会拒绝老系统运行
 xcrun swiftc -O -whole-module-optimization \
+  -target "$(uname -m)-apple-macos13.0" \
   "$MACOS_DIR/Sources/main.swift" "$BUILD_DIR/Config.swift" \
   -o "$APP_DIR/Contents/MacOS/Bosun"
 

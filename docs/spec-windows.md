@@ -1,6 +1,6 @@
 # Windows 版规划（二期）
 
-> 状态：规划中，未实施。一期（v0.2.0）已发 macOS / Linux 二进制，本文规划 Windows exe 的移植路线。
+> 状态：M0–M2 已在 `feat/windows-support` 分支实现（pty_compat 双轨、锁 shim、CI windows job + macOS Intel 矩阵、报告脚本 PowerShell 版）；M1 的 ConPTY 启发式表现待 Windows 真机验证，Windows 版标注 beta。M3（在线自更新）未实施。
 
 ## 目标与非目标
 

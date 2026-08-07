@@ -1,16 +1,23 @@
-# 打 tag（v*）时构建 macOS / Linux 免源码可执行产物并挂到 GitHub Release。
+# 打 tag（v*）时构建 macOS / Linux / Windows 免源码可执行产物并挂到 GitHub Release；
+# workflow_dispatch 可在任意分支手动跑构建与冒烟（不发布），用于合并前验证。
 # 产物命名是在线更新的契约（backend/app/self_update.py 按后缀匹配平台），不要随意改：
-#   Bosun-<tag>-macos-arm64.dmg          （macOS 用户手动安装）
-#   bosun-<tag>-macos-arm64.app.tar.gz   （macOS 在线更新 / 命令行安装）
-#   bosun-<tag>-linux-x86_64.tar.gz      （Linux）
+#   Bosun-<tag>-macos-arm64.dmg / Bosun-<tag>-macos-x86_64.dmg    （macOS 用户手动安装）
+#   bosun-<tag>-macos-arm64.app.tar.gz / …-x86_64.app.tar.gz      （macOS 在线更新）
+#   bosun-<tag>-linux-x86_64.tar.gz                               （Linux）
+#   bosun-<tag>-windows-x86_64.zip                                （Windows）
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+env:
+  # tag 构建用 tag 名；workflow_dispatch 的分支名带斜杠不能进文件名，统一用 dev
+  REF: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
 
 jobs:
   linux:
@@ -45,14 +52,22 @@ jobs:
           curl -fsS http://127.0.0.1:8770/ | grep -q "<title>" || exit 1
           kill %1
       - name: 压缩产物
-        run: tar -C dist -czf "bosun-${{ github.ref_name }}-linux-x86_64.tar.gz" bosun
+        run: tar -C dist -czf "bosun-${REF}-linux-x86_64.tar.gz" bosun
       - uses: actions/upload-artifact@v4
         with:
           name: linux
           path: bosun-*.tar.gz
+          retention-days: 1  # 中转件：release 挂载后即无用
 
   macos:
-    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel  # macos-13 已退役，这是 GitHub 现存的 Intel 镜像
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -88,17 +103,63 @@ jobs:
           cp -R macos/build/Bosun.app staging/
           ln -s /Applications staging/Applications
           hdiutil create -volname Bosun -srcfolder staging -ov -format UDZO \
-            "Bosun-${{ github.ref_name }}-macos-arm64.dmg"
-          tar -C macos/build -czf "bosun-${{ github.ref_name }}-macos-arm64.app.tar.gz" Bosun.app
+            "Bosun-${REF}-macos-${{ matrix.arch }}.dmg"
+          tar -C macos/build -czf "bosun-${REF}-macos-${{ matrix.arch }}.app.tar.gz" Bosun.app
       - uses: actions/upload-artifact@v4
         with:
-          name: macos
+          name: macos-${{ matrix.arch }}
           path: |
             Bosun-*.dmg
             bosun-*.app.tar.gz
+          retention-days: 1
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 构建前端
+        shell: bash
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 打包后端
+        shell: bash
+        run: |
+          pip install -r backend/requirements.txt pyinstaller
+          python -m PyInstaller packaging/bosun.spec --noconfirm
+      - name: 冒烟测试
+        shell: bash
+        run: |
+          ./dist/bosun/bosun.exe &
+          for i in $(seq 1 45); do
+            curl -fsS http://127.0.0.1:8770/api/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8770/api/health || exit 1
+          curl -fsS http://127.0.0.1:8770/ | grep -q "<title>" || exit 1
+          kill %1 || true
+      - name: 压缩产物
+        shell: pwsh
+        run: Compress-Archive -Path dist/bosun -DestinationPath "bosun-$env:REF-windows-x86_64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: bosun-*.zip
+          retention-days: 1
 
   release:
-    needs: [linux, macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, macos, windows]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
@@ -108,16 +169,19 @@ jobs:
         with:
           files: |
             bosun-*.tar.gz
+            bosun-*.zip
             Bosun-*.dmg
           body: |
             ## 安装说明
 
-            **macOS（Apple Silicon）**：下载 `.dmg`，拖入「应用程序」。产物未做 Apple 公证，首次打开若被 Gatekeeper 拦截，执行：
+            **macOS**：下载对应芯片的 `.dmg`（Apple Silicon 选 `arm64`，Intel 选 `x86_64`），拖入「应用程序」。产物未做 Apple 公证，首次打开若被 Gatekeeper 拦截，执行：
             ```bash
             xattr -cr /Applications/Bosun.app
             ```
 
             **Linux（x86_64）**：下载 `.tar.gz` 解压后运行 `./bosun/bosun`，浏览器访问 `http://127.0.0.1:8770`。
+
+            **Windows（x86_64，beta）**：下载 `.zip` 解压后运行 `bosun\bosun.exe`，浏览器访问 `http://127.0.0.1:8770`。
 
             运行 AI 编码任务仍需自行安装至少一种支持的 CLI（Claude Code / Codex / Oh My Pi / Kimi Code 等）。
           append_body: true

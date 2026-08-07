@@ -88,6 +88,14 @@ def _resolve_bin(env_name: str, default: str, candidates: list[Path]) -> str:
     resolved = shutil.which(default)
     if resolved:
         return resolved
+    if sys.platform == "win32":
+        # npm 全局包在 Windows 落在 %APPDATA%\npm 下的 .cmd shim
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            for ext in (".cmd", ".exe"):
+                shim = Path(appdata) / "npm" / f"{default}{ext}"
+                if shim.is_file():
+                    return str(shim)
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)

@@ -131,6 +131,10 @@ def _repo_state() -> dict:
 
 def _blockers(state: dict) -> list[str]:
     if state.get("binary"):
+        if sys.platform == "win32":
+            # Windows 禁止改名含运行中 exe 的目录，整包替换方案不可用；
+            # 「退出后由脚本换包」的方案见 docs/spec-windows.md M3
+            return ["Windows 版暂不支持在线更新，请下载新版 zip 替换安装目录"]
         if _binary_asset_suffix() is None:
             return ["当前平台没有对应的发行产物，无法在线更新"]
         root = _binary_install_root()
@@ -389,6 +393,8 @@ def _binary_asset_suffix() -> str | None:
     if sys.platform.startswith("linux"):
         arch = "x86_64" if machine in {"x86_64", "amd64"} else machine
         return f"linux-{arch}.tar.gz"
+    if sys.platform == "win32":
+        return "windows-x86_64.zip"
     return None
 
 

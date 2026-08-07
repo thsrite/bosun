@@ -38,6 +38,13 @@ description: 向 Bosun 工作台回报当前任务的最终状态。仅当你正
   bash scripts/report.sh --status needs_input --summary "一句话说清等用户拍板什么" --needs-reply
   ```
 
+Windows 上没有 bash 时改用 PowerShell 版（同一契约）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/report.ps1 -Status done -Summary "一句话说清你做了什么"
+# needs_input 时追加 -NeedsReply
+```
+
 `summary` 用一句话（≤200 字）说清结论。脚本会先把状态和同一份 summary 打印到 agent 终端，再回调 Bosun；同时会自动处理引号转义，直接写自然语言即可。
 脚本在非 Bosun 会话里会自动空转，安全无副作用。
 
