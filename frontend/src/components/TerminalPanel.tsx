@@ -462,16 +462,16 @@ function TerminalView({
     const disposeImeFix = isTouchDevice() ? installMobileImeInsertTextFix(term) : () => {};
     fit.fit();
     // 桌面端挂载即聚焦可直接打字；移动端不自动聚焦（打开面板不弹输入法），
-    // 键盘由按键栏的「输入占位条」唤起，键入直接进 PTY——@ 文件引用、/ 命令补全
+    // 键盘由按键栏的「键盘」键唤起，键入直接进 PTY——@ 文件引用、/ 命令补全
     // 等都由 CLI 自身在终端里渲染。
     // 输入法弹出时 visualViewport 机制会收缩面板高度并 refit，不会盖住终端内容。
     const isDesktopLayout = () => window.matchMedia("(min-width: 768px)").matches;
     if (isDesktopLayout()) term.focus();
     // 触屏 + 移动布局：xterm 在 mousedown 里会自行 focus 隐藏 textarea，轻点正文经
     // 合成 mousedown 就把输入法弹出来。textarea 置 inputmode=none —— 聚焦照常（硬件
-    // 键盘、按键栏键入不受影响），但不召唤软键盘；软键盘唯一从按键栏占位条唤起
+    // 键盘、按键栏键入不受影响），但不召唤软键盘；软键盘唯一从按键栏「键盘」键唤起
     // （onFocusTerminal 里临时恢复 inputmode 再聚焦），失焦后复原为 none。
-    // 桌面布局（含横屏 iPad）没有占位条，不能封死软键盘，转屏切换布局时同步解除/恢复。
+    // 桌面布局（含横屏 iPad）没有按键栏，不能封死软键盘，转屏切换布局时同步解除/恢复。
     const syncSoftKeyboardGate = () => {
       const ta = term.textarea;
       if (!ta || !isTouchDevice()) return;
@@ -1086,7 +1086,7 @@ function TerminalView({
       }
       if (tScrollStarted) startFling(); // 松手按末速甩滚，撞顶/底或衰减尽自停
       // 移动端轻点终端正文不再弹输入法（TUI 隐藏真实光标且停位不可测，「点到输入行才弹」
-      // 无法可靠判定；正文轻点以阅读/滚动/点链接为主）。键盘统一从按键栏的输入占位条唤起。
+      // 无法可靠判定；正文轻点以阅读/滚动/点链接为主）。键盘统一从按键栏的「键盘」键唤起。
       const tapLike =
         wasActive &&
         !wasSelecting &&
@@ -1249,11 +1249,6 @@ function TerminalMobileComposer({
     onSend(data);
   };
 
-  const sendCommand = (command: string) => {
-    if (!connected) return;
-    onSend(`${command}${TERMINAL_SUBMIT_KEY}`);
-  };
-
   const onPickFiles = async (files: File[]) => {
     setUploading(true);
     try {
@@ -1276,17 +1271,9 @@ function TerminalMobileComposer({
 
   return (
     <div className="dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
-      {/* 「终端输入框」占位条：键盘唯一从这里唤起（轻点终端正文只滚动/点链接，不再误弹
-          输入法）。点击后聚焦 xterm 隐藏 textarea，键入直进 PTY。 */}
-      <button
-        type="button"
-        className="w-full rounded-md border border-dh-border bg-dh-soft px-2.5 py-1.5 text-left text-[12px] text-dh-muted active:bg-dh-hover disabled:opacity-40"
-        disabled={!connected}
-        onClick={onFocusTerminal}
-      >
-        ⌨ 点此唤起键盘，输入直达终端…
-      </button>
-      {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。 */}
+      {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
+          软键盘唯一从「键盘」键唤起（轻点终端正文只滚动/点链接，不再误弹输入法），
+          聚焦 xterm 隐藏 textarea 后键入直进 PTY。 */}
       <div className="grid grid-cols-6 gap-1.5">
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b")} label="Esc" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\t")} label="Tab" />
@@ -1301,7 +1288,7 @@ function TerminalMobileComposer({
         >
           {uploading ? "…" : "File"}
         </AttachmentPicker>
-        <TerminalKeyButton disabled={!connected} onSend={() => sendCommand("commit push")} label="CP" />
+        <TerminalKeyButton disabled={!connected} onSend={onFocusTerminal} label="键盘" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey(" ")} label="Space" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[D")} label="←" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[B")} label="↓" />
