@@ -74,6 +74,24 @@ def _claude_token() -> str | None:
         return None
 
 
+def _claude_login_state() -> bool | None:
+    """Ask Claude CLI whether its refreshable login session is still valid."""
+    try:
+        result = subprocess.run(
+            [config.CLAUDE_BIN, "auth", "status"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=child_env({"NO_COLOR": "1", "FORCE_COLOR": "0"}),
+        )
+        if result.returncode != 0:
+            return None
+        logged_in = json.loads(result.stdout).get("loggedIn")
+        return logged_in if isinstance(logged_in, bool) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _codex_creds() -> tuple[str | None, str | None]:
     try:
         obj = json.loads((Path.home() / ".codex" / "auth.json").read_text())
@@ -103,7 +121,15 @@ def _fetch_claude() -> dict:
         },
     )
     if status == 401:
-        return {"available": False, "error": "Claude token 过期，请重新登录"}
+        login_state = _claude_login_state()
+        if login_state is True:
+            return {
+                "available": False,
+                "error": "Claude 用量凭据待刷新；Claude CLI 仍已登录，请在 Claude 中发起一次请求后刷新",
+            }
+        if login_state is False:
+            return {"available": False, "error": "Claude 登录已失效，请重新登录"}
+        return {"available": False, "error": "Claude 用量接口鉴权失败(HTTP 401)"}
     if status == 429:
         return {"available": False, "error": "Claude 用量接口被限流(稍后重试)"}
     if status != 200 or not data:
