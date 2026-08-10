@@ -29,7 +29,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from . import engine_settings
+from . import engine_settings, sessions
 from .pty_session import TerminalBacklog
 from .engines import with_report_directive
 from .env import task_env
@@ -101,7 +101,8 @@ class SdkSession:
     def _build_options(self) -> ClaudeAgentOptions:
         opts_kwargs = {
             "cwd": self.cwd,
-            "env": task_env(self.task_id),
+            # 没装 claude CLI 的机器上，捆绑 CLI 家目录重定向进 DATA_DIR（见 sessions.claude_home）
+            "env": {**task_env(self.task_id), **sessions.claude_env_overrides()},
             "permission_mode": "bypassPermissions" if self.auto_approve else "default",
             "can_use_tool": None if self.auto_approve else self._can_use_tool,
         }

@@ -12,12 +12,45 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+# 装了 claude CLI 时共享用户自己的 ~/.claude；没装时内置 SDK agent（claude_agent_sdk
+# 捆绑 CLI）把家目录指到 DATA_DIR 下——Bosun 不在没装 claude 的机器上凭空创建
+# ~/.claude（用户反馈），也因此无须迁移登录凭证（macOS 凭证在 Keychain，不随目录走）。
 CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
+
+
+def claude_cli_installed() -> bool:
+    from . import config
+
+    binary = config.CLAUDE_BIN
+    if "/" in binary:
+        return Path(binary).expanduser().is_file()
+    return shutil.which(binary) is not None
+
+
+def claude_home() -> Path:
+    """内置 SDK agent 生效的 claude 家目录。"""
+    if claude_cli_installed():
+        return Path.home() / ".claude"
+    from . import config
+
+    return config.DATA_DIR / "claude-home"
+
+
+def claude_projects() -> Path:
+    return CLAUDE_PROJECTS if claude_cli_installed() else claude_home() / "projects"
+
+
+def claude_env_overrides() -> dict[str, str]:
+    """SDK 派发环境补丁：没装 claude CLI 时重定向捆绑 CLI 的家目录。"""
+    if claude_cli_installed():
+        return {}
+    return {"CLAUDE_CONFIG_DIR": str(claude_home())}
 CODEX_SESSIONS = Path.home() / ".codex" / "sessions"
 # omp 允许用 PI_CODING_AGENT_SESSION_DIR 改会话根目录；agent 是后端 spawn 的，
 # 继承的正是这份环境，所以这里读同一个变量才能跟它对上。
@@ -49,7 +82,7 @@ def encode_cwd(cwd: str) -> str:
 
 
 def cc_project_dir(cwd: str) -> Path:
-    return CLAUDE_PROJECTS / encode_cwd(cwd)
+    return claude_projects() / encode_cwd(cwd)
 
 
 def cc_session_path(cwd: str, uid: str) -> Path:
