@@ -106,6 +106,16 @@ class Registry:
         self.store.set_status(current.parent_id, "active")
         return self.get(current.parent_id)
 
+    def sync_protected_entry(self, engine: str, surface: str, key: str, value: str) -> int:
+        """宿主升级改了受保护条目的发布文本时，把该引擎所有版本刷成新文本。
+
+        受保护 key（Gate-0 protected_keys）演进提案禁改，因此跨版本统一覆盖
+        不会丢任何演进成果；返回受影响行数。
+        """
+        if surface not in SURFACES:
+            raise EditError(f"非法 surface: {surface}")
+        return self.store.update_entry_all_versions(engine, surface, key, value)
+
     def choose(self, engine: str, dispatch_key: str, shadow_percent: int) -> HarnessVersion:
         """灰度分流：宿主每次派发前调用。确定性哈希，同 key 恒同结果。"""
         active = self.active(engine)

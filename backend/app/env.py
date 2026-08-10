@@ -24,6 +24,7 @@ _STRIP = {
     "BOSUN_TASK_TOKEN",
     "BOSUN_API",
     "BOSUN_BACKEND_PID",
+    "BOSUN_REPORT_DIR",
 }
 
 
@@ -52,12 +53,14 @@ def task_env(task_id: int) -> dict:
     BOSUN_TASK_TOKEN 让 agent 在开了访问口令时也能回报：它只对本任务的
     /report 端点有效(见 auth.issue_task_token)，拿不到别的接口。
     """
-    from . import auth
+    from . import auth, report_scripts
 
     return child_env({
         "BOSUN_TASK_ID": str(task_id),
         "BOSUN_API": api_base(),
         "BOSUN_TASK_TOKEN": auth.issue_task_token(task_id),
+        # 收尾脚本位置：装在 Bosun 数据目录，不注入引擎家目录（见 report_scripts.py）
+        "BOSUN_REPORT_DIR": str(report_scripts.scripts_dir()),
     })
 
 

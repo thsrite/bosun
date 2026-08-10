@@ -87,6 +87,20 @@ class Store:
             "INSERT INTO he_entry(version_id, surface, entry_key, value) VALUES (?,?,?,?)", rows)
         self.conn.commit()
 
+    def update_entry_all_versions(self, engine: str, surface: str,
+                                  entry_key: str, value: str) -> int:
+        """把某引擎所有版本里的同名条目统一改为 value，返回受影响行数。
+
+        供宿主同步 Gate-0 受保护条目用：受保护 key 不参与演进，各版本文本
+        理应恒等于宿主当前发布的内容。
+        """
+        cur = self.conn.execute(
+            "UPDATE he_entry SET value=? WHERE surface=? AND entry_key=? AND value<>?"
+            " AND version_id IN (SELECT id FROM he_version WHERE engine=?)",
+            (value, surface, entry_key, value, engine))
+        self.conn.commit()
+        return cur.rowcount
+
     def read_entries(self, version_id: int) -> dict:
         snapshot: dict = {}
         for surface, key, value in self.conn.execute(
