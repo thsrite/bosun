@@ -8,22 +8,25 @@
 # 最后一条消息，顺着模型「结论放最后」的习惯走，稳定以正文形式展示给用户——曾短暂
 # 翻成「先打印后回报」，#524 实测模型会跳过打印步骤、条件式补打提醒又被误判绕过，
 # 当天回退。curl 刷屏问题改由 summary 压成 ≤50 字短回执治（结论细节只出现在正文）；
+# 回报本身写成「机械动作、照抄模板、不要分析」并允许「完成/失败/待答复」极简回执，
+# 压缩收尾时花在组装命令和措辞 summary 上的推理停顿；
 # 彻底漏回报由后端催报兜底（SdkSession 回合结束事件确定性补催，PtySession 静默停在
 # 空输入栏时低置信度补催 REPORT_NUDGE）。
 REPORT_DIRECTIVE = (
     "\n\n---\n"
-    "[Bosun 收尾约定] 每轮结束前（完成、失败、需反问用户都算）固定两步收尾：\n"
-    "①回报状态：result=done|failed|needs_input，summary=≤50字回执（细节放正文），"
-    "needs_reply=需用户答复时 true。例：\n"
+    "[Bosun 收尾约定] 每轮结束前（完成/失败/需反问都算）固定两步收尾：\n"
+    "①回报——机械照抄此命令填好字段即发，不要分析："
+    "result=done|failed|needs_input，summary=≤50字回执（写不出就用"
+    "「完成/失败/待答复」），needs_reply=需用户答复时 true。例：\n"
     "curl -sS -X POST -H 'Content-Type: application/json' "
     '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
     '-d "{\\"result\\":\\"done\\",\\"summary\\":\\"回执\\",'
     '\\"needs_reply\\":false,\\"reporter_pid\\":$$}" '
     '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/report"\n'
     "（$BOSUN_TASK_TOKEN 为空可省 Authorization 头；Windows 用 curl.exe，"
-    "reporter_pid 可省略；返回非 2xx 须直接告知用户）\n"
-    "②回报后不得再调工具，把本轮完整结论正文作为最后一条消息打印到终端。"
-    "用户只看这条正文——塞进 summary 或只留「见上」都等于用户看不到。"
+    "reporter_pid 可省；非 2xx 须告知用户）\n"
+    "②回报后不得再调工具，把本轮完整结论正文作为最后一条消息打印到终端——"
+    "用户只看这条正文，塞进 summary 或只留「见上」都等于没说。"
     "两步缺一不算收尾。"
 )
 
