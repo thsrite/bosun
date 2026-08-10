@@ -12,23 +12,19 @@
 # 空输入栏时低置信度补催 REPORT_NUDGE）。
 REPORT_DIRECTIVE = (
     "\n\n---\n"
-    "[Bosun 收尾约定] 本轮工作结束前——无论是任务完成、失败无法继续，"
-    "还是需要反问用户才能往下走——都必须收尾，固定两步：①先回报状态：向 "
-    "$BOSUN_API/api/tasks/$BOSUN_TASK_ID/report POST JSON，字段 result="
-    "done|failed|needs_input、summary=≤50字状态回执(不要写结论细节，细节放正文)、"
-    "needs_reply=需要用户答复时为 true、reporter_pid=当前 shell 的 pid($$)，"
-    "并带请求头 Authorization: Bearer $BOSUN_TASK_TOKEN（该变量为空时省略）。例：\n"
+    "[Bosun 收尾约定] 每轮结束前（完成、失败、需反问用户都算）固定两步收尾：\n"
+    "①回报状态：result=done|failed|needs_input，summary=≤50字回执（细节放正文），"
+    "needs_reply=需用户答复时 true。例：\n"
     "curl -sS -X POST -H 'Content-Type: application/json' "
     '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
     '-d "{\\"result\\":\\"done\\",\\"summary\\":\\"回执\\",'
     '\\"needs_reply\\":false,\\"reporter_pid\\":$$}" '
     '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/report"\n'
-    "（Windows 用 curl.exe 或 Invoke-RestMethod，reporter_pid 可省略）。"
-    "返回非 2xx 说明状态没同步到工作台，须把失败直接告知用户；"
-    "②回报之后、停下之前，把本轮完整的结论/分析/待拍板问题正文，作为你最后"
-    "一条消息完整打印到终端（回报之后不得再调工具）。用户只看这条正文："
-    "把正文塞进 summary 字段、写在工具调用之间、或末尾只补一句短摘要说「见上」，"
-    "都等于用户看不到。未回报、或最后一条消息不含完整正文，都不算收尾。"
+    "（$BOSUN_TASK_TOKEN 为空可省 Authorization 头；Windows 用 curl.exe，"
+    "reporter_pid 可省略；返回非 2xx 须直接告知用户）\n"
+    "②回报后不得再调工具，把本轮完整结论正文作为最后一条消息打印到终端。"
+    "用户只看这条正文——塞进 summary 或只留「见上」都等于用户看不到。"
+    "两步缺一不算收尾。"
 )
 
 # 催报提醒：回合已结束但后端仍没收到 /report 回调时，作为一条用户消息补投给 agent。
