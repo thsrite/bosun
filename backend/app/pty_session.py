@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 
 from .config import IDLE_SECONDS
+from .directives import REPORT_NUDGE
 from .pty_compat import PtyProcess
 
 # PTY logs contain every TUI repaint. A long Codex/Claude session can therefore
@@ -146,6 +147,8 @@ _ANSI_RE = re.compile(
     r"|[\r]"
 )
 _BUSY_GRACE_SECONDS = max(IDLE_SECONDS * 2, 20.0)
+# 催报的静默门槛比 idle 判定更宽：正文打印完到 curl 之间有正常间隙，别抢跑误催
+NUDGE_IDLE_SECONDS = max(IDLE_SECONDS * 3, 24.0)
 # Semantic prompt words are common in source code, diffs and documentation (for
 # example ``getByText('请选择云盘实例')``).  Only treat them as prompts when they
 # begin a terminal/output line, optionally after a normal list/prompt marker.
@@ -217,6 +220,17 @@ _SCRIPT_FALSE = {"0", "false", "no", "off", "pty", "none", "auto", ""}
 _SCRIPT_TRUE = {"1", "true", "yes", "on", "script"}
 _BRACKETED_PASTE_START = "\x1b[200~"
 _BRACKETED_PASTE_END = "\x1b[201~"
+
+
+def report_nudge_enabled() -> bool:
+    """漏报催报兜底（默认开启）：BOSUN_REPORT_NUDGE=0 可关。
+
+    与状态启发式(BOSUN_WAIT_HEURISTICS)相互独立——催报只往终端补一行提醒、
+    不改任务状态，误催的代价远小于误改状态。
+    """
+    return os.environ.get("BOSUN_REPORT_NUDGE", "1").strip().lower() not in {
+        "0", "false", "no", "off",
+    }
 
 
 def wait_heuristics_enabled() -> bool:
@@ -393,6 +407,7 @@ class PtySession:
         self._input_in_bracketed_paste = False
         self.status = "running"
         self._reported = False  # 收到 agent 权威回调后置真，正则不得再翻转状态
+        self._nudge_sent = False  # 本轮已补发过催报提醒（每轮最多催一次）
         self._heuristics = wait_heuristics_enabled()
         # 记录进入 waiting_input 的来源: "prompt"(明确提示/完成标记,粘性) /
         # "idle"(静默输入提示,可恢复)
@@ -433,9 +448,9 @@ class PtySession:
         )
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
-        if self._heuristics:
-            self._idle_watch = threading.Thread(target=self._idle_loop, daemon=True)
-            self._idle_watch.start()
+        # 空闲巡检始终在跑：状态启发式(默认关)与催报兜底(默认开)各自内部把关
+        self._idle_watch = threading.Thread(target=self._idle_loop, daemon=True)
+        self._idle_watch.start()
         if self.initial_prompt:
             threading.Thread(target=self._send_initial_prompt, daemon=True).start()
         if self.post_input:
@@ -560,6 +575,43 @@ class PtySession:
         while not self._stop.is_set():
             time.sleep(1.0)
             self._maybe_set_idle_waiting()
+            self._maybe_nudge_report()
+
+    def _maybe_nudge_report(self, now: float | None = None) -> bool:
+        """回合看似结束却没收到 /report 回调 → 往终端补投一条催报提醒（每轮一次）。
+
+        「先打印正文再回报」顺序下漏报的兜底。低置信度：复用 idle 判定的全部
+        防误触条件（转圈/忙碌宽限/后台 shell/非空输入栏都不催），静默门槛更宽。
+        不改任务状态，只打字——误催的代价是终端多一行提醒。
+        """
+        if not report_nudge_enabled():
+            return False
+        if self._reported or self._nudge_sent:
+            return False
+        if self.proc is None or not self.proc.isalive():
+            return False
+        now = now or time.time()
+        if now - self.last_output <= NUDGE_IDLE_SECONDS:
+            return False
+        if now < self._busy_until:
+            return False
+        tail = self._buf[-800:]
+        if _has_active_background_shell(tail):
+            return False
+        if not _looks_like_idle_prompt(tail):
+            return False
+        self._nudge_sent = True
+        try:
+            # 括号粘贴防 TUI 把提醒文本当逐键输入处理；提交回车稍候，避免被并进粘贴
+            self.proc.write(
+                _BRACKETED_PASTE_START.encode() + REPORT_NUDGE.encode()
+                + _BRACKETED_PASTE_END.encode()
+            )
+            time.sleep(0.5)
+            self.proc.write(b"\r")
+        except Exception:
+            pass
+        return True
 
     def _maybe_set_idle_waiting(self, now: float | None = None) -> bool:
         if not self._heuristics:
@@ -681,6 +733,7 @@ class PtySession:
             # 输出会和旧提示一起再次命中，状态立刻反弹成 waiting_input。
             self._buf = ""
             self._reported = False  # 新一轮开始，解除权威锁，启发式重新生效
+            self._nudge_sent = False  # 新一轮重新获得一次催报机会
             self._set_status("running")
 
     def resize(self, rows: int, cols: int) -> None:

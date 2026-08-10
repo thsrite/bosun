@@ -30,7 +30,8 @@ from claude_agent_sdk import (
 )
 
 from . import engine_settings, sessions
-from .pty_session import TerminalBacklog
+from .directives import REPORT_NUDGE
+from .pty_session import TerminalBacklog, report_nudge_enabled
 from .engines import with_report_directive
 from .env import task_env
 from .pty_session import _put_drop
@@ -122,6 +123,7 @@ class SdkSession:
             async with ClaudeSDKClient(options=opts) as client:
                 self._client = client
                 pending = with_report_directive(self.prompt, engine="cc")
+                nudged = False
                 while self._alive:
                     await client.query(pending)
                     self._set_status("running")
@@ -131,11 +133,18 @@ class SdkSession:
                         self._render(msg)
                     if not self._alive:
                         break
+                    # 「先打印正文再回报」顺序下的漏报兜底：回合确定性结束却没收到
+                    # /report 回调 → 补投一条催报（每轮一次），SDK 路径 100% 不漏检
+                    if not self._reported and not nudged and report_nudge_enabled():
+                        nudged = True
+                        pending = REPORT_NUDGE
+                        continue
                     # 一轮结束, 等你下一条输入
                     self._set_status("waiting_input")
                     pending = await self._input_q.get()
                     if pending is None:
                         break
+                    nudged = False
                     self._reported = False  # 新一轮开始，解除权威锁，恢复正常状态流转
         except Exception as exc:  # noqa: BLE001
             self._event({"t": "error", "msg": str(exc)})

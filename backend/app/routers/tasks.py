@@ -487,10 +487,10 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
         "ok": True,
         "status": status,
         "report_result": body.result,
-        # 出现在 agent 的工具结果里：在模型正要停下的时刻提醒它补上正文，
-        # 治「结论只写进 summary、用户看不到正文」的收尾方式。
-        "hint": "回报已送达。请紧接着把本轮完整结论正文作为你最后一条消息打印出来再停下"
-                "（不得再调工具）；summary 只是回执，用户只看正文。",
+        # 出现在 agent 的工具结果里。顺序是「先打印正文、再回报」，正文通常已打印，
+        # 这里只做条件式兜底，治「跳过正文、只写 summary」的收尾方式。
+        "hint": "回报已送达。若本轮完整结论正文还没打印，请现在补打再停下；"
+                "已打印则直接停下即可。summary 只是回执，用户只看正文。",
     }
 
 
