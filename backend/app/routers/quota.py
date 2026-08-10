@@ -18,8 +18,8 @@ def _engine_call(fn: Callable[[str], dict], engine: str) -> dict:
 
 
 @router.get("")
-def get_quota(engine: str | None = None):
-    return quota.get_usage(engine)
+def get_quota(engine: str | None = None, refresh: bool = False):
+    return quota.get_usage(engine, refresh)
 
 
 @router.get("/engines")

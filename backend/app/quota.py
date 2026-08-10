@@ -215,10 +215,10 @@ def _fetch_codex() -> dict:
     }
 
 
-def _cached(provider: str, min_interval: int, fetch) -> dict:
+def _cached(provider: str, min_interval: int, fetch, refresh: bool = False) -> dict:
     now = time.time()
     c = _cache.get(provider)
-    if c and now - c["at"] < min_interval:
+    if not refresh and c and now - c["at"] < min_interval:
         return {**c["data"], "cached_age": int(now - c["at"])}
     data = fetch()
     _cache[provider] = {"at": now, "data": data}
@@ -234,22 +234,22 @@ def block_pct() -> int:
         return 90
 
 
-def _provider_usage(provider: str) -> dict:
+def _provider_usage(provider: str, refresh: bool = False) -> dict:
     if provider == "claude":
-        return _cached("claude", CLAUDE_MIN_INTERVAL, _fetch_claude)
+        return _cached("claude", CLAUDE_MIN_INTERVAL, _fetch_claude, refresh)
     if provider == "codex":
-        return _cached("codex", CODEX_MIN_INTERVAL, _fetch_codex)
+        return _cached("codex", CODEX_MIN_INTERVAL, _fetch_codex, refresh)
     return {"available": False, "error": f"未知服务商: {provider}"}
 
 
-def get_usage(engine: str | None = None) -> dict:
+def get_usage(engine: str | None = None, refresh: bool = False) -> dict:
     if engine:
         provider = _ENGINE_PROVIDER.get(engine)
         if provider:
-            return {provider: _provider_usage(provider), "block_pct": block_pct()}
+            return {provider: _provider_usage(provider, refresh), "block_pct": block_pct()}
     return {
-        "claude": _provider_usage("claude"),
-        "codex": _provider_usage("codex"),
+        "claude": _provider_usage("claude", refresh),
+        "codex": _provider_usage("codex", refresh),
         "block_pct": block_pct(),
     }
 

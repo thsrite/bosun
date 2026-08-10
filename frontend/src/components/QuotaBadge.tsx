@@ -392,9 +392,11 @@ function ProviderDetail({
   note,
   q,
   quotaUnsupported = false,
+  quotaRefreshing = false,
   engine,
   tool,
   toolState,
+  onRefreshQuota,
   onRefreshTool,
   onCheckUpdate,
   onUpdateTool,
@@ -404,9 +406,11 @@ function ProviderDetail({
   q: ProviderUsage | null | undefined;
   /** 该引擎没有订阅额度接口(如 omp 自带 provider key)，只展示版本与更新。 */
   quotaUnsupported?: boolean;
+  quotaRefreshing?: boolean;
   engine: string;
   tool: EngineToolInfo | null | undefined;
   toolState: EngineToolState | undefined;
+  onRefreshQuota: (engine: string) => void;
   onRefreshTool: (engine: string) => void;
   onCheckUpdate: (engine: string) => void;
   onUpdateTool: (engine: string) => void;
@@ -420,6 +424,17 @@ function ProviderDetail({
           <div className="truncate text-sm font-semibold text-dh-text" title={label}>{label}</div>
           <div className="text-[11px] text-slate-400">{note}</div>
         </div>
+        {!quotaUnsupported && (
+          <button
+            type="button"
+            className="rounded-md border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-[11px] text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => onRefreshQuota(engine)}
+            disabled={quotaRefreshing}
+            title="跳过缓存，立即重新获取额度"
+          >
+            {quotaRefreshing ? "刷新中" : "刷新"}
+          </button>
+        )}
         <span className={`rounded-full px-2 py-0.5 text-[11px] ${q?.available ? "bg-emerald-500/10 text-emerald-300" : "bg-dh-s2 text-dh-muted"}`}>
           {quotaUnsupported ? "无额度接口" : !q ? "读取中" : q.available ? "可用" : "不可用"}
         </span>
@@ -472,6 +487,20 @@ export function QuotaBadge({
   const usageProviders = providers.filter((p) => p.usageKey);
   const [tools, setTools] = useState<EngineTools>({});
   const [toolStates, setToolStates] = useState<EngineToolStates>({});
+  const [quotaRefreshing, setQuotaRefreshing] = useState<Record<string, boolean>>({});
+
+  const refreshQuota = useCallback(async (engine: string) => {
+    setQuotaRefreshing((prev) => ({ ...prev, [engine]: true }));
+    try {
+      const data = await api.quota(engine, true);
+      // 单引擎强刷只带回该 provider 的字段，合并进整体，别把另一个 provider 冲掉
+      setQ((prev) => ({ ...(prev || {}), ...data }));
+    } catch {
+      // 刷新失败保留旧数据，等下一轮轮询兜底
+    } finally {
+      setQuotaRefreshing((prev) => ({ ...prev, [engine]: false }));
+    }
+  }, []);
 
   const setToolState = useCallback((engine: string, patch: EngineToolState) => {
     setToolStates((prev) => ({ ...prev, [engine]: { ...(prev[engine] || {}), ...patch } }));
@@ -599,9 +628,11 @@ export function QuotaBadge({
                   note={p.note}
                   q={p.usageKey ? q?.[p.usageKey] : null}
                   quotaUnsupported={!p.usageKey}
+                  quotaRefreshing={!!quotaRefreshing[p.engine]}
                   engine={p.engine}
                   tool={tools[p.engine]}
                   toolState={toolStates[p.engine]}
+                  onRefreshQuota={refreshQuota}
                   onRefreshTool={loadTool}
                   onCheckUpdate={checkUpdate}
                   onUpdateTool={updateTool}

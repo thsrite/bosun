@@ -400,8 +400,13 @@ export const api = {
       write<{ count: number; sample: { title: string; detail: string }[] }>("POST", `/api/projects/${projectId}/sources/test`, body),
   },
 
-  quota: (engine?: string) =>
-    fetch(engine ? `/api/quota?engine=${encodeURIComponent(engine)}` : "/api/quota").then((r) => j<any>(r)),
+  quota: (engine?: string, refresh?: boolean) => {
+    const params = new URLSearchParams();
+    if (engine) params.set("engine", engine);
+    if (refresh) params.set("refresh", "1");
+    const qs = params.toString();
+    return fetch(qs ? `/api/quota?${qs}` : "/api/quota").then((r) => j<any>(r));
+  },
   engineTools: {
     /** 各引擎是否已安装；轻量探测，不跑 --version。 */
     installed: () => fetch("/api/quota/engines").then((r) => j<Record<string, boolean>>(r)),
