@@ -19,7 +19,7 @@ import threading
 import time
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from .config import IDLE_SECONDS
 from .pty_compat import PtyProcess
@@ -28,6 +28,55 @@ from .pty_compat import PtyProcess
 # grow to tens of megabytes even though xterm only needs the latest screen and
 # useful recent scrollback when a panel is opened or reconnected.
 MAX_TERMINAL_BACKLOG_BYTES = 2 * 1024 * 1024
+# 压缩前的原始扫描窗口。Codex 的 spinner 每秒重绘多次，日志末尾 2MB 可能 97% 都是
+# 状态条噪音、正文寥寥（实测 45MB 日志的末尾 2MB 只含 135 行正文）；先在更大的窗口里
+# 把噪音压掉，再按 MAX_TERMINAL_BACKLOG_BYTES 截尾，2MB 预算才装得下真正的转录。
+MAX_TERMINAL_SCAN_BYTES = 16 * 1024 * 1024
+
+# cc/codex 的每次 TUI 重绘都包在「同步更新」帧里(DECSET 2026)。不含换行/下滚的帧
+# 只是底部状态区(spinner/输入框)的原地重绘，机器速度连发时前一帧立刻被后一帧覆盖，
+# 回放时只需每段连续重绘的最后一帧；含换行的帧才携带滚入历史的转录正文，必须保留。
+_SYNC_FRAME_RE = re.compile(rb"\x1b\[\?2026h.*?\x1b\[\?2026l", re.S)
+# 帧与帧之间若只剩窗口标题更新(OSC 0，spinner 动画的一部分)，随所在纯重绘段一并丢弃
+_TITLE_ONLY_GAP_RE = re.compile(rb"^(?:\x1b\]0;[^\x07\x1b]*(?:\x07|\x1b\\))*$")
+# 换行或 IND/NEL 下滚都会把内容推进滚回区
+_FRAME_SCROLLS_RE = re.compile(rb"\n|\x1bD|\x1bE")
+
+
+class TerminalBacklog(NamedTuple):
+    data: bytes
+    truncated: bool  # 扫描窗口/回放预算装不下全部日志，前端据此提示「非完整回放」
+
+
+def compress_terminal_repaints(data: bytes) -> bytes:
+    """丢弃被覆盖的纯状态条重绘帧，只留每段连续重绘的最后一帧。
+
+    不改变任何保留字节的相对顺序；无 2026 帧的流原样返回。
+    """
+    pieces: list[bytes] = []
+    pending = b""  # 当前连续纯重绘段的最后一帧(含其可丢弃的帧前间隙)
+    last = 0
+    for m in _SYNC_FRAME_RE.finditer(data):
+        gap = data[last : m.start()]
+        last = m.end()
+        frame = m.group()
+        if _FRAME_SCROLLS_RE.search(frame):
+            if pending:
+                pieces.append(pending)
+                pending = b""
+            pieces.append(gap)
+            pieces.append(frame)
+        elif _TITLE_ONLY_GAP_RE.match(gap):
+            pending = frame  # 覆盖上一帧：段内只留最后一帧
+        else:
+            if pending:
+                pieces.append(pending)
+            pieces.append(gap)
+            pending = frame
+    if pending:
+        pieces.append(pending)
+    pieces.append(data[last:])
+    return b"".join(pieces)
 
 # 回放 backlog 时必须剥掉「会让终端回话」的查询序列。日志记录的是 CC 发出的原始输出流，
 # 里面每一条光标位置查询(ESC[?6n)、设备属性查询(ESC[c)在重放时都会被 xterm 当成实时提问
@@ -50,23 +99,7 @@ def strip_terminal_queries(data: bytes) -> bytes:
     return _TERMINAL_QUERY_RE.sub(b"", data)
 
 
-def read_terminal_backlog(
-    log_path: str, max_bytes: int = MAX_TERMINAL_BACKLOG_BYTES
-) -> bytes:
-    """Read a bounded terminal tail without truncating the log stored on disk."""
-    try:
-        with open(log_path, "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            if size <= max_bytes:
-                f.seek(0)
-                return strip_terminal_queries(f.read())
-
-            f.seek(-max_bytes, 2)
-            data = f.read()
-    except FileNotFoundError:
-        return b""
-
+def _align_to_sequence_boundary(data: bytes) -> bytes:
     # Avoid beginning in the middle of a CSI sequence or a huge UTF-8/TUI line.
     # Never discard a large part of the bounded tail merely to find a boundary.
     search_end = min(len(data), 64 * 1024)
@@ -75,7 +108,33 @@ def read_terminal_backlog(
         boundary = data.find(b"\n", 0, search_end)
         if boundary >= 0:
             boundary += 1
-    return strip_terminal_queries(data[max(boundary, 0) :])
+    return data[max(boundary, 0) :]
+
+
+def read_terminal_backlog(
+    log_path: str,
+    max_bytes: int = MAX_TERMINAL_BACKLOG_BYTES,
+    scan_bytes: int = MAX_TERMINAL_SCAN_BYTES,
+) -> TerminalBacklog:
+    """Read a bounded terminal tail without truncating the log stored on disk."""
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            window = min(size, max(scan_bytes, max_bytes))
+            f.seek(-window, 2)
+            data = f.read()
+    except FileNotFoundError:
+        return TerminalBacklog(b"", False)
+
+    truncated = size > window
+    if truncated:
+        data = _align_to_sequence_boundary(data)
+    data = compress_terminal_repaints(data)
+    if len(data) > max_bytes:
+        truncated = True
+        data = _align_to_sequence_boundary(data[-max_bytes:])
+    return TerminalBacklog(strip_terminal_queries(data), truncated)
 
 # 去除 ANSI/OSC/光标形态等终端控制序列，便于文本匹配。
 # Codex 会在单词字符之间插入 `ESC [ 0 q` 这类 CSI 序列；若不清掉，
@@ -571,7 +630,7 @@ class PtySession:
     def unsubscribe(self, q: asyncio.Queue) -> None:
         self.subscribers.discard(q)
 
-    def read_backlog(self) -> bytes:
+    def read_backlog(self) -> TerminalBacklog:
         return read_terminal_backlog(self.log_path)
 
     # ---- 写 / 控制 ----

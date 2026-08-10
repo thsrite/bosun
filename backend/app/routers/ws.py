@@ -20,6 +20,9 @@ router = APIRouter()
 
 # 未通过鉴权时的关闭码（4000+ 为应用自定义区间），前端据此提示重新登录
 WS_UNAUTHORIZED = 4401
+# 回放前发给前端的控制帧：日志超出扫描/回放预算，本次只回放了最近的输出。
+# 以 \x00 开头与终端字节流区分（前端在写入 xterm 前拦截）。
+BACKLOG_TRUNCATED_META = "\x00meta:backlog_truncated"
 # 跨源页面直连被拒（同源部署下浏览器里只有恶意网页会跨源连 WS）
 WS_FORBIDDEN_ORIGIN = 4403
 
@@ -102,16 +105,20 @@ async def session_ws(ws: WebSocket, task_id: int):
         row = db.query_one("SELECT log_path FROM task WHERE id=?", (task_id,))
         if row and row["log_path"]:
             backlog = read_terminal_backlog(row["log_path"])
-            if backlog:
-                await ws.send_bytes(backlog)
+            if backlog.truncated:
+                await ws.send_text(BACKLOG_TRUNCATED_META)
+            if backlog.data:
+                await ws.send_bytes(backlog.data)
         await ws.send_text("\r\n\x1b[90m[会话已结束]\x1b[0m\r\n")
         await ws.close()
         return
 
     # 回放 backlog
     backlog = session.read_backlog()
-    if backlog:
-        await ws.send_bytes(backlog)
+    if backlog.truncated:
+        await ws.send_text(BACKLOG_TRUNCATED_META)
+    if backlog.data:
+        await ws.send_bytes(backlog.data)
     q = session.subscribe()
 
     async def pump_out():

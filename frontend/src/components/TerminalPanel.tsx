@@ -371,6 +371,8 @@ function TerminalView({
   const [disconnected, setDisconnected] = useState(false);
   const [connected, setConnected] = useState(false);
   const [pastingImages, setPastingImages] = useState(false);
+  // 后端回放前发 \x00meta:backlog_truncated：日志超出回放预算，只回放了最近输出
+  const [replayTruncated, setReplayTruncated] = useState(false);
   const liveRef = useRef(live);
   liveRef.current = live;
 
@@ -768,14 +770,21 @@ function TerminalView({
       socket.binaryType = "arraybuffer";
       socket.onmessage = (e) => {
         if (disposed || wsRef.current !== socket) return;
-        if (typeof e.data === "string") writeOrDefer(e.data);
-        else writeOrDefer(new Uint8Array(e.data));
+        if (typeof e.data === "string") {
+          // \x00 开头是后端控制帧，不能写进 xterm
+          if (e.data.startsWith("\x00meta:")) {
+            if (e.data === "\x00meta:backlog_truncated") setReplayTruncated(true);
+            return;
+          }
+          writeOrDefer(e.data);
+        } else writeOrDefer(new Uint8Array(e.data));
       };
       socket.onopen = () => {
         if (disposed || wsRef.current !== socket) return;
         attempts = 0;
         setDisconnected(false);
         setConnected(true);
+        setReplayTruncated(false);
         userScrolledRef.current = false;
         stickRef.current = true;
         touchActive = false;
@@ -1185,6 +1194,19 @@ function TerminalView({
         {pastingImages && (
           <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-md bg-dh-accent px-2.5 py-1 text-[11px] font-medium text-dh-accfg shadow">
             图片上传中…
+          </div>
+        )}
+        {replayTruncated && (
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-md bg-dh-hover/80 px-2 py-1 text-[11px] text-slate-300 shadow ring-1 ring-white/10 backdrop-blur-md">
+            日志较长，已精简回放最近输出；完整内容见「历史」或下载日志
+            <button
+              type="button"
+              className="ml-0.5 text-slate-400 hover:text-slate-200"
+              onClick={() => setReplayTruncated(false)}
+              title="关闭提示"
+            >
+              ✕
+            </button>
           </div>
         )}
         {!atBottom && (

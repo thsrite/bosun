@@ -30,6 +30,7 @@ from claude_agent_sdk import (
 )
 
 from . import engine_settings, skills_install
+from .pty_session import TerminalBacklog
 from .engines import with_report_directive
 from .env import task_env
 from .pty_session import _put_drop
@@ -239,12 +240,12 @@ class SdkSession:
     def unsubscribe(self, q: asyncio.Queue) -> None:
         self.subscribers.discard(q)
 
-    def read_backlog(self) -> bytes:
+    def read_backlog(self) -> TerminalBacklog:
         try:
             with open(self.log_path, "rb") as f:
-                return f.read()
+                return TerminalBacklog(f.read(), False)
         except FileNotFoundError:
-            return b""
+            return TerminalBacklog(b"", False)
 
     # ---- 输入 / 控制(对齐 PtySession) ----
     def write(self, data: str) -> None:
