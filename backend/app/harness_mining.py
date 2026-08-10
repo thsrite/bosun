@@ -17,8 +17,8 @@ import json
 import re
 import time
 
-from backend.harness_evolve import (Episode, Gate0Config, HarnessEdit, gate0_validate,
-                                    cluster_signatures, extract_signature)
+from backend.harness_evolve import (Episode, Gate0Config, HarnessEdit, canonicalize_signatures,
+                                    cluster_signatures, extract_signature, gate0_validate)
 
 from . import db, log_archive, reflection, sdk_run
 from .harness_adapter import REPORT_KEY, get_registry
@@ -103,7 +103,7 @@ def run_round(cwd: str) -> None:
         state.update(running=False, last_run_at=time.time())
 
 
-def mine(cwd: str, days: int = 14, limit: int = 30) -> int:
+def mine(cwd: str, days: int = 14, limit: int = 100) -> int:
     """跑一轮挖掘，harness_cluster 全量重建。返回簇数。"""
     db.get_conn().executescript(_CLUSTER_SCHEMA)
     llm = _SdkLLM(cwd, "harness_mining_tokens_total")
@@ -120,6 +120,8 @@ def mine(cwd: str, days: int = 14, limit: int = 30) -> int:
     db.execute("DELETE FROM harness_cluster")
     n = 0
     for engine, items in per_engine.items():
+        # 二遍归一化：独立抽取的措辞各异，先同义归并再精确聚类，否则全是 support=1
+        items = canonicalize_signatures(llm, items)
         for c in cluster_signatures(items):
             db.execute(
                 "INSERT INTO harness_cluster(engine,cause,causal,mechanism,episode_ids,support,created_at)"
