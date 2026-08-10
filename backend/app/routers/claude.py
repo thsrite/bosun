@@ -9,6 +9,8 @@ from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from .. import sessions
+
 router = APIRouter(prefix="/api/claude", tags=["claude"])
 
 CLAUDE_HOME = Path.home() / ".claude"
@@ -51,7 +53,13 @@ class ToggleBody(BaseModel):
 
 def _home() -> Path:
     override = os.environ.get("BOSUN_CLAUDE_HOME")
-    return Path(override).expanduser() if override else CLAUDE_HOME
+    if override:
+        return Path(override).expanduser()
+    # 没装 claude CLI 时跟随内置 SDK 的重定向家目录，避免经本页在
+    # 没装 claude 的机器上凭空创建 ~/.claude
+    if sessions.claude_cli_installed():
+        return CLAUDE_HOME
+    return sessions.claude_home()
 
 
 def _disabled_root() -> Path:

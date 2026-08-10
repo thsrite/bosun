@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     query,
 )
 
-from . import engine_settings
+from . import engine_settings, sessions
 from .env import child_env
 
 
@@ -30,7 +30,7 @@ def _usage_tokens(usage) -> int:
 async def _run(prompt: str, cwd: str, permission_mode: str, timeout: int, extra_opts: dict | None = None) -> dict:
     opts_kwargs = {
         "cwd": cwd,
-        "env": child_env(),
+        "env": {**child_env(), **sessions.claude_env_overrides()},
         "permission_mode": permission_mode,  # bypassPermissions=全权限, default=按需
     }
     model = engine_settings.claude_model()
