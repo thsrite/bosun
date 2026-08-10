@@ -8,7 +8,7 @@ kimi = Kimi Code CLI (`kimi`)：-S session_<uuid> 恢复；交互模式不收位
 """
 from __future__ import annotations
 
-from . import engine_settings, harness_adapter, skills_install
+from . import engine_settings, harness_adapter, report_scripts
 from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
 from .directives import REPORT_DIRECTIVE  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE 引用
 
@@ -44,7 +44,7 @@ def kimi_session_arg(session_uid: str) -> str:
 
 def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | None = None) -> list[str]:
     """首次运行。会话 id 由引擎自行生成、运行后捕获(--session-id 不落盘，无法 resume)。"""
-    skills_install.ensure_engine_skills(engine)
+    report_scripts.ensure_installed()
     prompt = with_report_directive(prompt, engine=engine)
     if engine == "cc":
         argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN])
@@ -75,7 +75,7 @@ def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | 
 
 def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: bool) -> list[str]:
     """恢复已有会话继续。prompt 为空则只加载上下文等待输入。"""
-    skills_install.ensure_engine_skills(engine)
+    report_scripts.ensure_installed()
     prompt = with_report_directive(prompt, engine=engine)
     if engine == "cc":
         argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN])
@@ -112,7 +112,7 @@ def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: 
 def build_headless_argv(engine: str, prompt: str, auto_approve: bool = True, json_out: bool = False) -> list[str]:
     """headless 一次性执行(跑完即退出)，用于自愈循环里的修复/复审。
     json_out=True 时请求结构化输出以便解析 token 用量。"""
-    skills_install.ensure_engine_skills(engine)
+    report_scripts.ensure_installed()
     if engine == "cc":
         argv = [CLAUDE_BIN, "-p"]
         if json_out:
@@ -152,7 +152,7 @@ def build_headless_argv(engine: str, prompt: str, auto_approve: bool = True, jso
 
 def build_audit_argv(engine: str, audit_prompt: str) -> list[str]:
     """整体分析用 headless 模式跑，拿结构化输出。"""
-    skills_install.ensure_engine_skills(engine)
+    report_scripts.ensure_installed()
     if engine == "cc":
         argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN, "-p"])
         return [*argv, audit_prompt]

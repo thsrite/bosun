@@ -27,6 +27,10 @@ REPORT_KEY = "100-report"
 
 _registry: Optional[Registry] = None
 
+# 已完成收尾条目同步的引擎（本进程一次即可；REPORT_KEY 受 Gate-0 保护不参与演进，
+# 宿主升级改了 REPORT_DIRECTIVE 文本时要把库里各版本的固化文本刷成新发布内容）
+_synced: set[str] = set()
+
 
 def get_registry() -> Registry:
     global _registry
@@ -38,6 +42,11 @@ def get_registry() -> Registry:
 def _ensure_seeded(registry: Registry, engine: str) -> None:
     if registry.active(engine) is None:
         registry.init_engine(engine, {"directive": {REPORT_KEY: REPORT_DIRECTIVE}})
+        _synced.add(engine)
+        return
+    if engine not in _synced:
+        registry.sync_protected_entry(engine, "directive", REPORT_KEY, REPORT_DIRECTIVE)
+        _synced.add(engine)
 
 
 def directive_for(engine: str, dispatch_key: str = "") -> str:
