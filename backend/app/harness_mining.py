@@ -17,8 +17,13 @@ import json
 import re
 import time
 
-from backend.harness_evolve import (Episode, Gate0Config, HarnessEdit, canonicalize_signatures,
-                                    cluster_signatures, extract_signature, gate0_validate)
+# 同 harness_adapter：运行态路径根是 backend/，tests 路径根是仓库根
+try:
+    from harness_evolve import (Episode, Gate0Config, HarnessEdit, canonicalize_signatures,
+                                cluster_signatures, extract_signature, gate0_validate)
+except ModuleNotFoundError:
+    from backend.harness_evolve import (Episode, Gate0Config, HarnessEdit, canonicalize_signatures,
+                                        cluster_signatures, extract_signature, gate0_validate)
 
 from . import db, log_archive, reflection, sdk_run
 from .harness_adapter import REPORT_KEY, get_registry

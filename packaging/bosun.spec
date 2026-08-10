@@ -26,6 +26,8 @@ a = Analysis(
         *collect_submodules("uvicorn"),
         "websockets",
         *collect_submodules("claude_agent_sdk"),
+        # harness 演进核心包：app 内经 try/except 双导入引用，静态图可能追不全
+        *collect_submodules("harness_evolve"),
     ],
     excludes=["tkinter"],
 )
