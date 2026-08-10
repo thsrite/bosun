@@ -17,7 +17,6 @@ a = Analysis(
     pathex=[str(ROOT / "backend")],
     datas=[
         (str(dist_dir), "frontend/dist"),
-        (str(ROOT / "bosun_skills"), "bosun_skills"),
         *collect_data_files("claude_agent_sdk"),
         *collect_data_files("certifi"),
     ],
