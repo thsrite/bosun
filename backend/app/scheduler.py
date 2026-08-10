@@ -347,7 +347,7 @@ def _start_task(row) -> None:
         # TUI 就绪后粘贴提交。收尾约定 tail 在这里补上(其它引擎由 build_argv 补)。
         initial_prompt = None
         if uses_stdin_prompt(engine) and (row["prompt"] or "").strip():
-            initial_prompt = with_report_directive(row["prompt"])
+            initial_prompt = with_report_directive(row["prompt"], engine=engine)
         session = PtySession(
             task_id=row["id"],
             argv=argv,
@@ -389,7 +389,7 @@ def _start_task(row) -> None:
         # 认领 Codex 会话靠「首条用户消息==prompt」精确比对；派发给引擎的 prompt 被
         # build_argv 追加了收尾约定 tail，rollout 落盘的正是带 tail 的版本。捕获必须
         # 用同一份带 tail 的 prompt，否则短 prompt(tail 未被 500 截掉)永远认领不到。
-        dispatched_prompt = with_report_directive(row["prompt"])
+        dispatched_prompt = with_report_directive(row["prompt"], engine=engine)
         threading.Thread(
             target=_capture_session,
             args=(row["id"], engine, project["path"], dispatched_prompt, before, since),

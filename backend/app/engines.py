@@ -8,32 +8,23 @@ kimi = Kimi Code CLI (`kimi`)：-S session_<uuid> 恢复；交互模式不收位
 """
 from __future__ import annotations
 
-from . import engine_settings, skills_install
+from . import engine_settings, harness_adapter, skills_install
 from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
+from .directives import REPORT_DIRECTIVE  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE 引用
 
 ENGINES = {"cc", "codex", "omp", "kimi"}
 
-# 收尾回报约定：光把 bosun-report skill 装上，模型收尾时未必想得起来调，
-# 尤其是以「反问用户」结尾的那一轮。这里在派发的 prompt 末尾显式要求一次。
-# 顺序定为「先回报、后打印正文」：正文若写在 report 调用之前，属于工具调用间的
-# 中途文本，各 CLI 都倾向折叠/弱化它，模型也常顺手把正文塞进 --summary 了事；
-# 放在 report 之后作为本轮最后一条消息，才稳定以正文形式展示给用户。
-REPORT_DIRECTIVE = (
-    "\n\n---\n"
-    "[Bosun 收尾约定] 本轮工作结束前——无论是任务完成、失败无法继续，"
-    "还是需要反问用户才能往下走——都必须收尾，固定两步：①先调用 bosun-report "
-    "skill 回报状态(done / failed / needs_input)，summary 只写一句话摘要；"
-    "②回报之后、停下之前，把本轮完整的结论/分析/待拍板问题正文，作为你最后"
-    "一条消息完整打印到终端（report 之后不得再有工具调用）。用户只看这条正文："
-    "把正文塞进 --summary 参数、写在工具调用之间、或末尾只补一句短摘要说「见上」，"
-    "都等于用户看不到。未回报、或最后一条消息不含完整正文，都不算收尾。"
-)
 
+def with_report_directive(prompt: str, engine: str | None = None) -> str:
+    """给派发给 agent 的 prompt 追加收尾回报约定；空 prompt(只加载上下文)不加。
 
-def with_report_directive(prompt: str) -> str:
-    """给派发给 agent 的 prompt 追加收尾回报约定；空 prompt(只加载上下文)不加。"""
+    传 engine 时走 harness registry 取当前生效版本（自演进入口，故障自动回退
+    静态常量）；不传保持旧行为，供无引擎上下文的调用方使用。
+    """
     if not (prompt or "").strip():
         return prompt
+    if engine:
+        return f"{prompt}{harness_adapter.directive_for(engine)}"
     return f"{prompt}{REPORT_DIRECTIVE}"
 
 
@@ -54,7 +45,7 @@ def kimi_session_arg(session_uid: str) -> str:
 def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | None = None) -> list[str]:
     """首次运行。会话 id 由引擎自行生成、运行后捕获(--session-id 不落盘，无法 resume)。"""
     skills_install.ensure_engine_skills(engine)
-    prompt = with_report_directive(prompt)
+    prompt = with_report_directive(prompt, engine=engine)
     if engine == "cc":
         argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN])
         if auto_approve:
@@ -85,7 +76,7 @@ def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | 
 def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: bool) -> list[str]:
     """恢复已有会话继续。prompt 为空则只加载上下文等待输入。"""
     skills_install.ensure_engine_skills(engine)
-    prompt = with_report_directive(prompt)
+    prompt = with_report_directive(prompt, engine=engine)
     if engine == "cc":
         argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN])
         if auto_approve:
