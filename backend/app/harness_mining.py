@@ -74,11 +74,33 @@ def _transcript_tail(log_path: str | None) -> str:
 
 
 def _failed_rows(days: int, limit: int):
+    """失败口径 = 自报 failed ∪ 跑完但未回报（收尾契约失守，实测库里最主要的失败形态；
+    needs_input 是正常反问、cancelled/interrupted 是人为中止，均不算）。"""
     cutoff = time.time() - days * 86400
     return db.query(
-        "SELECT id, engine, report_summary, log_path FROM task "
-        "WHERE report_result='failed' AND COALESCE(ended_at, created_at) >= ? "
+        "SELECT id, engine, report_summary, report_result, log_path FROM task "
+        "WHERE (report_result='failed' OR (report_result IS NULL AND status='done')) "
+        "AND COALESCE(ended_at, created_at) >= ? "
         "ORDER BY id DESC LIMIT ?", (cutoff, limit))
+
+
+# 挖掘运行状态（供 UI 轮询；单机单进程，模块级即可）
+state: dict = {"running": False, "last_run_at": None, "last_clusters": None,
+               "last_proposals": None, "last_error": None}
+
+
+def run_round(cwd: str) -> None:
+    """跑一轮完整的挖掘+提案（在后台线程调用），状态记入 state。"""
+    state.update(running=True, last_error=None)
+    try:
+        clusters = mine(cwd)
+        proposals = propose(cwd)
+        state.update(last_clusters=clusters, last_proposals=proposals)
+    except Exception as e:
+        state.update(last_error=str(e)[:200])
+        raise
+    finally:
+        state.update(running=False, last_run_at=time.time())
 
 
 def mine(cwd: str, days: int = 14, limit: int = 30) -> int:
@@ -87,8 +109,10 @@ def mine(cwd: str, days: int = 14, limit: int = 30) -> int:
     llm = _SdkLLM(cwd, "harness_mining_tokens_total")
     per_engine: dict[str, list] = {}
     for row in _failed_rows(days, limit):
+        summary = row["report_summary"] or (
+            "(任务结束但未按收尾约定回报)" if row["report_result"] is None else "")
         episode = Episode(id=str(row["id"]), engine=row["engine"] or "cc", succeeded=False,
-                          summary=row["report_summary"] or "")
+                          summary=summary)
         sig = extract_signature(llm, episode, _transcript_tail(row["log_path"]))
         if sig:
             per_engine.setdefault(episode.engine, []).append((episode.id, sig))

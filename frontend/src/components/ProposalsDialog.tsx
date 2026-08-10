@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type ProposalAction, type ProposalItem, type ReflectionSettings } from "../api";
 import { toast } from "../overlay";
 import { useSingleFlight } from "../useSingleFlight";
+import { HarnessEvolution } from "./HarnessEvolution";
 import { Modal } from "./Modal";
 
 export function ProposalsDialog({ onClose }: { onClose: () => void }) {
@@ -97,6 +98,7 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
   function actionLabel(action: ProposalAction | null) {
     if (!action) return "可转跟进任务";
     if (action.type === "create_task") return "可创建任务";
+    if (action.type === "harness_edit") return "可应用：harness 编辑";
     return `可应用：${action.type}`;
   }
 
@@ -108,6 +110,10 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
       return `策略 #${String(action.policy_id)}.${String(action.field)} = ${JSON.stringify(action.value)}`;
     if (action.type === "create_task")
       return `${String(action.engine ?? "codex")} · ${String(action.title ?? action.prompt ?? "").slice(0, 80)}`;
+    if (action.type === "harness_edit")
+      return `${String(action.engine)} · ${String(action.op)} ${String(action.surface)}/${String(action.entry_key)}${
+        action.value != null ? `\n${String(action.value).slice(0, 200)}` : ""
+      }`;
     return JSON.stringify(action);
   }
 
@@ -191,6 +197,8 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         )}
+
+        <HarnessEvolution onProposalsChanged={load} />
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {items.length > 0 && (

@@ -195,6 +195,33 @@ export type ProposalApplyResult = {
   task_id: number | null;
 };
 
+export type HarnessCluster = {
+  id: number;
+  engine: Engine;
+  cause: string;
+  causal: "harness_gap" | "model_limit" | "env_issue" | "user_input";
+  mechanism: string;
+  episode_ids: string[];
+  support: number;
+  created_at: number;
+};
+
+export type HarnessMineStatus = {
+  running: boolean;
+  last_run_at: number | null;
+  last_clusters: number | null;
+  last_proposals: number | null;
+  last_error: string | null;
+};
+
+export type HarnessVersionInfo = {
+  engine: Engine;
+  version: number;
+  id: number;
+  versions_total: number;
+  can_rollback: 0 | 1;
+};
+
 export type HostMetrics = {
   generated_at: number;
   cpu_temp_c: number | null;
@@ -402,6 +429,14 @@ export const api = {
     apply: (id: number) =>
       write<ProposalApplyResult>("POST", `/api/proposals/${id}/apply`),
     dismiss: (id: number, reason = "") => write("POST", `/api/proposals/${id}/dismiss`, { reason }),
+    harness: {
+      mine: () => write<{ started: boolean; status: "started" | "running" }>("POST", "/api/proposals/harness/mine"),
+      status: () => fetch("/api/proposals/harness/status").then((r) => j<HarnessMineStatus>(r)),
+      clusters: () => fetch("/api/proposals/harness/clusters").then((r) => j<HarnessCluster[]>(r)),
+      versions: () => fetch("/api/proposals/harness/versions").then((r) => j<HarnessVersionInfo[]>(r)),
+      rollback: (engine: string) =>
+        write<{ engine: string; active_version: number }>("POST", `/api/proposals/harness/rollback/${encodeURIComponent(engine)}`),
+    },
   },
 
   auth: {

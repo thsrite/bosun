@@ -73,6 +73,8 @@ def list_proposals(status: str = "pending"):
 @router.post("/harness/mine")
 def run_harness_mine():
     """后台跑一轮 harness 挖掘+提案（失败任务逐条过 LLM，同步跑会拖死请求）。"""
+    if harness_mining.state["running"]:
+        return {"started": False, "status": "running"}
     proj = db.query_one("SELECT path FROM project LIMIT 1")
     if proj is None:
         raise HTTPException(400, "还没有项目")
@@ -80,15 +82,29 @@ def run_harness_mine():
 
     def _run():
         try:
-            clusters = harness_mining.mine(path)
-            proposals = harness_mining.propose(path)
-            events.emit("proposals.updated", {"harness_clusters": clusters,
-                                              "harness_proposals": proposals})
+            harness_mining.run_round(path)
+            events.emit("proposals.updated", {})
         except Exception:
             logging.getLogger(__name__).exception("harness 挖掘失败")
 
     threading.Thread(target=_run, daemon=True, name="harness-mine").start()
-    return {"started": True}
+    return {"started": True, "status": "started"}
+
+
+@router.get("/harness/status")
+def harness_status():
+    return harness_mining.state
+
+
+@router.get("/harness/versions")
+def list_harness_versions():
+    """各引擎当前生效的 harness 版本（未初始化的引擎不出现）。"""
+    harness_adapter.get_registry()  # 确保 he_* 表存在
+    return [dict(r) for r in db.query(
+        "SELECT engine, version, id, "
+        " (SELECT COUNT(*) FROM he_version v2 WHERE v2.engine=he_version.engine) AS versions_total, "
+        " (SELECT parent_id IS NOT NULL FROM he_version v3 WHERE v3.id=he_version.id) AS can_rollback "
+        "FROM he_version WHERE status='active' ORDER BY engine")]
 
 
 @router.get("/harness/clusters")
