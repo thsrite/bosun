@@ -4,8 +4,8 @@
 方案与架构决策见 docs/spec-self-evolving-harness.md。
 """
 from .gates import Gate0Config, gate0_validate, gray_verdict, proportion_diff_ci
-from .mining import (FailureCluster, FailureSignature, actionable_clusters, cluster_signatures,
-                     extract_signature)
+from .mining import (FailureCluster, FailureSignature, actionable_clusters, canonicalize_signatures,
+                     cluster_signatures, extract_signature)
 from .models import (OPS, SURFACES, EditError, Episode, HarnessEdit, HarnessVersion,
                      OutcomeRecord, RenderedHarness)
 from .protocols import ApprovalChannel, HarnessRenderer, LLMClient, OutcomeSignals, TraceSource
@@ -16,7 +16,7 @@ __all__ = [
     "OPS", "SURFACES", "EditError", "Episode", "HarnessEdit", "HarnessVersion",
     "OutcomeRecord", "RenderedHarness", "Registry", "Store",
     "Gate0Config", "gate0_validate", "gray_verdict", "proportion_diff_ci",
-    "FailureCluster", "FailureSignature", "actionable_clusters", "cluster_signatures",
-    "extract_signature",
+    "FailureCluster", "FailureSignature", "actionable_clusters", "canonicalize_signatures",
+    "cluster_signatures", "extract_signature",
     "TraceSource", "OutcomeSignals", "HarnessRenderer", "ApprovalChannel", "LLMClient",
 ]

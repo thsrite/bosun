@@ -59,6 +59,18 @@ def _parse_json(text: str) -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
+def _parse_json_array(text: str) -> Optional[list]:
+    text = text.strip()
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(text[start:end + 1])
+    except ValueError:
+        return None
+    return data if isinstance(data, list) else None
+
+
 def _norm(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
@@ -77,6 +89,50 @@ def extract_signature(llm: LLMClient, episode: Episode, transcript: str) -> Opti
     if not cause or not mechanism or causal not in CAUSAL_KINDS:
         return None
     return FailureSignature(cause, causal, mechanism)
+
+
+_CANON_PROMPT = """你是失败模式归并器。以下是从不同失败任务独立抽取的 signature 清单，
+同一失败机制常因措辞不同而无法精确匹配。请把描述同一机制的条目归并，输出唯一一个 JSON 数组（无其它文字）：
+[{{"cause": "规范判因措辞", "causal": "harness_gap|model_limit|env_issue|user_input", "mechanism": "规范机制措辞", "members": [条目编号...]}}]
+
+硬约束：causal 不同的条目绝不可归并到一组；每个编号最多出现在一组；确实独特的条目单独成组；不确定是否同机制时不归并。
+
+条目清单：
+{lines}
+"""
+
+
+def canonicalize_signatures(llm: LLMClient,
+                            items: Iterable[Tuple[str, FailureSignature]]
+                            ) -> List[Tuple[str, FailureSignature]]:
+    """第二遍归一化：独立抽取导致同机制措辞各异、精确匹配聚不拢（实测 30 条全 support=1），
+    用一次 LLM 调用把同义 signature 合并为规范措辞。任何异常/非法输出回退原样（宁可不聚，
+    不错聚）；跨 causal 归并一律拒绝，该成员保留原 signature。"""
+    items = list(items)
+    if len(items) < 2:
+        return items
+    lines = "\n".join(f"{i}. causal={s.causal} | cause={s.cause} | mechanism={s.mechanism}"
+                      for i, (_, s) in enumerate(items))
+    try:
+        groups = _parse_json_array(llm.complete_json(_CANON_PROMPT.format(lines=lines)))
+    except Exception:
+        return items
+    if not groups:
+        return items
+    mapping: dict = {}
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        cause, causal, mechanism = (_norm(group.get("cause")), _norm(group.get("causal")),
+                                    _norm(group.get("mechanism")))
+        if not cause or not mechanism or causal not in CAUSAL_KINDS:
+            continue
+        canonical = FailureSignature(cause, causal, mechanism)
+        for member in group.get("members") or []:
+            if (isinstance(member, int) and 0 <= member < len(items)
+                    and member not in mapping and items[member][1].causal == causal):
+                mapping[member] = canonical
+    return [(episode_id, mapping.get(i, sig)) for i, (episode_id, sig) in enumerate(items)]
 
 
 def cluster_signatures(items: Iterable[Tuple[str, FailureSignature]]) -> List[FailureCluster]:
