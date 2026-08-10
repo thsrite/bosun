@@ -1,13 +1,15 @@
-"""反思循环：跑反思 / 提案列表 / 采纳(应用白名单动作) / 忽略。"""
+"""反思循环：跑反思 / 提案列表 / 采纳(应用白名单动作) / 忽略；harness 演进：挖掘/簇/回滚。"""
 from __future__ import annotations
 
 import json
+import logging
+import threading
 import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import db, events, reflection, reflection_scheduler
+from .. import db, events, harness_adapter, harness_mining, reflection, reflection_scheduler
 from ..services import stats as stats_service
 
 router = APIRouter(prefix="/api/proposals", tags=["reflection"])
@@ -68,6 +70,45 @@ def list_proposals(status: str = "pending"):
     return out
 
 
+@router.post("/harness/mine")
+def run_harness_mine():
+    """后台跑一轮 harness 挖掘+提案（失败任务逐条过 LLM，同步跑会拖死请求）。"""
+    proj = db.query_one("SELECT path FROM project LIMIT 1")
+    if proj is None:
+        raise HTTPException(400, "还没有项目")
+    path = proj["path"]
+
+    def _run():
+        try:
+            clusters = harness_mining.mine(path)
+            proposals = harness_mining.propose(path)
+            events.emit("proposals.updated", {"harness_clusters": clusters,
+                                              "harness_proposals": proposals})
+        except Exception:
+            logging.getLogger(__name__).exception("harness 挖掘失败")
+
+    threading.Thread(target=_run, daemon=True, name="harness-mine").start()
+    return {"started": True}
+
+
+@router.get("/harness/clusters")
+def list_harness_clusters():
+    db.get_conn().executescript(harness_mining._CLUSTER_SCHEMA)
+    rows = db.query("SELECT * FROM harness_cluster ORDER BY support DESC")
+    return [{**dict(r), "episode_ids": json.loads(r["episode_ids"])} for r in rows]
+
+
+@router.post("/harness/rollback/{engine}")
+def rollback_harness(engine: str):
+    """回滚该引擎 harness 到上一版本。"""
+    try:
+        version = harness_adapter.get_registry().rollback(engine)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    events.emit("proposals.updated", {})
+    return {"engine": engine, "active_version": version.version}
+
+
 @router.post("/{pid}/apply")
 def apply_proposal(pid: int):
     p = db.query_one("SELECT * FROM proposal WHERE id=?", (pid,))
@@ -87,7 +128,14 @@ def apply_proposal(pid: int):
     applied, note, task_id = (False, "纯建议，无可应用动作", None)
     old_value = None
     action = json.loads(p["action"]) if p["action"] else None
-    if action:
+    if action and action.get("type") == "harness_edit":
+        # harness 编辑走独立通道(Gate-0 强校验)；被拒就是被拒，不落兜底建任务
+        old_value = harness_mining.read_current_value(action)
+        applied, note, task_id = harness_mining.apply_harness_edit(action)
+        if not applied:
+            events.emit("proposals.updated", {})
+            return {"applied": False, "note": note, "task_id": None}
+    elif action:
         old_value = reflection.read_current_value(action)
         applied, note, task_id = reflection.apply_action(action)
     if task_id is None and not applied:

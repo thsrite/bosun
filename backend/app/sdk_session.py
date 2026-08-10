@@ -124,7 +124,7 @@ class SdkSession:
         try:
             async with ClaudeSDKClient(options=opts) as client:
                 self._client = client
-                pending = with_report_directive(self.prompt)
+                pending = with_report_directive(self.prompt, engine="cc")
                 while self._alive:
                     await client.query(pending)
                     self._set_status("running")
