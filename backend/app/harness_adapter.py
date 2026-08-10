@@ -9,7 +9,12 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from backend.harness_evolve import Registry, Store
+# 运行态（run.py / PyInstaller 均以 backend/ 为路径根）核心包是顶层 harness_evolve；
+# tests 以仓库根为路径根，是 backend.harness_evolve。双导入桥接两种上下文。
+try:
+    from harness_evolve import Registry, Store
+except ModuleNotFoundError:
+    from backend.harness_evolve import Registry, Store
 
 from . import db
 from .directives import REPORT_DIRECTIVE
