@@ -2,7 +2,7 @@
 
 BOSUN_TASK_ID 是通过环境变量注入给 agent 的，agent 自己再拉起一个 agent
 (例如让 codex 跑一轮第二意见审查)时会连同这个变量一起继承下去；子 agent 若也装了
-bosun-report skill，就会拿着父任务的 id 回报状态——实际发生过一次「codex 审查完
+收尾回报约定，就会拿着父任务的 id 回报状态——实际发生过一次「codex 审查完
 把父任务报成 done」。
 
 判定放在后端而不是 skill 脚本里：子 agent 可能跑在沙箱里读不到进程表，

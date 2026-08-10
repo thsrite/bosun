@@ -128,7 +128,7 @@ def _running_count() -> int:
 def _on_status(task_id: int, status: str) -> None:
     if status in {"running", "waiting_input"}:
         if status == "waiting_input":
-            # 同一轮等待可能先后被 PTY 提示识别和 bosun-report skill 回报。
+            # 同一轮等待可能先后被 PTY 提示识别和 agent 的收尾回报触达。
             # 保留首次进入等待的时间，让前端把它们视作同一条可补发通知。
             changed = db.execute_rowcount(
                 "UPDATE task SET status=?, ended_at=NULL, exit_code=NULL, "
@@ -363,7 +363,7 @@ def _start_task(row) -> None:
     db.execute(
         "UPDATE task SET status='running', log_path=?, started_at=?, ended_at=NULL, "
         "exit_code=NULL, render_mode=?, waiting_since=NULL, "
-        # 上一轮 bosun-report 的摘要属于上一轮：新一轮跑起来就清掉，
+        # 上一轮收尾回报的摘要属于上一轮：新一轮跑起来就清掉，
         # 免得待处理列表和通知里挂着过期结论。
         "report_result=NULL, report_summary=NULL WHERE id=?",
         (log_path, run_started_at, "chat" if use_sdk else "terminal", row["id"]),

@@ -400,7 +400,7 @@ class ReportBody(BaseModel):
     result: Literal["done", "failed", "needs_input"]
     summary: str = ""
     needs_reply: bool = False
-    # 调用方(bosun-report skill)自己的 pid，用于识别嵌套 agent 的冒名回报
+    # 回报方 shell 自己的 pid，用于识别嵌套 agent 的冒名回报
     reporter_pid: int | None = None
 
 
@@ -438,7 +438,7 @@ def _report_authorized(task_id: int, request: Request | None) -> bool:
 
 @router.post("/{task_id}/report")
 def report_task(task_id: int, body: ReportBody, request: Request = None):
-    """cc/codex 任务收尾时的权威状态回调（由 bosun-report skill 触发）。"""
+    """任务收尾时的权威状态回调（agent 按收尾约定直接 HTTP POST）。"""
     if not _report_authorized(task_id, request):
         raise HTTPException(status_code=401, detail="回报凭证无效")
     t = db.query_one(
@@ -483,7 +483,15 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
             t["status"] != "waiting_input" or t["waiting_since"] is None
         ),
     })
-    return {"ok": True, "status": status, "report_result": body.result}
+    return {
+        "ok": True,
+        "status": status,
+        "report_result": body.result,
+        # 出现在 agent 的工具结果里：在模型正要停下的时刻提醒它补上正文，
+        # 治「结论只写进 summary、用户看不到正文」的收尾方式。
+        "hint": "回报已送达。请紧接着把本轮完整结论正文作为你最后一条消息打印出来再停下"
+                "（不得再调工具）；summary 只是回执，用户只看正文。",
+    }
 
 
 def _run_transition(task_id: int, transition) -> dict:

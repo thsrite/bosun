@@ -29,7 +29,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from . import engine_settings, report_scripts
+from . import engine_settings
 from .pty_session import TerminalBacklog
 from .engines import with_report_directive
 from .env import task_env
@@ -94,7 +94,6 @@ class SdkSession:
 
     # ---- 生命周期 ----
     def start(self) -> None:
-        report_scripts.ensure_installed()  # 收尾脚本在 DATA_DIR，路径经 BOSUN_REPORT_DIR 下发
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
         self._log_fh = open(self.log_path, "ab", buffering=0)
         threading.Thread(target=lambda: asyncio.run(self._amain()), daemon=True).start()

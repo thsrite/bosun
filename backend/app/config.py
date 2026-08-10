@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-# PyInstaller 冻结包：随包资源（frontend/dist、bosun_skills）解压在 _MEIPASS 下；
+# PyInstaller 冻结包：随包资源（frontend/dist）解压在 _MEIPASS 下；
 # 源码运行时资源根即仓库根。凡随仓库分发的只读资源一律经 RESOURCE_ROOT 解析。
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", "")) if IS_FROZEN else Path(__file__).resolve().parents[2]

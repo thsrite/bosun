@@ -2,7 +2,7 @@
 
 - 后台线程读 pty 输出：追加到日志文件 + 推给所有订阅的 asyncio.Queue
 - write() 把用户输入写回 pty
-- 任务状态只认 agent 的权威回报（bosun-report → mark_reported）；基于终端输出的
+- 任务状态只认 agent 的权威回报（收尾 HTTP 回调 → mark_reported）；基于终端输出的
   正则/静默启发式判定默认关闭，需要时用 BOSUN_WAIT_HEURISTICS=1 回退开启
 - 进程退出 → 触发 on_exit 回调（调度器据此释放槽位）
 """
@@ -222,9 +222,9 @@ _BRACKETED_PASTE_END = "\x1b[201~"
 def wait_heuristics_enabled() -> bool:
     """是否允许用终端输出猜等待状态。
 
-    默认关闭：waiting_input 只由 agent 的 bosun-report 回报产生，避免正则/静默判定
+    默认关闭：waiting_input 只由 agent 的收尾回报产生，避免正则/静默判定
     把「运行中」误标成「待输入」。BOSUN_WAIT_HEURISTICS=1 可回退到旧行为
-    （代价：不装 bosun-report 的引擎不再被检测到阻塞提示）。
+    （代价：不回报的引擎不再被检测到阻塞提示）。
     """
     return os.environ.get("BOSUN_WAIT_HEURISTICS", "").strip().lower() in _HEURISTIC_TRUE
 

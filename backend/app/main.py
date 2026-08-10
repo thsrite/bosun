@@ -131,10 +131,9 @@ async def _startup() -> None:
     _warn_if_login_disabled()  # 必须在 init_db 之后：口令哈希存在 DB 里
     from . import autopilot
     autopilot.reconcile_on_startup()  # 重启后把残留 running 的自愈 run 落终态, 防项目自愈永久卡死
-    from . import report_scripts
-    report_scripts.ensure_installed()
-    # 清理旧版本对引擎家目录的注入（全局 skill 副本、codex config.toml 管理块）
-    report_scripts.cleanup_legacy_installs()
+    from . import legacy_cleanup
+    # 清理旧版本的注入残留（引擎家目录 skill 副本、libexec 脚本、codex config.toml 管理块）
+    legacy_cleanup.cleanup_legacy_installs()
     codex_skills_guard.strip_persisted_disables()
     loop = asyncio.get_running_loop()
     events.set_loop(loop)
