@@ -35,5 +35,7 @@ frontend/dist/
 /promo/
 
 # 本地设计稿与内部文档（截图/规格含真实数据，不入开源仓）
+# docs/images 例外：README 引用的公开截图（虚构演示数据），需入仓
 /design/
-/docs/
+/docs/*
+!/docs/images/
