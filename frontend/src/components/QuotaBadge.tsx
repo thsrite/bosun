@@ -339,7 +339,7 @@ function ToolVersionPanel({
         <div className="flex shrink-0 gap-1.5">
           <button
             type="button"
-            className="rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-w-[56px] rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-center text-xs text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onRefresh(engine)}
             disabled={busy}
             title="刷新版本"
@@ -348,7 +348,7 @@ function ToolVersionPanel({
           </button>
           <button
             type="button"
-            className="rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-w-[56px] rounded-md border border-dh-bsoft bg-dh-surface px-2 py-1 text-center text-xs text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onCheck(engine)}
             disabled={!canCheck}
             title={checkTitle(tool)}
@@ -357,7 +357,7 @@ function ToolVersionPanel({
           </button>
           <button
             type="button"
-            className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-w-[56px] rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-center text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onUpdate(engine)}
             disabled={!canUpdate}
             title={updateTitle(tool)}
@@ -427,7 +427,7 @@ function ProviderDetail({
         {!quotaUnsupported && (
           <button
             type="button"
-            className="rounded-md border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-[11px] text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-w-[52px] rounded-md border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-center text-[11px] text-dh-tsoft hover:bg-dh-hover disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onRefreshQuota(engine)}
             disabled={quotaRefreshing}
             title="跳过缓存，立即重新获取额度"
