@@ -572,7 +572,12 @@ function TerminalView({
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const isCopy = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c";
-      if (!isCopy || (!hasNativeTerminalSelection() && !term.hasSelection())) return true;
+      if (!isCopy || (!hasNativeTerminalSelection() && !term.hasSelection())) {
+        // 真正键入时退出历史阅读态并冲刷暂存回显；视口导航不改变阅读位置。
+        const isViewportNavigation = ["End", "Home", "PageDown", "PageUp"].includes(event.key);
+        if (!isViewportNavigation) scrollToLatest();
+        return true;
+      }
       copyTerminalSelection();
       return false;
     });
@@ -1180,7 +1185,7 @@ function TerminalView({
       hardWrappedLinks.dispose();
       term.dispose();
     };
-  }, [taskId]);
+  }, [taskId, scrollToLatest]);
 
   return (
     <div className="flex h-full w-full flex-col">
