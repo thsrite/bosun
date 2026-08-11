@@ -373,6 +373,10 @@ function TerminalView({
   const [pastingImages, setPastingImages] = useState(false);
   // 后端回放前发 \x00meta:backlog_truncated：日志超出回放预算，只回放了最近输出
   const [replayTruncated, setReplayTruncated] = useState(false);
+  // 移动端长按选区已就绪：浮出「复制」按钮。WebKit 对 touchend 手势的剪贴板授权不可靠
+  // （实测 execCommand/writeText 均可能失败），click 手势才稳，所以松手不自动复制。
+  const [selectionReady, setSelectionReady] = useState(false);
+  const copySelectionRef = useRef<(() => void) | null>(null);
   const liveRef = useRef(live);
   liveRef.current = live;
 
@@ -535,20 +539,27 @@ function TerminalView({
       event.clipboardData.setData("text/plain", selection);
       event.preventDefault();
     };
-    const copyTerminalSelection = () => {
+    const copyTerminalSelection = (notifySuccess = false) => {
       const selection = getTerminalSelection();
       if (!selection) return;
       // http(非安全上下文，手机连局域网 IP 的常态)没有 navigator.clipboard，退回 execCommand。
       // canvas 渲染下 xterm 选区不是原生 DOM 选区，iOS 对无选区的 execCommand 直接返回 false，
       // 所以造一个临时 readonly textarea 选区(readonly 避免 iOS 弹键盘)承载要复制的文本。
-      const legacyCopy = () => {
+      const legacyCopy = (): boolean => {
         const prevActive = document.activeElement;
         const ta = document.createElement("textarea");
         ta.value = selection;
         ta.setAttribute("readonly", "");
+        // iOS WebKit 无视 readonly textarea 的 select()，须 contentEditable + Range 显式
+        // 建立选区再 setSelectionRange 才承认（实测缺此步 execCommand 恒返 false）
+        ta.contentEditable = "true";
         ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
         document.body.appendChild(ta);
-        ta.select();
+        const range = document.createRange();
+        range.selectNodeContents(ta);
+        const domSelection = document.getSelection();
+        domSelection?.removeAllRanges();
+        domSelection?.addRange(range);
         ta.setSelectionRange(0, selection.length);
         let ok = false;
         try {
@@ -556,18 +567,32 @@ function TerminalView({
         } catch {
           ok = false;
         }
+        domSelection?.removeAllRanges();
         ta.remove();
         if (prevActive instanceof HTMLElement && prevActive !== document.body) {
           prevActive.focus({ preventScroll: true });
         }
+        return ok;
+      };
+      const finish = (ok: boolean) => {
         if (!ok) toast("复制失败，请检查浏览器剪贴板权限", "error");
+        else if (notifySuccess) toast("已复制选中文本");
       };
       if (navigator.clipboard?.writeText) {
-        void navigator.clipboard.writeText(selection).catch(legacyCopy);
+        // writeText 被拒时用户手势窗口已过，execCommand 兜底大概率同败，仍尽力一试
+        void navigator.clipboard.writeText(selection).then(
+          () => finish(true),
+          () => finish(legacyCopy()),
+        );
       } else {
-        legacyCopy();
+        finish(legacyCopy());
       }
     };
+    copySelectionRef.current = () => copyTerminalSelection(true);
+    const selectionChangeDisposable = term.onSelectionChange(() => {
+      // 选区被清除（轻点取消 / 重连 reset 等）时收起「复制」按钮
+      if (!term.hasSelection()) setSelectionReady(false);
+    });
     terminalHost.addEventListener("copy", onTerminalCopy);
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
@@ -999,20 +1024,60 @@ function TerminalView({
       );
       return { col, row: term.buffer.active.viewportY + viewportRow };
     };
+    // 中文没有空格分界，按空格扩选会整行全选；Segmenter 按词切（中文词、英文单词）。
+    // 老浏览器无 Segmenter 时退回空格分词。
+    const wordSegmenter =
+      typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+        ? new Intl.Segmenter(undefined, { granularity: "word" })
+        : null;
     const startWordSelection = () => {
       tLongPressTimer = null;
       if (!tActive || tScrollStarted) return;
       const { col, row } = cellFromTouch(tLastX, tLastY);
-      const text = term.buffer.active.getLine(row)?.translateToString(false) ?? "";
-      let start = col;
-      let end = col;
-      if ((text[col] ?? " ") !== " ") {
-        while (start > 0 && text[start - 1] !== " ") start -= 1;
-        while (end < text.length - 1 && text[end + 1] !== " ") end += 1;
+      // 逐 cell 收集字符簇并记录列号：中文等宽字符占两列，translateToString 的字符串
+      // 下标≠列号，直接拿列号当下标会选错位置。
+      const line = term.buffer.active.getLine(row);
+      const clusters: { chars: string; col: number; width: number }[] = [];
+      for (let x = 0; line && x < term.cols; ) {
+        const cell = line.getCell(x);
+        if (!cell) break;
+        const width = Math.max(1, cell.getWidth());
+        clusters.push({ chars: cell.getChars() || " ", col: x, width });
+        x += width;
+      }
+      const offsets: number[] = [];
+      let acc = 0;
+      for (const cluster of clusters) {
+        offsets.push(acc);
+        acc += cluster.chars.length;
+      }
+      const ci = clusters.findIndex((c) => col >= c.col && col < c.col + c.width);
+      let startCol = col;
+      let endCol = col;
+      if (ci >= 0 && clusters[ci].chars.trim() !== "") {
+        let from = ci;
+        let to = ci;
+        if (wordSegmenter) {
+          const text = clusters.map((c) => c.chars).join("");
+          const si = offsets[ci];
+          for (const seg of wordSegmenter.segment(text)) {
+            if (seg.index <= si && si < seg.index + seg.segment.length) {
+              while (from > 0 && offsets[from - 1] >= seg.index) from -= 1;
+              const segEnd = seg.index + seg.segment.length;
+              while (to + 1 < clusters.length && offsets[to + 1] < segEnd) to += 1;
+              break;
+            }
+          }
+        } else {
+          while (from > 0 && clusters[from - 1].chars.trim() !== "") from -= 1;
+          while (to + 1 < clusters.length && clusters[to + 1].chars.trim() !== "") to += 1;
+        }
+        startCol = clusters[from].col;
+        endCol = clusters[to].col + clusters[to].width - 1;
       }
       tSelecting = true;
-      tSelectAnchorIdx = row * term.cols + start;
-      term.select(start, row, end - start + 1);
+      tSelectAnchorIdx = row * term.cols + startCol;
+      term.select(startCol, row, endCol - startCol + 1);
     };
     const extendSelection = (x: number, y: number) => {
       const { col, row } = cellFromTouch(x, y);
@@ -1086,11 +1151,9 @@ function TerminalView({
       const wasSelecting = tSelecting;
       tSelecting = false;
       if (wasSelecting) {
-        // 长按选区松手即复制（touchend 属用户手势，剪贴板可写；touchcancel 不复制）
-        if (e.type === "touchend" && term.hasSelection()) {
-          copyTerminalSelection();
-          toast("已复制选中文本");
-        }
+        // 松手不直接写剪贴板（WebKit 对 touchend 手势的剪贴板授权不可靠），改为浮出
+        // 「复制」按钮，由按钮的 click 手势完成复制
+        if (term.hasSelection()) setSelectionReady(true);
       }
       if (tScrollStarted) startFling(); // 松手按末速甩滚，撞顶/底或衰减尽自停
       // 移动端轻点终端正文不再弹输入法（TUI 隐藏真实光标且停位不可测，「点到输入行才弹」
@@ -1155,6 +1218,8 @@ function TerminalView({
       if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
       scrollDisposable.dispose();
+      selectionChangeDisposable.dispose();
+      copySelectionRef.current = null;
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
       terminalHost.removeEventListener("copy", onTerminalCopy);
@@ -1213,6 +1278,19 @@ function TerminalView({
               ✕
             </button>
           </div>
+        )}
+        {selectionReady && (
+          <button
+            type="button"
+            className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-lg bg-dh-accent px-3 py-1.5 text-xs font-medium text-dh-accfg shadow"
+            onClick={() => {
+              copySelectionRef.current?.();
+              termRef.current?.clearSelection();
+              setSelectionReady(false);
+            }}
+          >
+            复制选中文本
+          </button>
         )}
         {!atBottom && (
           <button

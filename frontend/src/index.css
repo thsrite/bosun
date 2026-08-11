@@ -92,19 +92,18 @@ body {
   .dh-terminal-selectable .xterm-viewport {
     overflow-y: hidden !important;
   }
+  /* canvas 渲染器下 DOM 里没有文字节点，iOS 原生长按选区无法按字定位，只会把整块
+     容器（视觉上是整页）选中，还压住自绘的长按选词。触屏端禁掉原生选择与长按呼出
+     菜单，选区唯一走 TerminalPanel 的长按选词/拖动扩选/松手复制。 */
   .dh-terminal-selectable .xterm,
   .dh-terminal-selectable .xterm-viewport,
   .dh-terminal-selectable .xterm-screen,
   .dh-terminal-selectable .xterm-rows,
   .dh-terminal-selectable .xterm-rows * {
     touch-action: none;
-    -webkit-touch-callout: default;
-    -webkit-user-select: text !important;
-    user-select: text !important;
-  }
-  .dh-terminal-selectable .xterm-rows ::selection {
-    background: rgba(245, 179, 66, 0.38);
-    color: #fafafa;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none !important;
+    user-select: none !important;
   }
 }
 
