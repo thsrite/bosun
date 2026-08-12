@@ -22,7 +22,10 @@ from .env import child_env
 _ANSI_RE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Z0-9]?)"
 )
-_CLAUDE_PICKER_TIMEOUT_SECONDS = 12
+_CLAUDE_PICKER_TIMEOUT_SECONDS = 30
+_PICKER_FIRST_KEYSTROKE_SECONDS = 1.5
+_PICKER_SUBMIT_DELAY_SECONDS = 0.4
+_PICKER_RETYPE_AFTER_SECONDS = 2.5
 # "Opus (1M context)" 是长上下文档位，别名要带后缀 opus[1m]；剥成 opus 会退化成普通档。
 _CLAUDE_CONTEXT_SUFFIX_RE = re.compile(r"\(\s*(\d+)\s*M\s+context\s*\)\s*$", re.IGNORECASE)
 _MAX_PICKER_BYTES = 256_000
@@ -35,6 +38,46 @@ _SETTING_KEYS = {
 
 class ModelDiscoveryError(RuntimeError):
     """The installed CLI did not expose a usable model catalog."""
+
+
+class _PickerCommandTyper:
+    """把 /model 敲进 Claude CLI。
+
+    CLI 首屏渲染完成前收到的按键会被直接丢弃（v2.1.228 实测约需 5s 才吃键），
+    所以一次性发完再干等必然超时；这里改成回显迟迟不来就重打。
+    选择器一旦弹出就立刻停手——此时的回车会把 CLI 的默认模型真改掉。
+    """
+
+    def __init__(
+        self,
+        first_delay: float = _PICKER_FIRST_KEYSTROKE_SECONDS,
+        submit_delay: float = _PICKER_SUBMIT_DELAY_SECONDS,
+        retype_after: float = _PICKER_RETYPE_AFTER_SECONDS,
+    ) -> None:
+        self._first_delay = first_delay
+        self._submit_delay = submit_delay
+        self._retype_after = retype_after
+        self._typed_at: float | None = None
+        self._submitted = False
+
+    def next_write(self, elapsed: float, picker_open: bool) -> bytes:
+        """返回本轮应写入 pty 的字节，b"" 表示按兵不动。"""
+        if picker_open:
+            return b""
+        if self._typed_at is None:
+            if elapsed >= self._first_delay:
+                self._typed_at = elapsed
+                self._submitted = False
+                return b"/model"
+            return b""
+        if not self._submitted:
+            if elapsed - self._typed_at >= self._submit_delay:
+                self._submitted = True
+                return b"\r"
+            return b""
+        if elapsed - self._typed_at >= self._retype_after:
+            self._typed_at = None
+        return b""
 
 
 def _run(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
@@ -116,16 +159,16 @@ def _capture_claude_model_picker_windows(binary: str) -> str:
     reader = threading.Thread(target=_pump, daemon=True)
     reader.start()
     started_at = time.monotonic()
-    command_sent = False
+    typer = _PickerCommandTyper()
     try:
         while time.monotonic() - started_at < _CLAUDE_PICKER_TIMEOUT_SECONDS:
-            if not command_sent and time.monotonic() - started_at >= 1:
-                proc.write(b"/model\r")
-                command_sent = True
             output = b"".join(chunks).decode("utf-8", errors="replace")
             plain = _without_ansi(output)
             if "Select model" in plain and "Enter to set" in plain:
                 return output
+            keys = typer.next_write(time.monotonic() - started_at, "Select model" in plain)
+            if keys:
+                proc.write(keys)
             if not proc.isalive():
                 break
             time.sleep(0.2)
@@ -165,16 +208,11 @@ def _capture_claude_model_picker(binary: str) -> str:
     os.close(slave_fd)
     chunks: list[bytes] = []
     total_bytes = 0
-    command_sent = False
+    typer = _PickerCommandTyper()
     started_at = time.monotonic()
 
     try:
         while time.monotonic() - started_at < _CLAUDE_PICKER_TIMEOUT_SECONDS:
-            elapsed = time.monotonic() - started_at
-            if not command_sent and elapsed >= 1:
-                os.write(master_fd, b"/model\r")
-                command_sent = True
-
             readable, _, _ = select.select([master_fd], [], [], 0.2)
             if readable:
                 try:
@@ -194,6 +232,9 @@ def _capture_claude_model_picker(binary: str) -> str:
                 return output
             if process.poll() is not None:
                 break
+            keys = typer.next_write(time.monotonic() - started_at, "Select model" in plain)
+            if keys:
+                os.write(master_fd, keys)
     finally:
         if process.poll() is None:
             try:
