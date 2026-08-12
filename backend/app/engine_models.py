@@ -23,6 +23,8 @@ _ANSI_RE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Z0-9]?)"
 )
 _CLAUDE_PICKER_TIMEOUT_SECONDS = 12
+# "Opus (1M context)" 是长上下文档位，别名要带后缀 opus[1m]；剥成 opus 会退化成普通档。
+_CLAUDE_CONTEXT_SUFFIX_RE = re.compile(r"\(\s*(\d+)\s*M\s+context\s*\)\s*$", re.IGNORECASE)
 _MAX_PICKER_BYTES = 256_000
 _SETTING_KEYS = {
     "cc": "claude_model_options",
@@ -66,9 +68,14 @@ def parse_claude_model_picker(output: str) -> list[dict[str, str]]:
         if raw_label.startswith("Default"):
             continue
         label = re.split(r"\s{2,}|\s+—\s+|✔", raw_label, maxsplit=1)[0].strip()
+        context = _CLAUDE_CONTEXT_SUFFIX_RE.search(label)
         alias_label = re.sub(r"\s*\(.*\)\s*$", "", label).strip()
         alias = alias_label.split(maxsplit=1)[0].lower() if alias_label else ""
-        if not re.fullmatch(r"[a-z][a-z0-9-]*", alias) or alias in seen:
+        if not re.fullmatch(r"[a-z][a-z0-9-]*", alias):
+            continue
+        if context:
+            alias = f"{alias}[{context.group(1)}m]"
+        if alias in seen:
             continue
         options.append({"value": alias, "label": label})
         seen.add(alias)
