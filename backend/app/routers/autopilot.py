@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import autopilot, db, quota
-from ..engines import ENGINES
+from ..engines import CODING_ENGINES
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
 
@@ -23,7 +23,7 @@ class StartBody(BaseModel):
 
 @router.post("/start")
 def start(body: StartBody):
-    if body.fix_engine not in ENGINES or body.review_engine not in ENGINES:
+    if body.fix_engine not in CODING_ENGINES or body.review_engine not in CODING_ENGINES:
         raise HTTPException(400, "未知引擎")
     running = db.query_one(
         "SELECT id FROM autopilot_run WHERE project_id=? AND status='running'", (body.project_id,)
@@ -118,7 +118,7 @@ def list_policies(project_id: int | None = None):
 def create_policy(body: PolicyBody):
     import time
 
-    if body.fix_engine not in ENGINES or body.review_engine not in ENGINES:
+    if body.fix_engine not in CODING_ENGINES or body.review_engine not in CODING_ENGINES:
         raise HTTPException(400, "未知引擎")
     now = time.time()
     # last_run_at 置为现在 → 首次自动运行发生在一个完整间隔之后，避免刚建就烧 token

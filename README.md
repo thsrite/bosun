@@ -28,6 +28,7 @@ Bosun 是一个**本地优先**的 Web 工作台：扫描并集中管理本机�
 - **多引擎编排** — 在 Claude Code / Codex / Oh My Pi / Kimi Code 间自由选择，创建、排队、接续任务，支持按订阅额度自动选引擎
 - **自动调度** — 优先级 + 并发上限驱动的任务队列，拖拽改优先级
 - **实时终端** — 浏览器里看 AI 干活的完整终端，随时打字插手、接管会话
+- **本地网页验收** — Browser 引擎用 Computer Use + 隔离 Chromium 操作 localhost 应用，高风险动作先由人确认
 - **人在环诊断** — 整体分析生成问题收件箱，一键转修复任务，关键决策保留人工确认
 - **数据统计** — 跨项目的任务趋势、引擎用量与复盘数据
 - **随处可用** — 手机 PWA + 可选的 macOS 菜单栏常驻应用，二进制发行版开箱即用
@@ -170,6 +171,19 @@ pkill -x Bosun; rm -rf /Applications/Bosun.app
 
 选用 omp 时，「设置 → Oh My Pi」可以填模型与思考档位；选用 kimi 时，「设置 → Kimi Code」可以选模型别名（列表来自 `~/.kimi-code/config.toml`）。设置页按引擎分卡：已安装的引擎卡头显示版本，未安装的显示灰态占位卡（含安装命令），全部支持的 CLI 与本机安装状态一目了然。
 
+### Browser Computer Use（MVP）
+
+Browser 是独立的任务引擎，用于验收本机正在运行的 Web 应用。任务指令必须包含 `http://localhost:端口`、`http://127.0.0.1:端口` 或其它回环地址；公网、局域网地址、文件上传下载、剪贴板和非 HTTP(S) 导航均会被阻止。提交、删除、支付、敏感字段填写等动作会暂停并等待人工确认。
+
+源码运行时安装 Chromium 并提供 OpenAI API Key：
+
+```bash
+backend/.venv/bin/python -m playwright install chromium
+export BOSUN_OPENAI_API_KEY="..."
+```
+
+设置页显示 Browser「就绪」后，新建任务时才会出现该选项。MVP 默认使用 `gpt-5.6`，可用 `BOSUN_COMPUTER_MODEL` 覆盖；它不参与自动选引擎、Autopilot、子任务或 CLI 会话接续。二进制发行包会包含 Playwright 运行库，但 Chromium 仍需在运行机器上安装。
+
 ## ⚙️ 配置
 
 | 环境变量 | 默认值 | 用途 |
@@ -184,6 +198,10 @@ pkill -x Bosun; rm -rf /Applications/Bosun.app
 | `BOSUN_CODEX_BIN` | 自动探测 `codex` | Codex CLI 可执行文件路径 |
 | `BOSUN_OMP_BIN` | 自动探测 `omp` | Oh My Pi 可执行文件路径 |
 | `BOSUN_KIMI_BIN` | 自动探测 `kimi` | Kimi Code CLI 可执行文件路径 |
+| `BOSUN_OPENAI_API_KEY` | 未设置 | Browser Computer Use 使用的 OpenAI API Key（也兼容 `OPENAI_API_KEY`） |
+| `BOSUN_COMPUTER_MODEL` | `gpt-5.6` | Browser Computer Use 模型 |
+| `BOSUN_COMPUTER_TIMEOUT` | `300` | 单个 Browser 任务最长运行秒数 |
+| `BOSUN_COMPUTER_MAX_ACTIONS` | `100` | 单个 Browser 任务最多执行的浏览器动作数 |
 
 默认数据保存在 `~/.bosun/`。升级或迁移前，建议先备份该目录。
 
@@ -210,6 +228,7 @@ pkill -x Bosun; rm -rf /Applications/Bosun.app
 ## 🔒 安全说明
 
 - Bosun 会继承本机 Claude Code / Codex / Oh My Pi / Kimi Code 的登录状态和文件访问能力，请只导入可信仓库。
+- Browser 仅允许回环 HTTP(S) 页面，但页面内容仍是不可信输入；使用独立浏览器上下文，不要在其中登录高权限账户，并逐项审查高风险动作确认。
 - Oh My Pi 启动时会自动读取 `~/.claude` 下的配置，包括已配置的 MCP server 和 skills；不希望它接触这些资源时，不要选用该引擎。
 - 未设置访问口令时，任何能访问服务的人都可能操作任务和终端；局域网环境也不应视为安全边界。
 - 若需跨设备访问，至少启用强口令；若需公网访问，请额外使用 HTTPS、可信反向代理和网络访问控制。

@@ -298,7 +298,12 @@ def is_installed(engine: str) -> bool:
 
 def installed_engines() -> dict[str, bool]:
     """各引擎是否已安装，供界面按需隐藏与自动路由使用（够轻，可高频调用）。"""
-    return {engine: is_installed(engine) for engine in _SPECS}
+    from . import browser_computer
+
+    return {
+        **{engine: is_installed(engine) for engine in _SPECS},
+        "browser": bool(browser_computer.availability()["available"]),
+    }
 
 
 def check_update(engine: str) -> dict:

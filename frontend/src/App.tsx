@@ -48,6 +48,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   omp_thinking_options: [{ value: "", label: "默认" }],
   kimi_model: "",
   kimi_model_options: [{ value: "", label: "默认" }],
+  browser: { available: false, missing: ["正在检测 Browser 运行条件"], model: "gpt-5.6" },
 };
 const PULL_REFRESH_TRIGGER_PX = 72;
 const PULL_REFRESH_MAX_PX = 96;

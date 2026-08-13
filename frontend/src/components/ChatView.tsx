@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type TouchEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { WS_UNAUTHORIZED, setToken, wsProtocols } from "../auth";
+import { authHeaders, WS_UNAUTHORIZED, setToken, wsProtocols } from "../auth";
 
 /** SDK(结构化 cc)会话的对话面板：解析后端 NDJSON 事件流，替代 xterm。
  *  实时流 + 断线重连 + 结束后回放 backlog，逻辑对齐 TerminalView。 */
@@ -12,6 +12,8 @@ type ChatEvent =
   | { t: "tool"; name: string; input: string }
   | { t: "result"; tokens: number; cost: number }
   | { t: "perm"; name: string; input: string }
+  | { t: "computer_action"; action: string; detail: string }
+  | { t: "screenshot"; url: string; alt: string }
   | { t: "error"; msg: string }
   | { t: "raw"; text: string };
 
@@ -28,6 +30,10 @@ function eventTextLength(event: ChatEvent): number {
     case "tool":
     case "perm":
       return event.name.length + event.input.length;
+    case "computer_action":
+      return event.action.length + event.detail.length;
+    case "screenshot":
+      return event.alt.length;
     case "error":
       return event.msg.length;
     default:
@@ -90,7 +96,15 @@ function parseLines(buf: string): { events: ChatEvent[]; rest: string } {
   return { events, rest };
 }
 
-export function ChatView({ taskId, live }: { taskId: number; live: boolean }) {
+export function ChatView({
+  taskId,
+  live,
+  interactive = true,
+}: {
+  taskId: number;
+  live: boolean;
+  interactive?: boolean;
+}) {
   const [events, setEvents] = useState<ChatEvent[]>([]);
   // Long SDK conversations can contain hundreds of expensive Markdown trees. Keep
   // the full transcript in memory, but mount only a bounded tail until requested.
@@ -301,7 +315,7 @@ export function ChatView({ taskId, live }: { taskId: number; live: boolean }) {
           </div>
         </div>
       </div>
-      {live && <Composer ws={wsRef} onSend={scrollToLatest} onFocusInput={scrollToLatest} />}
+      {live && interactive && <Composer ws={wsRef} onSend={scrollToLatest} onFocusInput={scrollToLatest} />}
     </div>
   );
 }
@@ -340,6 +354,15 @@ const EventBubble = memo(function EventBubble({ ev }: { ev: ChatEvent }) {
           <span className="ml-1 break-all font-mono text-[11px] text-amber-200/70">{ev.input}</span>
         </div>
       );
+    case "computer_action":
+      return (
+        <div className="flex items-start gap-2 rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-3 py-1.5 text-xs">
+          <span className="shrink-0 font-medium text-cyan-300">🖱 {ev.action}</span>
+          <span className="min-w-0 break-all font-mono text-[11px] text-slate-400">{ev.detail}</span>
+        </div>
+      );
+    case "screenshot":
+      return <ScreenshotBubble url={ev.url} alt={ev.alt} />;
     case "result":
       return (
         <div className="py-1 text-center text-[11px] text-dh-muted">
@@ -350,12 +373,49 @@ const EventBubble = memo(function EventBubble({ ev }: { ev: ChatEvent }) {
     case "error":
       return (
         <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-          [SDK 错误] {ev.msg}
+          [运行错误] {ev.msg}
         </div>
       );
     default:
       return null;
   }
+});
+
+const ScreenshotBubble = memo(function ScreenshotBubble({ url, alt }: { url: string; alt: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl: string | null = null;
+    fetch(url, { headers: authHeaders() })
+      .then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.blob();
+      })
+      .then((blob) => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => { if (!disposed) setFailed(true); });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+
+  if (failed) {
+    return <div className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-300">截图加载失败</div>;
+  }
+  if (!src) {
+    return <div className="rounded-lg border border-dh-bsoft px-3 py-2 text-xs text-dh-muted">正在加载截图…</div>;
+  }
+  return (
+    <a href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-dh-bsoft bg-dh-surface">
+      <img src={src} alt={alt} className="max-h-[28rem] w-full object-contain" loading="lazy" />
+    </a>
+  );
 });
 
 function Composer({

@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from .. import backend_control, config, db, engine_models, engine_settings, log_archive, scheduler
+from .. import browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, scheduler
 from ..pty_session import script_log_path_for
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -44,6 +44,7 @@ def get_settings():
         "omp_thinking_options": engine_settings.omp_thinking_options(),
         "kimi_model": engine_settings.kimi_model(),
         "kimi_model_options": engine_settings.kimi_model_options(),
+        "browser": browser_computer.availability(),
     }
 
 

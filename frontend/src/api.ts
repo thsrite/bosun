@@ -18,6 +18,11 @@ export type AppSettings = {
   omp_thinking_options: { value: string; label: string }[];
   kimi_model: string;
   kimi_model_options: { value: string; label: string }[];
+  browser: {
+    available: boolean;
+    missing: string[];
+    model: string;
+  };
 };
 
 export type StorageInfo = {

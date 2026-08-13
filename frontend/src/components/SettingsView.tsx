@@ -608,6 +608,7 @@ const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
   codex: { blurb: "OpenAI 的 Codex CLI", install: "npm i -g @openai/codex" },
   omp: { blurb: "Oh My Pi，自带 provider 凭据", install: "npm i -g @oh-my-pi/pi-coding-agent" },
   kimi: { blurb: "Moonshot 的 Kimi Code CLI，自带 provider 凭据", install: "npm i -g @moonshot-ai/kimi-code" },
+  browser: { blurb: "OpenAI Computer Use + 隔离 Chromium", install: "playwright install chromium" },
 };
 
 /** 未安装引擎的灰态摘要卡。其余界面对未安装引擎一律隐藏，
@@ -854,6 +855,35 @@ export function SettingsView({
           </Field>
         </Section>
       )}
+
+      <Section
+        title="Browser Computer Use"
+        hint="驱动隔离 Chromium 验收本地 Web 应用；仅允许 localhost / 回环地址。"
+        aside={(
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${
+            settings.browser.available
+              ? "border-emerald-500/30 text-emerald-400"
+              : "border-amber-500/30 text-amber-400"
+          }`}>
+            {settings.browser.available ? "可用" : "未就绪"}
+          </span>
+        )}
+      >
+        <Field label="模型">
+          <code className="rounded-md bg-dh-s2 px-2 py-1 font-mono text-xs text-dh-tsoft">
+            {settings.browser.model}
+          </code>
+        </Field>
+        <Field label="运行条件">
+          {settings.browser.available ? (
+            <span className="text-sm text-emerald-400">API Key、Playwright 与 Chromium 已就绪</span>
+          ) : (
+            <ul className="space-y-1 text-xs text-amber-400">
+              {settings.browser.missing.map((item) => <li key={item}>• {item}</li>)}
+            </ul>
+          )}
+        </Field>
+      </Section>
 
       </SettingsGroup>
 

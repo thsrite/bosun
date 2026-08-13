@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db, sessions
-from ..engines import ENGINES
+from ..engines import CODING_ENGINES
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -65,7 +65,7 @@ def _create_resume_task(project_id: int, engine: str, session_uid: str, title: s
 @router.post("/import")
 def import_session(body: ImportBody):
     b = body.bundle
-    if b.engine not in ENGINES:
+    if b.engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {b.engine}")
     project = db.query_one("SELECT * FROM project WHERE id=?", (body.project_id,))
     if project is None:
@@ -100,7 +100,7 @@ def discover_sessions(project_id: int, limit: int = 50):
 
 @router.post("/attach")
 def attach_local_session(body: AttachBody):
-    if body.engine not in ENGINES:
+    if body.engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {body.engine}")
     project = db.query_one("SELECT * FROM project WHERE id=?", (body.project_id,))
     if project is None:

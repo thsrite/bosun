@@ -4,11 +4,11 @@ import { toast } from "../overlay";
 import { guardQuota } from "../quota";
 import type { Engine, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
-import { useAvailableEngines } from "../installedEngines";
+import { useAvailableTaskEngines } from "../installedEngines";
 import { isCoarsePointer } from "../pointer";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { Modal } from "./Modal";
-import { AUTO_APPROVE_FLAG, ENGINE_ORDER, engineName } from "../engines";
+import { AUTO_APPROVE_FLAG, TASK_ENGINE_ORDER, engineName } from "../engines";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -78,9 +78,9 @@ export function CreateTaskDialog({
   );
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const selectedProject = availableProjects.find((item) => item.id === selectedProjectId);
-  const availableEngines = useAvailableEngines();
+  const availableEngines = useAvailableTaskEngines();
   const [engine, setEngine] = useState<"auto" | Engine>(
-    ["auto", ...ENGINE_ORDER].includes(initialSettings.engine ?? "")
+    ["auto", ...TASK_ENGINE_ORDER].includes(initialSettings.engine ?? "")
       ? initialSettings.engine!
       : "auto",
   );
@@ -90,6 +90,7 @@ export function CreateTaskDialog({
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const previews = useRef<Set<string>>(new Set());
   const { busy, run } = useSingleFlight();
+  const isBrowser = engine === "browser";
 
   useEffect(() => () => {
     previews.current.forEach((preview) => URL.revokeObjectURL(preview));
@@ -132,7 +133,23 @@ export function CreateTaskDialog({
     }));
   }
 
+  function clearAttachments() {
+    setAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+      });
+      previews.current.clear();
+      return [];
+    });
+  }
+
+  function selectEngine(nextEngine: "auto" | Engine) {
+    if (nextEngine === "browser") clearAttachments();
+    setEngine(nextEngine);
+  }
+
   function handlePaste(event: ReactClipboardEvent<HTMLElement>) {
+    if (isBrowser) return;
     const itemImages = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -148,7 +165,8 @@ export function CreateTaskDialog({
   async function submit(start: boolean) {
     await run(async () => {
       const trimmed = prompt.trim();
-      if ((!trimmed && attachments.length === 0) || !selectedProject) return;
+      const taskAttachments = isBrowser ? [] : attachments;
+      if ((!trimmed && taskAttachments.length === 0) || !selectedProject) return;
       const initialPrompt = promptWithAttachments(trimmed, []);
       let r: { id: number; engine: string; auto_reason: string | null };
       try {
@@ -174,7 +192,7 @@ export function CreateTaskDialog({
 
       const uploadedPaths: string[] = [];
       let attachmentFailures = 0;
-      for (const attachment of attachments) {
+      for (const attachment of taskAttachments) {
         try {
           const uploaded = await api.uploadFile(r.id, attachment.file);
           uploadedPaths.push(uploaded.path);
@@ -239,27 +257,29 @@ export function CreateTaskDialog({
         <div className="flex flex-wrap gap-3">
           {availableEngines.length > 1 && (
             <label className="flex items-center gap-1.5" title="按配额余量+历史成功率自动选">
-              <input type="radio" checked={engine === "auto"} onChange={() => setEngine("auto")} />
+              <input type="radio" checked={engine === "auto"} onChange={() => selectEngine("auto")} />
               🤖 自动
             </label>
           )}
           {availableEngines.map((item) => (
             <label key={item} className="flex items-center gap-1.5">
-              <input type="radio" checked={engine === item} onChange={() => setEngine(item)} />
+              <input type="radio" checked={engine === item} onChange={() => selectEngine(item)} />
               {engineName(item)}
             </label>
           ))}
         </div>
         <textarea
           className="h-32 w-full rounded-lg border border-dh-bsoft bg-dh-soft p-2.5 font-mono text-xs text-dh-text focus:border-dh-m2 focus:outline-none"
-          placeholder={`给 ${availableEngines.join("/")} 的指令…`}
+          placeholder={isBrowser
+            ? "输入本地 URL 和验收目标，例如：检查 http://127.0.0.1:5199 的登录表单"
+            : `给 ${availableEngines.filter((item) => item !== "browser").join("/")} 的指令…`}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           // 触屏不 autoFocus：iOS/WebKit 对动态插入弹窗里的 autofocus 输入框会「键盘闪现即收、
           // 元素却保持聚焦」，之后点击已聚焦元素 focus() 是空操作，键盘要点很多次才弹得出来。
           autoFocus={!projects && !isCoarsePointer()}
         />
-        <div className="rounded-lg border-2 border-dashed border-dh-accent bg-dh-soft p-3 shadow-inner shadow-black/20">
+        {!isBrowser && <div className="rounded-lg border-2 border-dashed border-dh-accent bg-dh-soft p-3 shadow-inner shadow-black/20">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-100">📋 粘贴截图到这里（Ctrl/⌘ + V）</span>
             <AttachmentPicker
@@ -311,7 +331,7 @@ export function CreateTaskDialog({
               ))}
             </div>
           )}
-        </div>
+        </div>}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <label className="flex items-center gap-2 whitespace-nowrap">
             优先级
@@ -324,7 +344,7 @@ export function CreateTaskDialog({
               onChange={(e) => setPriority(Number(e.target.value))}
             />
           </label>
-          <label
+          {!isBrowser && <label
             className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
               autoApprove ? "border-amber-500/40 bg-amber-500/10 text-amber-400" : "border-dh-bsoft text-dh-tsoft"
             }`}
@@ -336,7 +356,12 @@ export function CreateTaskDialog({
               onChange={(e) => setAutoApprove(e.target.checked)}
             />
             <span className="whitespace-nowrap">⚡ 全权限运行（跳过确认）</span>
-          </label>
+          </label>}
+          {isBrowser && (
+            <span className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-300">
+              仅访问本机回环地址 · 危险动作始终确认
+            </span>
+          )}
         </div>
         <div className="flex flex-col gap-2 pt-2">
           <div className="flex items-center gap-2">
@@ -348,14 +373,14 @@ export function CreateTaskDialog({
             </button>
             <button
               className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
-              disabled={busy || !selectedProject || (!prompt.trim() && attachments.length === 0)}
+              disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
               onClick={() => submit(false)}
             >
               {busy ? "处理中…" : "加入待办"}
             </button>
             <button
               className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-              disabled={busy || !selectedProject || (!prompt.trim() && attachments.length === 0)}
+              disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
               onClick={() => submit(true)}
               title="创建并立即排入调度执行"
             >

@@ -18,7 +18,8 @@ from .directives import (  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE �
     SUBTASK_TEMPLATE,
 )
 
-ENGINES = {"cc", "codex", "omp", "kimi"}
+CODING_ENGINES = {"cc", "codex", "omp", "kimi"}
+ENGINES = {*CODING_ENGINES, "browser"}
 
 # 派发提示里对各引擎的称呼（agent 要照着敲命令，必须是真实可执行名）
 _ENGINE_CLI_NAMES = {"cc": "claude", "codex": "codex", "omp": "omp", "kimi": "kimi"}
