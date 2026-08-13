@@ -72,8 +72,8 @@ app = FastAPI(title="Bosun")
 # 无需登录即可访问的 API：健康检查与登录流程本身。其余 /api/* 一律校验 token。
 _PUBLIC_API_PATHS = {"/api/health", "/api/auth/status", "/api/auth/login"}
 
-# agent 回报端点不走会话 token(agent 登录不了)，改由端点自己校验任务级凭证。
-_TASK_REPORT_PATH = re.compile(r"^/api/tasks/\d+/report$")
+# agent 回调端点不走会话 token(agent 登录不了)，改由各端点自己校验任务级凭证。
+_TASK_CREDENTIAL_PATH = re.compile(r"^/api/tasks/\d+/(?:report|spawn|result)$")
 
 
 @app.middleware("http")
@@ -82,7 +82,7 @@ async def _require_auth(request, call_next):
     if (
         path.startswith("/api/")
         and path not in _PUBLIC_API_PATHS
-        and not _TASK_REPORT_PATH.match(path)
+        and not _TASK_CREDENTIAL_PATH.match(path)
         and auth_service.is_enabled()
     ):
         token = auth_service.token_from_request(request.headers)
