@@ -28,6 +28,7 @@ export function TaskCard({
   onDelete,
   onRerun,
   onContinue,
+  dragDisabled = false,
 }: {
   task: Task;
   onOpen: (t: Task) => void;
@@ -37,9 +38,11 @@ export function TaskCard({
   onDelete: (t: Task) => void | Promise<void>;
   onRerun: (t: Task) => void | Promise<void>;
   onContinue: (t: Task) => void | Promise<void>;
+  /** 嵌套渲染的子任务卡片不在 SortableContext 里注册，必须关掉拖拽 */
+  dragDisabled?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: task.id });
+    useSortable({ id: task.id, disabled: dragDisabled });
   const { busy, run: singleFlight } = useSingleFlight();
   // 动作进行中禁用全部动作按钮，避免快速多点触发重复请求
   const run = (fn: (t: Task) => void | Promise<void>) => async () => {

@@ -283,16 +283,19 @@ export function TaskBoard({
         {card}
         <div className="ml-3 flex flex-col gap-1.5 border-l border-dh-bsoft pl-2.5">
           <div className="text-[11px] text-slate-500">派生的子任务 {kids.length}</div>
-          {kids.map(renderSingleTaskCard)}
+          {kids.map((k) => renderSingleTaskCard(k, true))}
         </div>
       </div>
     );
   }
 
-  function renderSingleTaskCard(t: Task) {
+  // nested=true 的卡片不在 SortableContext.items 里（items 只含顶层任务），
+  // 必须关掉拖拽，否则拖一个未注册的 sortable 会有未定义行为。
+  function renderSingleTaskCard(t: Task, nested = false) {
     return (
       <TaskCard
         key={t.id}
+        dragDisabled={nested}
         task={t}
         onOpen={onOpenTerminal}
         onStart={async (tk) => {
