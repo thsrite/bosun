@@ -33,6 +33,7 @@ const DEFAULT_AUTH: AuthStatus = {
 };
 const DEFAULT_SETTINGS: AppSettings = {
   max_concurrent: 3,
+  quota_enabled: true,
   claude_invocation: "auto",
   claude_model: "",
   claude_model_options: [{ value: "", label: "默认" }],
