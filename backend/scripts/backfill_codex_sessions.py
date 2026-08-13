@@ -58,7 +58,12 @@ def build_plan(conn: sqlite3.Connection) -> dict[int, str]:
         cwd = projpath.get(t["project_id"])
         if not cwd or not (t["prompt"] or "").strip():
             continue  # 空 prompt（仅加载上下文）无从按 prompt 认领
-        expected = sessions._clean_prompt(with_report_directive(t["prompt"]))
+        # 两种形态都认：引入引擎清单提示之前派发的任务没有那段提示，
+        # 之后的有。只比对其中一种会让另一半任务永远认领不到。
+        expected = {
+            sessions._clean_prompt(with_report_directive(t["prompt"])),
+            sessions._clean_prompt(with_report_directive(t["prompt"], engine="codex")),
+        }
         started, ended = t["started_at"], t["ended_at"]
         cand: list[str] = []
         for m in rollouts:
@@ -66,7 +71,7 @@ def build_plan(conn: sqlite3.Connection) -> dict[int, str]:
                 continue
             if not sessions._same_or_child(m.get("cwd"), cwd):
                 continue
-            if m.get("prompt") != expected:
+            if m.get("prompt") not in expected:
                 continue
             created = m.get("created_at") or 0
             if started and created and not (started - 5 <= created <= (ended or started) + 60):

@@ -8,23 +8,62 @@ kimi = Kimi Code CLI (`kimi`)：-S session_<uuid> 恢复；交互模式不收位
 """
 from __future__ import annotations
 
-from . import engine_settings, harness_adapter
+import os
+
+from . import engine_settings, engine_updates, harness_adapter
 from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
-from .directives import REPORT_DIRECTIVE  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE 引用
+from .directives import ENGINE_ROSTER_TEMPLATE, REPORT_DIRECTIVE  # noqa: F401  兼容既有引用
 
 ENGINES = {"cc", "codex", "omp", "kimi"}
 
+# 派发提示里对各引擎的称呼（agent 要照着敲命令，必须是真实可执行名）
+_ENGINE_CLI_NAMES = {"cc": "claude", "codex": "codex", "omp": "omp", "kimi": "kimi"}
+_FALSE = {"0", "false", "no", "off"}
+
+
+def engine_roster_hint(engine: str) -> str:
+    """告诉 agent 同机还装了哪些**别的**引擎 CLI，可按需调用（第二意见/交叉复审）。
+
+    刻意**不注入技能清单**：cc 等 CLI 自己就会把 skill 列表加载进系统提示
+    （实测本机 230 个 skill），再注入一份纯冗余且撑爆 prompt。agent 真正缺的
+    信息是「同机还有哪些别的引擎」。
+
+    只列已安装且非当前引擎的；一个都没有就返回空串，不浪费 token。
+    BOSUN_ENGINE_ROSTER_HINT=0 可关。探测失败一律降级为空——派发不能因此挂掉。
+    """
+    if os.environ.get("BOSUN_ENGINE_ROSTER_HINT", "1").strip().lower() in _FALSE:
+        return ""
+    try:
+        installed = engine_updates.installed_engines()
+    except Exception:  # noqa: BLE001  探测失败不阻断派发
+        return ""
+    # 按固定顺序输出：codex 会话认领靠首条用户消息与 prompt 精确比对，提示必须可复现
+    others = [
+        _ENGINE_CLI_NAMES[name]
+        for name in ("cc", "codex", "omp", "kimi")
+        if name != engine and installed.get(name) and name in _ENGINE_CLI_NAMES
+    ]
+    if not others:
+        return ""
+    return ENGINE_ROSTER_TEMPLATE.format(engines="、".join(others))
+
 
 def with_report_directive(prompt: str, engine: str | None = None) -> str:
-    """给派发给 agent 的 prompt 追加收尾回报约定；空 prompt(只加载上下文)不加。
+    """给派发给 agent 的 prompt 追加引擎清单提示 + 收尾回报约定；空 prompt 不加。
 
     传 engine 时走 harness registry 取当前生效版本（自演进入口，故障自动回退
-    静态常量）；不传保持旧行为，供无引擎上下文的调用方使用。
+    静态常量），并在其**之前**插入引擎清单提示——收尾约定必须留在最末，尾部
+    显著性是 #524 的既有结论，不能被别的提示挤走。
+    不传 engine 保持旧行为一字不变：backfill 脚本按它比对历史会话的首条消息。
+
+    注入点刻意收在这一个函数里：build_argv / build_resume_argv / sdk_session /
+    scheduler 的 codex 会话认领都经由它，改在别处会让「派发的 prompt」与
+    「认领时比对的 prompt」不一致，导致 codex 会话永远认领不到。
     """
     if not (prompt or "").strip():
         return prompt
     if engine:
-        return f"{prompt}{harness_adapter.directive_for(engine)}"
+        return f"{prompt}{engine_roster_hint(engine)}{harness_adapter.directive_for(engine)}"
     return f"{prompt}{REPORT_DIRECTIVE}"
 
 
