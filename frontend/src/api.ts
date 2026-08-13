@@ -3,6 +3,7 @@ import type { Engine, Finding, IssueSource, LocalSession, Project, Task } from "
 
 export type AppSettings = {
   max_concurrent: number;
+  quota_enabled: boolean;
   claude_invocation: "auto" | "sdk" | "cli";
   claude_model: string;
   claude_model_options: { value: string; label: string }[];

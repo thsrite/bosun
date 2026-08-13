@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from .. import browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, scheduler
+from .. import browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler
 from ..pty_session import script_log_path_for
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class Settings(BaseModel):
     max_concurrent: int
+    quota_enabled: bool = True
     claude_invocation: str = "auto"
     claude_model: str = ""
     claude_effort: str = ""
@@ -29,6 +30,7 @@ class Settings(BaseModel):
 def get_settings():
     return {
         "max_concurrent": int(db.get_setting("max_concurrent", 3)),
+        "quota_enabled": quota.is_enabled(),
         "claude_invocation": engine_settings.claude_invocation(),
         "claude_model": engine_settings.claude_model(),
         "claude_model_options": engine_settings.claude_model_options(),
@@ -155,6 +157,7 @@ def restart_backend(background_tasks: BackgroundTasks):
 @router.put("")
 def update_settings(body: Settings):
     db.set_setting("max_concurrent", max(1, body.max_concurrent))
+    db.set_setting("quota_enabled", "1" if body.quota_enabled else "0")
     invocation = body.claude_invocation.strip().lower()
     if invocation not in engine_settings.CLAUDE_INVOCATIONS:
         invocation = "auto"

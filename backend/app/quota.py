@@ -18,7 +18,7 @@ from pathlib import Path
 
 import certifi
 
-from . import config
+from . import config, db
 from .env import child_env
 
 _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
@@ -226,12 +226,15 @@ def _cached(provider: str, min_interval: int, fetch, refresh: bool = False) -> d
 
 
 def block_pct() -> int:
-    from . import db
-
     try:
         return int(db.get_setting("quota_block_pct", 90))
     except (TypeError, ValueError):
         return 90
+
+
+def is_enabled() -> bool:
+    value = db.get_setting("quota_enabled", "1")
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _provider_usage(provider: str, refresh: bool = False) -> dict:
@@ -246,16 +249,23 @@ def get_usage(engine: str | None = None, refresh: bool = False) -> dict:
     if engine:
         provider = _ENGINE_PROVIDER.get(engine)
         if provider:
-            return {provider: _provider_usage(provider, refresh), "block_pct": block_pct()}
+            return {
+                provider: _provider_usage(provider, refresh),
+                "block_pct": block_pct(),
+                "enabled": is_enabled(),
+            }
     return {
         "claude": _provider_usage("claude", refresh),
         "codex": _provider_usage("codex", refresh),
         "block_pct": block_pct(),
+        "enabled": is_enabled(),
     }
 
 
 def check_engine(engine: str) -> tuple[bool, float | None, str]:
     """返回 (是否可执行, 最高窗口用量%, 原因)。用量拿不到时放行(不拦)。"""
+    if not is_enabled():
+        return True, None, "额度保护已关闭，放行"
     provider = _ENGINE_PROVIDER.get(engine)
     usage = _provider_usage(provider) if provider else None
     if not usage or not usage.get("available"):

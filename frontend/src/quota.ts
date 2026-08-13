@@ -7,6 +7,7 @@ export async function guardQuota(engine?: string): Promise<boolean> {
   if (engine === "omp" || engine === "kimi" || engine === "browser") return true;
   try {
     const q = await api.quota(engine);
+    if (q.enabled === false) return true;
     const limit = q.block_pct ?? 90;
     const list = engine
       ? [{ name: engine === "cc" ? "Claude" : "Codex", ...(engine === "cc" ? q.claude : q.codex) }]
