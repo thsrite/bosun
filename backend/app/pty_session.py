@@ -150,6 +150,9 @@ _ANSI_RE = re.compile(
 _BUSY_GRACE_SECONDS = max(IDLE_SECONDS * 2, 20.0)
 # 催报的静默门槛比 idle 判定更宽：正文打印完到 curl 之间有正常间隙，别抢跑误催
 NUDGE_IDLE_SECONDS = max(IDLE_SECONDS * 3, 24.0)
+# 限流命中后再等一小会儿，让引擎把「Try again at …」那一行也打出来。
+# 取 2s：够覆盖相邻两行的到达间隔，又不至于让任务多空转。
+_RATE_LIMIT_GRACE_SECONDS = 2.0
 # Semantic prompt words are common in source code, diffs and documentation (for
 # example ``getByText('请选择云盘实例')``).  Only treat them as prompts when they
 # begin a terminal/output line, optionally after a normal list/prompt marker.
@@ -404,6 +407,8 @@ class PtySession:
         self.script_log_path: str | None = None
         # 本次运行是否已判定撞上限流（粘性，每次运行只上报一次）
         self.rate_limit_hit: "rate_limit.RateLimitHit | None" = None
+        # 已检出但尚未上报的限流命中 (首次检出时刻, hit)，等恢复时间或宽限期
+        self._rate_limit_pending: "tuple[float, rate_limit.RateLimitHit] | None" = None
 
         self.proc: PtyProcess | None = None
         self.subscribers: set[asyncio.Queue] = set()
@@ -536,13 +541,35 @@ class PtySession:
         刻意**不受 BOSUN_WAIT_HEURISTICS 约束**：那个开关关的是噪声大的提示词正则，
         限流判据是另一套（保守短语 + 反匹配，见 rate_limit 模块），有自己的
         BOSUN_RATE_LIMIT_RESUME 闸门。粘性上报，一次运行只报一次。
+
+        **不即刻上报**：引擎先打「已达上限」、下一行才打 `Try again at …`，
+        立刻上报会拿不到恢复时间而退回退避（实测退避 5→10→20 分钟、3 次触顶共 35
+        分钟，真实重置却可能在数小时后，任务会被判定连续撞限流而永久失败）。
+        因此先挂起，等到抓到恢复时间、或宽限期满，再上报。
         """
         if self.rate_limit_hit is not None or not rate_limit.auto_resume_enabled():
             return
         hit = rate_limit.detect(tail)
         if hit is None:
             return
+        if self._rate_limit_pending is None:
+            self._rate_limit_pending = (time.time(), hit)
+        else:
+            started, prev = self._rate_limit_pending
+            # 后续输出里补到了恢复时间就替换（首帧往往还没打出这一行）
+            self._rate_limit_pending = (started, hit if hit.resets_at else prev)
+        self._flush_rate_limit()
+
+    def _flush_rate_limit(self, force: bool = False) -> None:
+        """挂起的限流命中到点上报：拿到恢复时间即报，否则等满宽限期再报。"""
+        if self.rate_limit_hit is not None or self._rate_limit_pending is None:
+            return
+        started, hit = self._rate_limit_pending
+        if not (force or hit.resets_at is not None
+                or time.time() - started >= _RATE_LIMIT_GRACE_SECONDS):
+            return
         self.rate_limit_hit = hit
+        self._rate_limit_pending = None
         if self.on_rate_limit is not None:
             self.loop.call_soon_threadsafe(self.on_rate_limit, self.task_id, hit)
 
@@ -596,6 +623,7 @@ class PtySession:
     def _idle_loop(self) -> None:
         while not self._stop.is_set():
             time.sleep(1.0)
+            self._flush_rate_limit()
             self._maybe_set_idle_waiting()
             self._maybe_nudge_report()
 
@@ -663,6 +691,8 @@ class PtySession:
     def _finish(self) -> None:
         if self._stop.is_set():
             return
+        # 进程退出兜底：宽限期没走完就退出时，挂起的限流命中必须补报，否则会丢
+        self._flush_rate_limit(force=True)
         self._stop.set()
         code = -1
         if self.proc is not None:
