@@ -25,9 +25,21 @@ DEFAULT_TIMEOUT = 900.0       # 15min，与 autopilot.FIX_TIMEOUT 同量级
 MAX_TIMEOUT = 3600.0          # 钳制上限：父任务不能被无限期阻塞
 _POLL_INTERVAL = 0.5
 
-# 子任务「已出结论」的状态：done/failed/cancelled 自不必说；waiting_input 是
-# agent 回报 done 之后的常态（等人核对），对父任务而言结论已经拿到了。
-FINISHED_STATUSES = {"done", "failed", "cancelled", "interrupted", "waiting_input"}
+# 子任务「已出结论」的状态。
+# waiting_input 单独处理（见 _finished）：它有两种来源，只有一种代表出了结论——
+#   已出结论：agent 按收尾约定回报 done/failed 后置的 waiting_input（等人核对）
+#   仍在干活：SDK 会话请求工具授权、或一轮结束等下一条输入时也置 waiting_input
+#             （sdk_session.py 的 _ask_permission / 回合结束分支）
+# 把后者当成「已出结论」会让父任务拿到一个空结论就往下走，而子任务其实卡在
+# 授权提示上没人应答。判据取 report_result 是否落库——那是 agent 的权威回调。
+_TERMINAL_STATUSES = {"done", "failed", "cancelled", "interrupted"}
+FINISHED_STATUSES = _TERMINAL_STATUSES | {"waiting_input"}
+
+
+def _finished(status: str, report_result: str | None) -> bool:
+    if status in _TERMINAL_STATUSES:
+        return True
+    return status == "waiting_input" and bool(report_result)
 
 
 def enabled() -> bool:
@@ -81,7 +93,7 @@ def wait_for_result(child_id: int, timeout: float) -> dict:
         )
         if row is None:  # 被删了，没有结论可等
             return {"status": "cancelled", "summary": "", "timed_out": False}
-        if row["status"] in FINISHED_STATUSES:
+        if _finished(row["status"], row["report_result"]):
             return {
                 "status": row["status"],
                 "result": row["report_result"],

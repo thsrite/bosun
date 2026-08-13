@@ -597,7 +597,7 @@ def get_task_result(task_id: int, request: Request = None):
         "status": row["status"],
         "result": row["report_result"],
         "summary": row["report_summary"] or "",
-        "finished": row["status"] in subtasks.FINISHED_STATUSES,
+        "finished": subtasks._finished(row["status"], row["report_result"]),
     }
 
 
