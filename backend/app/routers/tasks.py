@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import auth, browser_computer, db, events, log_archive, nesting, routing, scheduler, sessions, subtasks
-from ..engines import CODING_ENGINES, ENGINES
+from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -573,7 +573,7 @@ def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
     if subtasks.child_count(task_id) >= subtasks.max_children():
         raise HTTPException(429, f"子任务数已达上限（{subtasks.max_children()}）")
 
-    engine = body.engine
+    engine = normalize_engine_id(body.engine)
     if engine == "auto":
         engine, _ = routing.pick_engine()
     if engine not in CODING_ENGINES:

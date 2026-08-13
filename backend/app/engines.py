@@ -23,7 +23,13 @@ ENGINES = {*CODING_ENGINES, "browser"}
 
 # 派发提示里对各引擎的称呼（agent 要照着敲命令，必须是真实可执行名）
 _ENGINE_CLI_NAMES = {"cc": "claude", "codex": "codex", "omp": "omp", "kimi": "kimi"}
+_ENGINE_ALIASES = {"claude": "cc", "claude-code": "cc", "claude code": "cc"}
 _FALSE = {"0", "false", "no", "off"}
+
+
+def normalize_engine_id(engine: str) -> str:
+    """把用户可见的 Claude Code 名称归一化为 Bosun 内部引擎键。"""
+    return _ENGINE_ALIASES.get(engine, engine)
 
 
 def other_engine_names(engine: str) -> list[str]:

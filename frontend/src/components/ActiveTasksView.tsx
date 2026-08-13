@@ -51,6 +51,18 @@ function EngineBadge({ engine }: { engine: Task["engine"] }) {
   );
 }
 
+function SubtaskBadge({ task }: { task: Task }) {
+  if (task.parent_task_id == null) return null;
+  return (
+    <span
+      className="shrink-0 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-300"
+      title={`由任务 #${task.parent_task_id} 派生`}
+    >
+      子任务 · 来自 #{task.parent_task_id}
+    </span>
+  );
+}
+
 function EditableTaskTitle({
   task,
   fallback,
@@ -233,6 +245,7 @@ function MobileTaskCard({
       <div className="flex min-w-0 items-center gap-2">
         <span className="shrink-0 font-mono text-xs text-slate-400">#{task.id}</span>
         <EngineBadge engine={task.engine} />
+        <SubtaskBadge task={task} />
         <EditableTaskTitle task={task} fallback={titleFallback} onSaved={onReload} />
       </div>
       {subtitle && <div className="truncate text-xs text-slate-400">{subtitle}</div>}
@@ -921,6 +934,7 @@ export function ActiveTasksView({
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="shrink-0 font-mono text-xs text-slate-400">#{t.id}</span>
                       <EngineBadge engine={t.engine} />
+                      <SubtaskBadge task={t} />
                       <EditableTaskTitle task={t} fallback={taskPromptText(t)} onSaved={load} />
                     </div>
                     {t.title && <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(t)}</div>}
@@ -1052,6 +1066,7 @@ export function ActiveTasksView({
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="shrink-0 font-mono text-xs text-slate-400">#{task.id}</span>
                         <EngineBadge engine={task.engine} />
+                        <SubtaskBadge task={task} />
                         <EditableTaskTitle task={task} fallback={taskPromptText(task)} onSaved={load} />
                       </div>
                       <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(task)}</div>
@@ -1197,6 +1212,7 @@ export function ActiveTasksView({
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="shrink-0 font-mono text-xs text-slate-400">#{task.id}</span>
                               <EngineBadge engine={task.engine} />
+                              <SubtaskBadge task={task} />
                               <EditableTaskTitle task={task} fallback={taskPromptText(task)} onSaved={load} />
                             </div>
                             {task.title && <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(task)}</div>}
