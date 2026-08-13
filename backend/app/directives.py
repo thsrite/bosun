@@ -44,6 +44,23 @@ ENGINE_ROSTER_TEMPLATE = (
     "不要让子 agent 代为回报（它会冒用本任务身份）。"
 )
 
+# 子任务派生提示：开启受控子任务后取代 ENGINE_ROSTER_TEMPLATE 的后半段。
+# 刻意做成「一条 curl 拿回结论」的同步形态——agent 现在一条 `codex exec` 就能同步
+# 拿到复审结论，换成异步+轮询比直接跑 CLI 更麻烦，它会绕开不用。写法与收尾回报
+# 约定保持一致（机械照抄、不要分析），压缩组装命令时的推理停顿。
+SUBTASK_TEMPLATE = (
+    "\n\n---\n"
+    "[Bosun 环境] 需要另一个模型出第二意见/交叉复审时，**优先用下面这条派生子任务**，"
+    "不要自己在终端里直接起别的 CLI——直接起的那个 Bosun 看不见、管不了、也不计额度。"
+    "可用引擎：{engines}。命令会阻塞到子任务出结论并把结论打印出来：\n"
+    "curl -sS -X POST -H 'Content-Type: application/json' "
+    '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
+    '-d "{{\\"engine\\":\\"<引擎>\\",\\"prompt\\":\\"<要它做什么>\\"}}" '
+    '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/spawn"\n'
+    "（默认最多 3 个子任务、单个最长 15 分钟；子任务不能再派生子任务。"
+    "**本轮的收尾回报仍由你自己发**，子任务的回报只属于它自己。）"
+)
+
 # 催报提醒：回合已结束但后端仍没收到 /report 回调时，作为一条用户消息补投给 agent。
 # 必须单行——PTY 路径按整行注入终端输入框，多行会被 TUI 逐行提交。
 REPORT_NUDGE = (

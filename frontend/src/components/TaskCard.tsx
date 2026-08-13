@@ -53,6 +53,8 @@ export function TaskCard({
   const isDraft = task.status === "draft";
   const isWaiting = task.status === "waiting_input" && !isPerm && !isChoice && !isReview;
   const active = ["running", "waiting_input", "queued"].includes(task.status);
+  // 受控子任务：标出来源，免得看板上多出一条来路不明的任务
+  const isSubtask = task.parent_task_id != null;
   const terminal = ["done", "failed", "cancelled", "interrupted"].includes(task.status);
 
   return (
@@ -74,6 +76,9 @@ export function TaskCard({
             : "border-dh-bsoft hover:border-dh-border"
       } ${isDragging ? "opacity-60 ring-2 ring-dh-accent" : ""}`}
     >
+      {isSubtask && (
+        <div className="mb-1.5 text-[11px] text-slate-500">子任务 · 派生自 #{task.parent_task_id}</div>
+      )}
       <div className="flex items-center gap-1.5">
         <span
           {...attributes}

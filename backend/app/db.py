@@ -182,6 +182,9 @@ def _ensure_columns() -> None:
         "report_token": "TEXT",        # 本轮派发给 agent 的 /report 回调凭证
         "resume_after": "REAL",        # 撞限流后自动续跑的时刻(epoch)；rate_limited 态专用
         "rate_limit_attempts": "INTEGER NOT NULL DEFAULT 0",  # 已自动续跑次数，触顶转 failed
+        # 受控子任务的父任务 id。SET NULL 而非 CASCADE：父任务被硬删时子任务的
+        # 统计历史不该跟着消失（与 task 表既有的软删除取向一致）。
+        "parent_task_id": "INTEGER REFERENCES task(id) ON DELETE SET NULL",
     })
     _ensure_table_columns(conn, "finding", {
         "origin": "TEXT NOT NULL DEFAULT 'manual'",  # manual | autopilot

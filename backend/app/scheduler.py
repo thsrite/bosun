@@ -483,6 +483,37 @@ def tick() -> None:
             _start_task(row)
 
 
+def start_subtask(task_id: int) -> None:
+    """立即派发一个受控子任务，**绕过并发槽**（见 subtasks 模块的取舍说明）。
+
+    刻意不走 tick()：tick 按空槽从 queued 里挑，而子任务的父任务正占着槽等它，
+    排队会互锁。子任务的放大倍数由「每父任务子任务数上限」兜住，不由槽位兜。
+    """
+    row = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if row is None or row["status"] != "queued":
+        return
+    with _tick_lock:  # 与 tick 串行，避免同一任务被并发启动两次
+        if task_id in _sessions:
+            return
+        _start_task(row)
+
+
+def _cancel_active_children(parent_id: int) -> None:
+    """父任务终止时级联取消仍在跑的子任务。
+
+    不做级联会留下杀不掉的孤儿：子任务是调度器派发的独立进程，父任务没了它还在跑
+    （比现状还糟——agent 自己 spawn 的子进程通常随父进程一起死）。
+    已进入终态的子任务保持原状，统计历史不被抹掉。
+    """
+    rows = db.query(
+        "SELECT id FROM task WHERE parent_task_id=? AND deleted=0 "
+        "AND status IN ('queued','running','waiting_input','rate_limited')",
+        (parent_id,),
+    )
+    for row in rows:
+        cancel(row["id"])
+
+
 def respond_permission(task_id: int, allow: bool) -> bool:
     s = _sessions.get(task_id)
     if s is not None and hasattr(s, "respond_permission"):
@@ -523,6 +554,7 @@ def cancel(task_id: int) -> bool:
         (time.time(), task_id),
     )
     events.emit("task.status", {"task_id": task_id, "status": "cancelled"})
+    _cancel_active_children(task_id)
     tick()
     return True
 
@@ -655,6 +687,7 @@ def delete(task_id: int) -> bool:
         (task_id,),
     )
     events.emit("task.deleted", {"task_id": task_id})
+    _cancel_active_children(task_id)
     tick()
     return True
 

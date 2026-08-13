@@ -10,15 +10,36 @@ from __future__ import annotations
 
 import os
 
-from . import engine_settings, engine_updates, harness_adapter
+from . import engine_settings, engine_updates, harness_adapter, subtasks
 from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
-from .directives import ENGINE_ROSTER_TEMPLATE, REPORT_DIRECTIVE  # noqa: F401  兼容既有引用
+from .directives import (  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE 引用
+    ENGINE_ROSTER_TEMPLATE,
+    REPORT_DIRECTIVE,
+    SUBTASK_TEMPLATE,
+)
 
 ENGINES = {"cc", "codex", "omp", "kimi"}
 
 # 派发提示里对各引擎的称呼（agent 要照着敲命令，必须是真实可执行名）
 _ENGINE_CLI_NAMES = {"cc": "claude", "codex": "codex", "omp": "omp", "kimi": "kimi"}
 _FALSE = {"0", "false", "no", "off"}
+
+
+def other_engine_names(engine: str) -> list[str]:
+    """同机已安装的、除 engine 之外的引擎 CLI 名，按固定顺序。
+
+    顺序固定是硬要求：codex 会话认领靠首条用户消息与 prompt 逐字比对，
+    提示词必须可复现。探测失败返回空列表——派发不能因此挂掉。
+    """
+    try:
+        installed = engine_updates.installed_engines()
+    except Exception:  # noqa: BLE001  探测失败不阻断派发
+        return []
+    return [
+        _ENGINE_CLI_NAMES[name]
+        for name in ("cc", "codex", "omp", "kimi")
+        if name != engine and installed.get(name)
+    ]
 
 
 def engine_roster_hint(engine: str) -> str:
@@ -33,19 +54,15 @@ def engine_roster_hint(engine: str) -> str:
     """
     if os.environ.get("BOSUN_ENGINE_ROSTER_HINT", "1").strip().lower() in _FALSE:
         return ""
-    try:
-        installed = engine_updates.installed_engines()
-    except Exception:  # noqa: BLE001  探测失败不阻断派发
-        return ""
-    # 按固定顺序输出：codex 会话认领靠首条用户消息与 prompt 精确比对，提示必须可复现
-    others = [
-        _ENGINE_CLI_NAMES[name]
-        for name in ("cc", "codex", "omp", "kimi")
-        if name != engine and installed.get(name) and name in _ENGINE_CLI_NAMES
-    ]
+    others = other_engine_names(engine)
     if not others:
         return ""
-    return ENGINE_ROSTER_TEMPLATE.format(engines="、".join(others))
+    names = "、".join(others)
+    # 开了受控子任务就引导走 spawn（Bosun 看得见、管得了、计额度）；
+    # 关了才退回「你自己在终端里调」的说法，免得提示一个用不了的接口。
+    if subtasks.enabled():
+        return SUBTASK_TEMPLATE.format(engines=names)
+    return ENGINE_ROSTER_TEMPLATE.format(engines=names)
 
 
 def with_report_directive(prompt: str, engine: str | None = None) -> str:

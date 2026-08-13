@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .. import auth, db, events, log_archive, nesting, routing, scheduler, sessions
+from .. import auth, db, events, log_archive, nesting, routing, scheduler, sessions, subtasks
 from ..engines import ENGINES
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -502,6 +502,103 @@ def _run_transition(task_id: int, transition) -> dict:
     except scheduler.TaskTransitionError as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"ok": True}
+
+
+class SpawnBody(BaseModel):
+    engine: str
+    prompt: str
+    title: str | None = None
+    timeout: float | None = None
+
+
+def _spawn_authorized(parent_id: int, request: Request | None) -> bool:
+    """派生子任务只认父任务**自己**的回调凭证。
+
+    与 /report 不同，这里不接受会话 token（此接口是给 agent 用的，不是给前端用的），
+    也不留「历史任务没有 token」的回环豁免——spawn 是新接口，没有在飞的老任务。
+    """
+    if not auth.is_enabled():
+        return True
+    if request is None:
+        return True
+    return auth.validate_task_token(parent_id, auth.token_from_request(request.headers))
+
+
+@router.post("/{task_id}/spawn")
+def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
+    """agent 申请派生一个跑在别的引擎上的子任务，**同步返回其结论**。
+
+    同步是刻意的：对 agent 而言等价于直接跑 `codex exec`，迁移成本接近零。
+    改成异步 + 轮询反而比直接跑 CLI 更麻烦，agent 会绕开不用。
+    """
+    if not subtasks.enabled():
+        raise HTTPException(403, "子任务功能已关闭")
+    if not _spawn_authorized(task_id, request):
+        raise HTTPException(401, "派生凭证无效")
+    parent = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if parent is None:
+        raise HTTPException(404, "任务不存在")
+    if parent["parent_task_id"] is not None:
+        raise HTTPException(403, "子任务不能再派生子任务（最多一层）")
+    if parent["status"] not in ("running", "waiting_input"):
+        raise HTTPException(409, "父任务未在执行，不能派生子任务")
+    if subtasks.child_count(task_id) >= subtasks.max_children():
+        raise HTTPException(429, f"子任务数已达上限（{subtasks.max_children()}）")
+
+    engine = body.engine
+    if engine == "auto":
+        engine, _ = routing.pick_engine()
+    if engine not in ENGINES:
+        raise HTTPException(400, f"未知引擎: {engine}")
+
+    title = (body.title or "").strip() or derive_title(body.prompt)
+    child_id = db.execute(
+        "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,"
+        "parent_task_id,created_at) VALUES(?,?,?,?,?,?,?,'queued',?,?)",
+        (
+            parent["project_id"],
+            engine,
+            body.prompt,
+            title,
+            parent["priority"],
+            parent["auto_approve"],  # 审批策略随父任务，子任务不额外放宽
+            "task",
+            task_id,
+            time.time(),
+        ),
+    )
+    events.emit("task.spawned", {"task_id": child_id, "parent_task_id": task_id})
+    # 绕过并发槽直接派发：父任务正占着槽等它，排队会互锁
+    scheduler.start_subtask(child_id)
+    timeout = subtasks.clamp_timeout(
+        body.timeout if body.timeout is not None else subtasks.default_timeout()
+    )
+    result = subtasks.wait_for_result(child_id, timeout)
+    return {"id": child_id, "engine": engine, **result}
+
+
+@router.get("/{task_id}/result")
+def get_task_result(task_id: int, request: Request = None):
+    """补查子任务结论（/spawn 因超时或连接中断没拿到时的兜底）。
+
+    凭证认本任务或其父任务的——父任务要能读自己派生出来的子任务。
+    """
+    row = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if row is None:
+        raise HTTPException(404, "任务不存在")
+    parent_id = row["parent_task_id"]
+    if not (
+        _spawn_authorized(task_id, request)
+        or (parent_id is not None and _spawn_authorized(parent_id, request))
+    ):
+        raise HTTPException(401, "凭证无效")
+    return {
+        "id": task_id,
+        "status": row["status"],
+        "result": row["report_result"],
+        "summary": row["report_summary"] or "",
+        "finished": row["status"] in subtasks.FINISHED_STATUSES,
+    }
 
 
 @router.post("/{task_id}/pause")

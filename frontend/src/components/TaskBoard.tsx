@@ -198,8 +198,27 @@ export function TaskBoard({
     return () => clearInterval(id);
   }, [hasActive]);
 
+  // 受控子任务在看板上作为父任务的子行渲染：先按父任务归拢，再把「与父任务同列」的
+  // 子任务从顶层列表里摘掉（它们由父卡片负责渲染）。父子不同列时（例如父仍在执行、
+  // 子已完成归档）子任务照常独立显示，否则会凭空消失。
+  const colByTaskId = new Map<number, ColKey>();
+  for (const t of visibleTasks) colByTaskId.set(t.id, colOf(t.status));
+  const childrenByParent = new Map<number, Task[]>();
+  for (const t of visibleTasks) {
+    const pid = t.parent_task_id;
+    if (pid == null || colByTaskId.get(pid) !== colOf(t.status)) continue;
+    const list = childrenByParent.get(pid) ?? [];
+    list.push(t);
+    childrenByParent.set(pid, list);
+  }
+  for (const list of childrenByParent.values()) list.sort((a, b) => a.id - b.id);
+  const nestedIds = new Set([...childrenByParent.values()].flat().map((t) => t.id));
+
   const grouped: Record<ColKey, Task[]> = { backlog: [], active: [], done: [] };
-  for (const t of visibleTasks) grouped[colOf(t.status)].push(t);
+  for (const t of visibleTasks) {
+    if (nestedIds.has(t.id)) continue;
+    grouped[colOf(t.status)].push(t);
+  }
   grouped.backlog.sort((a, b) => b.priority - a.priority);
   const doneArchives = archiveDoneTasks(grouped.done);
 
@@ -256,6 +275,21 @@ export function TaskBoard({
   }
 
   function renderTaskCard(t: Task) {
+    const kids = childrenByParent.get(t.id);
+    const card = renderSingleTaskCard(t);
+    if (!kids?.length) return card;
+    return (
+      <div key={`grp-${t.id}`} className="flex flex-col gap-1.5">
+        {card}
+        <div className="ml-3 flex flex-col gap-1.5 border-l border-dh-bsoft pl-2.5">
+          <div className="text-[11px] text-slate-500">派生的子任务 {kids.length}</div>
+          {kids.map(renderSingleTaskCard)}
+        </div>
+      </div>
+    );
+  }
+
+  function renderSingleTaskCard(t: Task) {
     return (
       <TaskCard
         key={t.id}
