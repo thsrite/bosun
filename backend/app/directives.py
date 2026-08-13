@@ -4,6 +4,12 @@
 # 均已注入任务环境变量），不装 skill、不落脚本——外部 CLI 的全局环境与本机文件系统
 # 零注入。reporter_pid 传当前 shell 的 pid（$$），供后端按进程链识别嵌套子 agent 的
 # 冒名回报（见 nesting.py，判定在后端，agent 无须自证）。
+# Authorization 头要求逐字照抄：曾写成「token 为空可省」，agent 据此改写成
+# `${BOSUN_TASK_TOKEN:+-H "Authorization: Bearer $BOSUN_TASK_TOKEN"}`，而 zsh 对未加引号
+# 的参数展开不分词，整段塌成单个参数 `-H Authorization: Bearer <tok>`，curl 发出的请求头
+# 名带前导空格，被 uvicorn/h11 在进 FastAPI 前判为非法（回 `Invalid HTTP request
+# received.`，curl 退出码仍是 0），回报静默丢失。token 由 auth.issue_task_token 每轮必发，
+# 本就不会为空，那句提示纯属自找麻烦。
 # 顺序为「先回报、后打印正文」（2026-08-10 A 方案定稿）：正文放在回报之后、作为本轮
 # 最后一条消息，顺着模型「结论放最后」的习惯走，稳定以正文形式展示给用户——曾短暂
 # 翻成「先打印后回报」，#524 实测模型会跳过打印步骤、条件式补打提醒又被误判绕过，
@@ -23,7 +29,8 @@ REPORT_DIRECTIVE = (
     '-d "{\\"result\\":\\"done\\",\\"summary\\":\\"回执\\",'
     '\\"needs_reply\\":false,\\"reporter_pid\\":$$}" '
     '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/report"\n'
-    "（$BOSUN_TASK_TOKEN 为空可省 Authorization 头；Windows 用 curl.exe，"
+    "（Authorization 头照抄，别做 ${VAR:+…} 这类条件拼接——zsh 不分词，"
+    "会拼成一个畸形参数，请求进不了后端；Windows 用 curl.exe，"
     "reporter_pid 可省；非 2xx 须告知用户）\n"
     "②回报后不得再调工具，把本轮完整结论正文作为最后一条消息打印到终端——"
     "用户只看这条正文，塞进 summary 或只留「见上」都等于没说。"
