@@ -14,6 +14,7 @@ agent 会绕开不用）。
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 from . import db
@@ -23,6 +24,7 @@ _FALSE = {"0", "false", "no", "off"}
 DEFAULT_MAX_CHILDREN = 3      # 即最坏情况下的额度放大倍数，刻意取小
 DEFAULT_TIMEOUT = 900.0       # 15min，与 autopilot.FIX_TIMEOUT 同量级
 MAX_TIMEOUT = 3600.0          # 钳制上限：父任务不能被无限期阻塞
+DEFAULT_CONCURRENCY = 8       # 同时阻塞在 /spawn 上的请求数上限，见 acquire_slot
 _POLL_INTERVAL = 0.5
 
 # 子任务「已出结论」的状态。
@@ -34,6 +36,10 @@ _POLL_INTERVAL = 0.5
 # 授权提示上没人应答。判据取 report_result 是否落库——那是 agent 的权威回调。
 _TERMINAL_STATUSES = {"done", "failed", "cancelled", "interrupted"}
 FINISHED_STATUSES = _TERMINAL_STATUSES | {"waiting_input"}
+
+
+_inflight = 0
+_inflight_lock = threading.Lock()
 
 
 def _finished(status: str, report_result: str | None) -> bool:
@@ -71,6 +77,42 @@ def clamp_timeout(value: float) -> float:
     return min(max(seconds, 10.0), MAX_TIMEOUT)
 
 
+def concurrency() -> int:
+    """同时阻塞在 /spawn 上的请求数上限（默认 8）。"""
+    try:
+        return max(1, int(os.environ.get("BOSUN_SUBTASK_CONCURRENCY", DEFAULT_CONCURRENCY)))
+    except ValueError:
+        return DEFAULT_CONCURRENCY
+
+
+def acquire_slot() -> bool:
+    """占一个 spawn 名额；满了返回 False（调用方应回 429，而不是排队等）。
+
+    /spawn 是同步端点，一个请求会占住 anyio 线程池（默认 40 个线程）里的一个线程，
+    直到子任务出结论——最长 15 分钟。而 /report、/cancel 也都是同步端点、共用这个池：
+    不限流的话阻塞的 spawn 会把子任务自己的 /report 挤出线程池，子任务报不上结论、
+    父任务全部空转到超时，形成自锁。名额必须明显小于线程池容量。
+    「每父任务 3 个」管的是单个父任务的额度放大倍数，父任务数量本身没有上限，
+    拦不住这里的线程池耗尽。
+    """
+    global _inflight
+    with _inflight_lock:
+        if _inflight >= concurrency():
+            return False
+        _inflight += 1
+        return True
+
+
+def release_slot() -> None:
+    global _inflight
+    with _inflight_lock:
+        _inflight = max(0, _inflight - 1)
+
+
+def inflight() -> int:
+    return _inflight
+
+
 def child_count(parent_id: int) -> int:
     """该父任务已派生的子任务数（含已完成的：上限管的是总放大倍数，不是并发数）。"""
     row = db.query_one(
@@ -80,9 +122,11 @@ def child_count(parent_id: int) -> int:
 
 
 def wait_for_result(child_id: int, timeout: float) -> dict:
-    """阻塞等子任务出结论；超时则杀掉它并标记 timed_out。
+    """阻塞等子任务出结论；拿到结论就收掉它，超时则杀掉它并标记 timed_out。
 
-    超时必须杀：否则子任务会继续烧额度，而父任务已经不再关心它的结果。
+    两条路径都必须收进程，理由相同：父任务已经不再关心这个子任务了。
+    超时不杀会继续烧额度；出了结论不收则更隐蔽——agent 回报后停在 waiting_input，
+    进程常驻还占着槽（见 scheduler.finish_subtask）。
     """
     from . import scheduler  # 延迟导入：scheduler 依赖本模块，避免循环
 
@@ -94,8 +138,11 @@ def wait_for_result(child_id: int, timeout: float) -> dict:
         if row is None:  # 被删了，没有结论可等
             return {"status": "cancelled", "summary": "", "timed_out": False}
         if _finished(row["status"], row["report_result"]):
+            scheduler.finish_subtask(child_id)
+            # 收尾会把 waiting_input 落成 done，回报给 agent 的应是收尾后的终态
+            settled = db.query_one("SELECT status FROM task WHERE id=?", (child_id,))
             return {
-                "status": row["status"],
+                "status": settled["status"] if settled else row["status"],
                 "result": row["report_result"],
                 "summary": row["report_summary"] or "",
                 "timed_out": False,
