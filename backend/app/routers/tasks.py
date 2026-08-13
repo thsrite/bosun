@@ -551,6 +551,18 @@ def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
     if engine not in ENGINES:
         raise HTTPException(400, f"未知引擎: {engine}")
 
+    # 名额在建行之前占：拿不到就直接回 429，不留一条起不来的子任务记录
+    if not subtasks.acquire_slot():
+        raise HTTPException(429, f"同时进行的子任务已达上限（{subtasks.concurrency()}），稍后再试")
+    try:
+        return _spawn_and_wait(parent, engine, body)
+    finally:
+        subtasks.release_slot()
+
+
+def _spawn_and_wait(parent, engine: str, body: SpawnBody) -> dict:
+    """建行、派发、阻塞等结论。调用方持有 spawn 名额。"""
+    task_id = parent["id"]
     title = (body.title or "").strip() or derive_title(body.prompt)
     child_id = db.execute(
         "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,"

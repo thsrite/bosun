@@ -239,6 +239,9 @@ def _on_exit(task_id: int, exit_code: int) -> None:
     if cur and cur["status"] == status:
         events.emit("task.status", {"task_id": task_id, "status": status, "exit_code": exit_code})
         threading.Thread(target=_finalize_tokens, args=(task_id, 3.0), daemon=True).start()
+    # 父任务进程退出同样要级联取消活动子任务：cancel/delete 有级联，但「跑完就退」
+    # 才是主流路径，漏掉它子任务就成了没人认领、也没人杀的孤儿进程。
+    _cancel_active_children(task_id)
     # 空出槽位，立即尝试拉起下一个
     tick()
 
@@ -496,6 +499,29 @@ def start_subtask(task_id: int) -> None:
         if task_id in _sessions:
             return
         _start_task(row)
+
+
+def finish_subtask(task_id: int) -> None:
+    """子任务出结论后收掉它的进程——一次性语义，等价于 `codex exec` 跑完即退。
+
+    不收就是主流路径漏进程：agent 按收尾约定回报后停在 waiting_input 等人核对，
+    进程（连同它自己起的 MCP 子进程）常驻不退，还一直被 _running_count 算作占槽。
+    父任务已经拿走结论，没人会再理它，也没有任何回收器管 waiting_input。
+
+    已出结论的落 done 而不是 cancelled：结论是有效的，看板和统计不该显示成被取消。
+    已是终态的（如 agent 回报 failed）只收进程，状态不动。
+    """
+    if task_id not in _sessions:
+        return
+    row = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
+    if row is not None and row["status"] == "waiting_input":
+        complete(task_id)  # graceful_stop 让引擎落盘会话，便于日后查阅/续跑
+        return
+    session = _sessions.pop(task_id, None)
+    if session is not None:
+        session.graceful_stop()
+        threading.Thread(target=_finalize_tokens, args=(task_id, 4.0), daemon=True).start()
+    tick()
 
 
 def _cancel_active_children(parent_id: int) -> None:
