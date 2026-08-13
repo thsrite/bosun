@@ -261,6 +261,16 @@ class SdkSession:
             self._event({"t": "user", "text": text})  # 落库+回放: 转录含用户输入
             self._sdk_loop.call_soon_threadsafe(self._input_q.put_nowait, text)
 
+    def submit_message(self, message: str) -> None:
+        """提交一条完整的新回合消息（HTTP 父子通信与终端输入共用）。"""
+        text = message.strip()
+        if not text or not self._sdk_loop or not self._input_q:
+            return
+        self._reported = False
+        self._event({"t": "user", "text": text})
+        self._sdk_loop.call_soon_threadsafe(self._input_q.put_nowait, text)
+        self._set_status("running")
+
     def resize(self, rows: int, cols: int) -> None:
         pass
 

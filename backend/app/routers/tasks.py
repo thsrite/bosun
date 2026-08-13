@@ -539,6 +539,11 @@ class SpawnBody(BaseModel):
     timeout: float | None = None
 
 
+class SubtaskReplyBody(BaseModel):
+    message: str
+    timeout: float | None = None
+
+
 def _spawn_authorized(parent_id: int, request: Request | None) -> bool:
     """派生子任务只认父任务**自己**的回调凭证。
 
@@ -617,6 +622,53 @@ def _spawn_and_wait(parent, engine: str, body: SpawnBody) -> dict:
     return {"id": child_id, "engine": engine, **result}
 
 
+@router.post("/{task_id}/reply")
+def reply_to_subtask(task_id: int, body: SubtaskReplyBody, request: Request = None):
+    """父任务回复子任务的提问，并同步等待子任务下一轮回报。"""
+    child = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if child is None:
+        raise HTTPException(404, "子任务不存在")
+    parent_id = child["parent_task_id"]
+    if parent_id is None:
+        raise HTTPException(409, "目标任务不是子任务")
+    if not _spawn_authorized(parent_id, request):
+        raise HTTPException(401, "父任务凭证无效")
+    parent = db.query_one("SELECT status FROM task WHERE id=? AND deleted=0", (parent_id,))
+    if parent is None or parent["status"] not in ("running", "waiting_input"):
+        raise HTTPException(409, "父任务未在执行，不能继续子任务通信")
+    if child["status"] != "waiting_input" or child["report_result"] != "needs_input":
+        raise HTTPException(409, "子任务当前未等待父任务回复")
+    message = body.message.strip()
+    if not message:
+        raise HTTPException(400, "回复内容不能为空")
+    if scheduler.get_session(task_id) is None:
+        raise HTTPException(409, "子任务会话已结束，无法回复")
+    if not subtasks.acquire_slot():
+        raise HTTPException(429, f"同时进行的子任务通信已达上限（{subtasks.concurrency()}），稍后再试")
+    try:
+        # 必须先清上一轮回报再投递；反过来会有竞态，可能擦掉子任务极速返回的新回报。
+        db.execute(
+            "UPDATE task SET status='running', report_result=NULL, report_summary=NULL, "
+            "waiting_since=NULL WHERE id=?",
+            (task_id,),
+        )
+        if not scheduler.send_subtask_reply(task_id, message):
+            db.execute(
+                "UPDATE task SET status='waiting_input', report_result='needs_input', "
+                "report_summary=?, waiting_since=? WHERE id=?",
+                (child["report_summary"], child["waiting_since"], task_id),
+            )
+            raise HTTPException(409, "子任务会话已结束，无法回复")
+        events.emit("task.status", {"task_id": task_id, "status": "running"})
+        timeout = subtasks.clamp_timeout(
+            body.timeout if body.timeout is not None else subtasks.default_timeout()
+        )
+        result = subtasks.wait_for_result(task_id, timeout)
+        return {"id": task_id, "engine": child["engine"], **result}
+    finally:
+        subtasks.release_slot()
+
+
 @router.get("/{task_id}/result")
 def get_task_result(task_id: int, request: Request = None):
     """补查子任务结论（/spawn 因超时或连接中断没拿到时的兜底）。
@@ -637,7 +689,8 @@ def get_task_result(task_id: int, request: Request = None):
         "status": row["status"],
         "result": row["report_result"],
         "summary": row["report_summary"] or "",
-        "finished": subtasks._finished(row["status"], row["report_result"]),
+        "needs_reply": row["report_result"] == "needs_input",
+        "finished": subtasks.is_final(row["status"], row["report_result"]),
     }
 
 
