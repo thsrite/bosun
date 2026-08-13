@@ -14,6 +14,7 @@ from . import engine_settings, engine_updates, harness_adapter, subtasks
 from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
 from .directives import (  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE 引用
     ENGINE_ROSTER_TEMPLATE,
+    ORCHESTRATION_REPORT_ADDENDUM,
     REPORT_DIRECTIVE,
     SUBTASK_TEMPLATE,
 )
@@ -72,7 +73,11 @@ def engine_roster_hint(engine: str) -> str:
     return ENGINE_ROSTER_TEMPLATE.format(engines=names)
 
 
-def with_report_directive(prompt: str, engine: str | None = None) -> str:
+def with_report_directive(
+    prompt: str,
+    engine: str | None = None,
+    artifact_required: bool = False,
+) -> str:
     """给派发给 agent 的 prompt 追加引擎清单提示 + 收尾回报约定；空 prompt 不加。
 
     传 engine 时走 harness registry 取当前生效版本（自演进入口，故障自动回退
@@ -87,7 +92,8 @@ def with_report_directive(prompt: str, engine: str | None = None) -> str:
     if not (prompt or "").strip():
         return prompt
     if engine:
-        return f"{prompt}{engine_roster_hint(engine)}{harness_adapter.directive_for(engine)}"
+        artifact = ORCHESTRATION_REPORT_ADDENDUM if artifact_required else ""
+        return f"{prompt}{engine_roster_hint(engine)}{harness_adapter.directive_for(engine)}{artifact}"
     return f"{prompt}{REPORT_DIRECTIVE}"
 
 
@@ -105,41 +111,65 @@ def kimi_session_arg(session_uid: str) -> str:
     return f"session_{session_uid}"
 
 
-def build_argv(engine: str, prompt: str, auto_approve: bool, session_uid: str | None = None) -> list[str]:
+def build_argv(
+    engine: str,
+    prompt: str,
+    auto_approve: bool,
+    session_uid: str | None = None,
+    artifact_required: bool = False,
+    model_override: str | None = None,
+    reasoning_override: str | None = None,
+) -> list[str]:
     """首次运行。会话 id 由引擎自行生成、运行后捕获(--session-id 不落盘，无法 resume)。"""
-    prompt = with_report_directive(prompt, engine=engine)
+    prompt = with_report_directive(prompt, engine=engine, artifact_required=artifact_required)
     if engine == "cc":
-        argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN])
+        argv = engine_settings.with_claude_runtime_args(
+            [CLAUDE_BIN], model_override, reasoning_override
+        )
         if auto_approve:
             argv.append("--dangerously-skip-permissions")
         argv.append(prompt)
         return argv
     if engine == "codex":
-        argv = engine_settings.with_codex_runtime_args([CODEX_BIN])
+        argv = engine_settings.with_codex_runtime_args(
+            [CODEX_BIN], model_override, reasoning_override
+        )
         if auto_approve:
             argv.append("--dangerously-bypass-approvals-and-sandbox")
         argv.append(prompt)
         return argv
     if engine == "omp":
-        argv = engine_settings.with_omp_runtime_args([OMP_BIN])
+        argv = engine_settings.with_omp_runtime_args(
+            [OMP_BIN], model_override, reasoning_override
+        )
         if auto_approve:
             argv.append("--auto-approve")
         argv.append(prompt)
         return argv
     if engine == "kimi":
         # prompt 不进 argv：由 PtySession 在 TUI 就绪后粘贴提交(uses_stdin_prompt)。
-        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN])
+        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN], model_override)
         if auto_approve:
             argv.append("--yolo")
         return argv
     raise ValueError(f"unknown engine: {engine}")
 
 
-def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: bool) -> list[str]:
+def build_resume_argv(
+    engine: str,
+    session_uid: str,
+    prompt: str,
+    auto_approve: bool,
+    artifact_required: bool = False,
+    model_override: str | None = None,
+    reasoning_override: str | None = None,
+) -> list[str]:
     """恢复已有会话继续。prompt 为空则只加载上下文等待输入。"""
-    prompt = with_report_directive(prompt, engine=engine)
+    prompt = with_report_directive(prompt, engine=engine, artifact_required=artifact_required)
     if engine == "cc":
-        argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN])
+        argv = engine_settings.with_claude_runtime_args(
+            [CLAUDE_BIN], model_override, reasoning_override
+        )
         if auto_approve:
             argv.append("--dangerously-skip-permissions")
         argv += ["--resume", session_uid]
@@ -147,14 +177,18 @@ def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: 
             argv.append(prompt)
         return argv
     if engine == "codex":
-        argv = engine_settings.with_codex_runtime_args([CODEX_BIN, "resume", session_uid])
+        argv = engine_settings.with_codex_runtime_args(
+            [CODEX_BIN, "resume", session_uid], model_override, reasoning_override
+        )
         if auto_approve:
             argv.append("--dangerously-bypass-approvals-and-sandbox")
         if prompt:
             argv.append(prompt)
         return argv
     if engine == "omp":
-        argv = engine_settings.with_omp_runtime_args([OMP_BIN])
+        argv = engine_settings.with_omp_runtime_args(
+            [OMP_BIN], model_override, reasoning_override
+        )
         if auto_approve:
             argv.append("--auto-approve")
         argv += ["--resume", session_uid]
@@ -162,7 +196,7 @@ def build_resume_argv(engine: str, session_uid: str, prompt: str, auto_approve: 
             argv.append(prompt)
         return argv
     if engine == "kimi":
-        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN])
+        argv = engine_settings.with_kimi_runtime_args([KIMI_BIN], model_override)
         if auto_approve:
             argv.append("--yolo")
         argv += ["-S", kimi_session_arg(session_uid)]

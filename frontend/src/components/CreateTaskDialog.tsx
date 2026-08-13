@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent
 import { api } from "../api";
 import { toast } from "../overlay";
 import { guardQuota } from "../quota";
-import type { Engine, Project } from "../types";
+import type { Engine, OrchestrationTemplate, Project } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
-import { useAvailableTaskEngines } from "../installedEngines";
+import { useAvailableTaskEngines, useInstalledEngines } from "../installedEngines";
 import { isCoarsePointer } from "../pointer";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { Modal } from "./Modal";
@@ -25,6 +25,8 @@ type RememberedTaskSettings = {
   engine?: "auto" | Engine;
   priority?: number;
   autoApprove?: boolean;
+  executionMode?: "single" | "orchestration";
+  orchestrationId?: number;
 };
 
 const TASK_SETTINGS_KEY = "bosun.create-task-settings";
@@ -79,6 +81,12 @@ export function CreateTaskDialog({
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const selectedProject = availableProjects.find((item) => item.id === selectedProjectId);
   const availableEngines = useAvailableTaskEngines();
+  const installedEngines = useInstalledEngines();
+  const [orchestrations, setOrchestrations] = useState<OrchestrationTemplate[]>([]);
+  const [executionMode, setExecutionMode] = useState<"single" | "orchestration">(
+    initialSettings.executionMode ?? "single",
+  );
+  const [orchestrationId, setOrchestrationId] = useState(initialSettings.orchestrationId ?? 0);
   const [engine, setEngine] = useState<"auto" | Engine>(
     ["auto", ...TASK_ENGINE_ORDER].includes(initialSettings.engine ?? "")
       ? initialSettings.engine!
@@ -90,7 +98,22 @@ export function CreateTaskDialog({
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const previews = useRef<Set<string>>(new Set());
   const { busy, run } = useSingleFlight();
-  const isBrowser = engine === "browser";
+  const selectedOrchestration = orchestrations.find((item) => item.id === orchestrationId);
+  const isBrowser = executionMode === "single" && engine === "browser";
+
+  useEffect(() => {
+    let alive = true;
+    api.orchestrations.list().then((items) => {
+      if (!alive) return;
+      const enabled = items.filter((item) => item.enabled);
+      setOrchestrations(enabled);
+      setOrchestrationId((current) => enabled.some((item) => item.id === current) ? current : enabled[0]?.id ?? 0);
+      if (enabled.length === 0) setExecutionMode("single");
+    }).catch(() => {
+      if (alive) setExecutionMode("single");
+    });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => () => {
     previews.current.forEach((preview) => URL.revokeObjectURL(preview));
@@ -144,6 +167,7 @@ export function CreateTaskDialog({
   }
 
   function selectEngine(nextEngine: "auto" | Engine) {
+    setExecutionMode("single");
     if (nextEngine === "browser") clearAttachments();
     setEngine(nextEngine);
   }
@@ -168,6 +192,66 @@ export function CreateTaskDialog({
       const taskAttachments = isBrowser ? [] : attachments;
       if ((!trimmed && taskAttachments.length === 0) || !selectedProject) return;
       const initialPrompt = promptWithAttachments(trimmed, []);
+      if (executionMode === "orchestration" && selectedOrchestration) {
+        let orchestrationRun;
+        try {
+          orchestrationRun = await api.orchestrationRuns.create({
+            orchestration_id: selectedOrchestration.id,
+            project_id: selectedProject.id,
+            prompt: initialPrompt,
+            priority,
+            auto_approve: autoApprove,
+            start: false,
+          });
+        } catch (error) {
+          toast(`创建编排任务失败：${errorMessage(error)}`, "error");
+          return;
+        }
+
+        let attachmentFailures = 0;
+        for (const attachment of taskAttachments) {
+          try {
+            await api.orchestrationRuns.uploadFile(orchestrationRun.id, attachment.file);
+          } catch {
+            attachmentFailures += 1;
+          }
+        }
+        rememberTaskSettings({
+          projectId: selectedProject.id,
+          engine,
+          priority,
+          autoApprove,
+          executionMode,
+          orchestrationId: selectedOrchestration.id,
+        });
+        if (attachmentFailures > 0) {
+          onCreated();
+          onClose();
+          toast(`编排 #${orchestrationRun.id} 已创建为待办，但有 ${attachmentFailures} 个附件未能附加`, "error");
+          return;
+        }
+        if (start) {
+          const firstEngine = selectedOrchestration.steps[0]?.engine;
+          if (!firstEngine || !(await guardQuota(firstEngine))) {
+            onCreated();
+            onClose();
+            toast(`编排 #${orchestrationRun.id} 已创建为待办，未执行`, "info");
+            return;
+          }
+          try {
+            await api.orchestrationRuns.start(orchestrationRun.id);
+          } catch (error) {
+            onCreated();
+            onClose();
+            toast(`编排 #${orchestrationRun.id} 已创建，但启动失败：${errorMessage(error)}`, "error");
+            return;
+          }
+        }
+        onCreated();
+        onClose();
+        toast(start ? `编排 #${orchestrationRun.id} 已排入执行` : `编排 #${orchestrationRun.id} 已加入待办`, "success");
+        return;
+      }
       let r: { id: number; engine: string; auto_reason: string | null };
       try {
         r = await api.createTask({
@@ -188,6 +272,7 @@ export function CreateTaskDialog({
         engine,
         priority,
         autoApprove,
+        executionMode: "single",
       });
 
       const uploadedPaths: string[] = [];
@@ -257,17 +342,52 @@ export function CreateTaskDialog({
         <div className="flex flex-wrap gap-3">
           {availableEngines.length > 1 && (
             <label className="flex items-center gap-1.5" title="按配额余量+历史成功率自动选">
-              <input type="radio" checked={engine === "auto"} onChange={() => selectEngine("auto")} />
+              <input type="radio" checked={executionMode === "single" && engine === "auto"} onChange={() => selectEngine("auto")} />
               🤖 自动
             </label>
           )}
           {availableEngines.map((item) => (
             <label key={item} className="flex items-center gap-1.5">
-              <input type="radio" checked={engine === item} onChange={() => selectEngine(item)} />
+              <input type="radio" checked={executionMode === "single" && engine === item} onChange={() => selectEngine(item)} />
               {engineName(item)}
             </label>
           ))}
+          {orchestrations.length > 0 && (
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                checked={executionMode === "orchestration"}
+                onChange={() => setExecutionMode("orchestration")}
+              />
+              🔗 编排
+            </label>
+          )}
         </div>
+        {executionMode === "orchestration" && orchestrations.length > 0 && (
+          <label className="block rounded-lg border border-dh-bsoft bg-dh-soft p-3">
+            <span className="mb-1.5 block text-xs font-medium text-dh-tsoft">选择编排</span>
+            <select
+              value={orchestrationId}
+              onChange={(event) => setOrchestrationId(Number(event.target.value))}
+              className="w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-text"
+            >
+              {orchestrations.map((item) => {
+                const missing = item.steps.filter((step) => installedEngines?.[step.engine] === false);
+                return <option key={item.id} value={item.id} disabled={missing.length > 0}>
+                  {item.name} · {item.steps.map((step) => step.name).join(" → ")}
+                  {missing.length > 0 ? `（缺少 ${missing.map((step) => engineName(step.engine)).join("、")}）` : ""}
+                </option>;
+              })}
+            </select>
+            {selectedOrchestration && (
+              <span className="mt-1.5 block text-[11px] text-slate-400">
+                {selectedOrchestration.steps.map((step) => (
+                  `${engineName(step.engine)} · ${step.name}${step.model ? ` · ${step.model}` : ""}${step.reasoning_effort ? ` · ${step.reasoning_effort}` : ""}`
+                )).join(" → ")}
+              </span>
+            )}
+          </label>
+        )}
         <textarea
           className="h-32 w-full rounded-lg border border-dh-bsoft bg-dh-soft p-2.5 font-mono text-xs text-dh-text focus:border-dh-m2 focus:outline-none"
           placeholder={isBrowser

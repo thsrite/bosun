@@ -12,12 +12,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, JSONResponse, Response
 
 from . import auth as auth_service
-from . import codex_skills_guard, config, db, events, policies, reflection_scheduler, scheduler, self_update
+from . import codex_skills_guard, config, db, events, orchestrations, policies, reflection_scheduler, scheduler, self_update
 from .routers import (
     auth,
     autopilot,
     claude,
     findings,
+    orchestrations as orchestrations_router,
     projects,
     quota,
     reflection,
@@ -73,7 +74,7 @@ app = FastAPI(title="Bosun")
 _PUBLIC_API_PATHS = {"/api/health", "/api/auth/status", "/api/auth/login"}
 
 # agent 回调端点不走会话 token(agent 登录不了)，改由各端点自己校验任务级凭证。
-_TASK_CREDENTIAL_PATH = re.compile(r"^/api/tasks/\d+/(?:report|spawn|result|reply)$")
+_TASK_CREDENTIAL_PATH = re.compile(r"^/api/tasks/\d+/(?:report|artifact|spawn|result|reply)$")
 
 
 @app.middleware("http")
@@ -98,6 +99,7 @@ async def _require_auth(request, call_next):
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
+app.include_router(orchestrations_router.router)
 app.include_router(sessions.router)
 app.include_router(autopilot.router)
 app.include_router(claude.router)
@@ -131,6 +133,7 @@ async def _startup() -> None:
     _warn_if_login_disabled()  # 必须在 init_db 之后：口令哈希存在 DB 里
     from . import autopilot
     autopilot.reconcile_on_startup()  # 重启后把残留 running 的自愈 run 落终态, 防项目自愈永久卡死
+    orchestrations.reconcile_on_startup()
     from . import legacy_cleanup
     # 清理旧版本的注入残留（引擎家目录 skill 副本、libexec 脚本、codex config.toml 管理块）
     legacy_cleanup.cleanup_legacy_installs()

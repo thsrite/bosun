@@ -1,5 +1,15 @@
 import { authHeaders, setToken } from "./auth";
-import type { Engine, Finding, IssueSource, LocalSession, Project, Task } from "./types";
+import type {
+  Engine,
+  Finding,
+  IssueSource,
+  LocalSession,
+  OrchestrationRun,
+  OrchestrationStep,
+  OrchestrationTemplate,
+  Project,
+  Task,
+} from "./types";
 
 export type AppSettings = {
   max_concurrent: number;
@@ -375,6 +385,42 @@ export const api = {
     write("POST", `/api/tasks/${id}/permission`, { allow }),
   deleteTask: (id: number) =>
     write("DELETE", `/api/tasks/${id}`),
+
+  orchestrations: {
+    list: () => fetch("/api/orchestrations").then((r) => j<OrchestrationTemplate[]>(r)),
+    create: (body: { name: string; enabled: boolean; steps: Omit<OrchestrationStep, "id" | "position">[] }) =>
+      write<OrchestrationTemplate>("POST", "/api/orchestrations", body),
+    update: (
+      id: number,
+      body: { name: string; enabled: boolean; steps: Omit<OrchestrationStep, "id" | "position">[] },
+    ) => write<OrchestrationTemplate>("PUT", `/api/orchestrations/${id}`, body),
+    remove: (id: number) => write<{ ok: boolean }>("DELETE", `/api/orchestrations/${id}`),
+  },
+  orchestrationRuns: {
+    list: (projectId?: number) => fetch(
+      projectId == null
+        ? "/api/orchestration-runs"
+        : `/api/orchestration-runs?project_id=${projectId}`,
+    ).then((r) => j<OrchestrationRun[]>(r)),
+    create: (body: {
+      orchestration_id: number;
+      project_id: number;
+      prompt: string;
+      title?: string;
+      priority: number;
+      auto_approve: boolean;
+      start?: boolean;
+    }) => write<OrchestrationRun>("POST", "/api/orchestration-runs", body),
+    start: (id: number) => write<OrchestrationRun>("POST", `/api/orchestration-runs/${id}/start`),
+    cancel: (id: number) => write<OrchestrationRun>("POST", `/api/orchestration-runs/${id}/cancel`),
+    uploadFile: (id: number, file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return fetch(`/api/orchestration-runs/${id}/upload-file`, { method: "POST", body: form }).then((r) =>
+        j<{ path: string }>(r),
+      );
+    },
+  },
 
   findings: (projectId: number) =>
     fetch(`/api/findings?project_id=${projectId}&status=active`).then((r) => j<Finding[]>(r)),

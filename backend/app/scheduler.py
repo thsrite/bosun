@@ -182,6 +182,8 @@ def _on_rate_limit(task_id: int, hit) -> None:
             (time.time(), f"连续 {attempts} 次撞上引擎限流，已停止自动续跑", task_id),
         )
         events.emit("task.status", {"task_id": task_id, "status": "failed", "reason": "rate_limit"})
+        from . import orchestrations
+        orchestrations.handle_task_exit(task_id, 75)
         tick()
         return
 
@@ -234,6 +236,8 @@ def _on_exit(task_id: int, exit_code: int) -> None:
         (status, exit_code, time.time(), task_id),
     )
     _sessions.pop(task_id, None)
+    from . import orchestrations
+    orchestrations.handle_task_exit(task_id, exit_code)
     # 仅当确实由本次退出更新了状态(仍是活动态)才推送, 避免覆盖已 cancel/complete/delete
     cur = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
     if cur and cur["status"] == status:
@@ -374,6 +378,13 @@ def _start_task(row) -> None:
         return
     log_path = str(LOG_DIR / f"task-{row['id']}.log")
     engine, auto = row["engine"], bool(row["auto_approve"])
+    orchestration_step = db.query_one(
+        "SELECT model,reasoning_effort FROM orchestration_step_run WHERE task_id=?",
+        (row["id"],),
+    )
+    artifact_required = orchestration_step is not None
+    model_override = orchestration_step["model"] if orchestration_step else None
+    reasoning_override = orchestration_step["reasoning_effort"] if orchestration_step else None
     session_uid = row["session_uid"]
     run_started_at = time.time()
     capture = None  # (before, since)
@@ -415,12 +426,30 @@ def _start_task(row) -> None:
             on_session=_on_session,
             on_tokens=_on_tokens,
             on_permission=_on_permission,
+            artifact_required=artifact_required,
+            model_override=model_override,
+            reasoning_override=reasoning_override,
         )
     else:
         if row["resume"] and session_uid:
-            argv = build_resume_argv(engine, session_uid, row["prompt"], auto)
+            argv = build_resume_argv(
+                engine,
+                session_uid,
+                row["prompt"],
+                auto,
+                artifact_required=artifact_required,
+                model_override=model_override,
+                reasoning_override=reasoning_override,
+            )
         else:  # 首跑：引擎自建会话(会落盘)，运行后捕获真实 session id
-            argv = build_argv(engine, row["prompt"], auto)
+            argv = build_argv(
+                engine,
+                row["prompt"],
+                auto,
+                artifact_required=artifact_required,
+                model_override=model_override,
+                reasoning_override=reasoning_override,
+            )
             if engine == "cc":
                 before = sessions.snapshot_cc(project["path"])
             elif engine == "omp":
@@ -434,7 +463,9 @@ def _start_task(row) -> None:
         # TUI 就绪后粘贴提交。收尾约定 tail 在这里补上(其它引擎由 build_argv 补)。
         initial_prompt = None
         if uses_stdin_prompt(engine) and (row["prompt"] or "").strip():
-            initial_prompt = with_report_directive(row["prompt"], engine=engine)
+            initial_prompt = with_report_directive(
+                row["prompt"], engine=engine, artifact_required=artifact_required
+            )
         session = PtySession(
             task_id=row["id"],
             argv=argv,
@@ -470,6 +501,8 @@ def _start_task(row) -> None:
             (time.time(), row["id"]),
         )
         events.emit("task.status", {"task_id": row["id"], "status": "failed", "error": str(exc)})
+        from . import orchestrations
+        orchestrations.handle_task_exit(row["id"], 127)
         return
     events.emit("task.status", {"task_id": row["id"], "status": "running"})
     if capture is not None:
@@ -477,7 +510,9 @@ def _start_task(row) -> None:
         # 认领 Codex 会话靠「首条用户消息==prompt」精确比对；派发给引擎的 prompt 被
         # build_argv 追加了收尾约定 tail，rollout 落盘的正是带 tail 的版本。捕获必须
         # 用同一份带 tail 的 prompt，否则短 prompt(tail 未被 500 截掉)永远认领不到。
-        dispatched_prompt = with_report_directive(row["prompt"], engine=engine)
+        dispatched_prompt = with_report_directive(
+            row["prompt"], engine=engine, artifact_required=artifact_required
+        )
         threading.Thread(
             target=_capture_session,
             args=(row["id"], engine, project["path"], dispatched_prompt, before, since),
@@ -531,6 +566,21 @@ def finish_subtask(task_id: int) -> None:
     row = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
     if row is not None and row["status"] == "waiting_input":
         complete(task_id)  # graceful_stop 让引擎落盘会话，便于日后查阅/续跑
+        return
+    session = _sessions.pop(task_id, None)
+    if session is not None:
+        session.graceful_stop()
+        threading.Thread(target=_finalize_tokens, args=(task_id, 4.0), daemon=True).start()
+    tick()
+
+
+def finish_orchestration_step(task_id: int) -> None:
+    """编排步骤已经把完整 artifact 落库，收掉会话并固定任务终态。"""
+    row = db.query_one("SELECT status, report_result FROM task WHERE id=?", (task_id,))
+    if row is None:
+        return
+    if row["report_result"] == "done":
+        complete(task_id)
         return
     session = _sessions.pop(task_id, None)
     if session is not None:
@@ -611,12 +661,21 @@ def cancel(task_id: int) -> bool:
     )
     events.emit("task.status", {"task_id": task_id, "status": "cancelled"})
     _cancel_active_children(task_id)
+    from . import orchestrations
+    orchestrations.handle_task_cancelled(task_id)
     tick()
     return True
 
 
 def complete(task_id: int) -> bool:
     """手动标记完成：运行中的先停进程，中断/等待执行的任务也允许人工确认完成。"""
+    orchestration_step = db.query_one(
+        "SELECT 1 FROM orchestration_step_run WHERE task_id=?",
+        (task_id,),
+    )
+    task = db.query_one("SELECT report_result FROM task WHERE id=?", (task_id,))
+    if orchestration_step is not None and (task is None or task["report_result"] != "done"):
+        raise TaskTransitionError("编排步骤必须提交阶段产物并通过回报完成")
     session = _sessions.get(task_id)
     if session is not None:
         session.graceful_stop()  # 尽量让 cc/codex 落盘会话，便于日后 resume/分享
@@ -634,6 +693,8 @@ def complete(task_id: int) -> bool:
 
 def pause(task_id: int) -> bool:
     """把活动或归档任务移入人工等待区；paused 永不被自动调度。"""
+    if db.query_one("SELECT 1 FROM orchestration_step_run WHERE task_id=?", (task_id,)) is not None:
+        raise TaskTransitionError("编排步骤不能移入等待执行，请取消整个编排")
     row = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
     if row is None:
         raise TaskTransitionError("任务不存在")
@@ -731,7 +792,7 @@ def delete(task_id: int) -> bool:
     session = _sessions.pop(task_id, None)
     if session is not None:
         session.terminate()
-    row = db.query_one("SELECT engine, log_path, status FROM task WHERE id=?", (task_id,))
+    row = db.query_one("SELECT engine, log_path, status, kind FROM task WHERE id=?", (task_id,))
     if row and row["log_path"]:
         remove_terminal_log_files(row["log_path"])
     if row and row["engine"] == "browser":
@@ -746,6 +807,9 @@ def delete(task_id: int) -> bool:
     )
     events.emit("task.deleted", {"task_id": task_id})
     _cancel_active_children(task_id)
+    if row is not None and "kind" in row.keys() and row["kind"] == "orchestration":
+        from . import orchestrations
+        orchestrations.handle_task_cancelled(task_id)
     tick()
     return True
 
@@ -776,6 +840,8 @@ def delete_project_tasks(project_id: int) -> int:
 
 def to_draft(task_id: int) -> bool:
     """撤回排队：仅对尚未启动的 queued 任务生效。"""
+    if db.query_one("SELECT 1 FROM orchestration_step_run WHERE task_id=?", (task_id,)) is not None:
+        raise TaskTransitionError("编排步骤不能单独撤回，请取消整个编排")
     db.execute("UPDATE task SET status='draft' WHERE id=? AND status='queued'", (task_id,))
     events.emit("task.status", {"task_id": task_id, "status": "draft"})
     return True

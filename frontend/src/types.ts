@@ -76,6 +76,56 @@ export interface Task {
   report_summary?: string | null;
 }
 
+export interface OrchestrationStep {
+  id?: number;
+  position: number;
+  name: string;
+  engine: Exclude<Engine, "browser">;
+  model: string;
+  reasoning_effort: string;
+  role_prompt: string;
+}
+
+export interface OrchestrationTemplate {
+  id: number;
+  name: string;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  steps: OrchestrationStep[];
+}
+
+export interface OrchestrationStepRun extends OrchestrationStep {
+  id: number;
+  run_id: number;
+  task_id: number | null;
+  status: TaskStatus;
+  task_status?: TaskStatus;
+  input_artifact: string | null;
+  output_artifact: string | null;
+  result: "done" | "failed" | "needs_input" | "cancelled" | null;
+  summary: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+}
+
+export interface OrchestrationRun {
+  id: number;
+  orchestration_id: number | null;
+  definition_snapshot: string;
+  project_id: number;
+  original_prompt: string;
+  title: string | null;
+  priority: number;
+  auto_approve: boolean;
+  status: TaskStatus;
+  current_position: number | null;
+  created_at: number;
+  started_at: number | null;
+  ended_at: number | null;
+  steps: OrchestrationStepRun[];
+}
+
 export interface SessionHistoryMessage {
   role: "user" | "assistant";
   text: string;

@@ -58,6 +58,9 @@ class SdkSession:
         on_session: Callable[[int, str], None],
         on_tokens: Callable[[int, int], None],
         on_permission: Callable[[int, dict | None], None],
+        artifact_required: bool = False,
+        model_override: str | None = None,
+        reasoning_override: str | None = None,
     ):
         self.task_id = task_id
         self.prompt = prompt
@@ -70,6 +73,9 @@ class SdkSession:
         self.on_session = on_session
         self.on_tokens = on_tokens
         self.on_permission = on_permission
+        self.artifact_required = artifact_required
+        self.model_override = model_override
+        self.reasoning_override = reasoning_override
 
         self.status = "running"
         self._reported = False
@@ -107,10 +113,15 @@ class SdkSession:
             "permission_mode": "bypassPermissions" if self.auto_approve else "default",
             "can_use_tool": None if self.auto_approve else self._can_use_tool,
         }
-        model = engine_settings.claude_model()
+        model_override = getattr(self, "model_override", None)
+        model = engine_settings.normalize_claude_model(model_override) if model_override else engine_settings.claude_model()
         if model:
             opts_kwargs["model"] = model
-        effort = engine_settings.claude_effort()
+        reasoning_override = getattr(self, "reasoning_override", None)
+        effort = (
+            engine_settings.normalize_claude_effort(reasoning_override)
+            if reasoning_override else engine_settings.claude_effort()
+        )
         if effort:
             opts_kwargs["effort"] = effort
         return ClaudeAgentOptions(**opts_kwargs)
@@ -122,7 +133,11 @@ class SdkSession:
         try:
             async with ClaudeSDKClient(options=opts) as client:
                 self._client = client
-                pending = with_report_directive(self.prompt, engine="cc")
+                pending = with_report_directive(
+                    self.prompt,
+                    engine="cc",
+                    artifact_required=getattr(self, "artifact_required", False),
+                )
                 nudged = False
                 while self._alive:
                     await client.query(pending)

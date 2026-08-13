@@ -37,6 +37,23 @@ REPORT_DIRECTIVE = (
     "两步缺一不算收尾。"
 )
 
+# 编排步骤先用纯文本端点提交完整阶段产物，再发短 JSON 回报。纯文本上传避免多行、引号
+# 和 Markdown 在 shell/JSON 双层转义中损坏。它追加在当前引擎 harness 的受保护收尾约定
+# 之后，既不改变普通任务，也不会被可演进 directive 覆盖。
+ORCHESTRATION_REPORT_ADDENDUM = (
+    "\n当前任务是编排步骤，上面的收尾改为三步且顺序以这里为准：\n"
+    "①先提交完整阶段产物（把占位内容替换为正文）：\n"
+    "curl -sS -X POST -H 'Content-Type: text/plain; charset=utf-8' "
+    "-H \"Authorization: Bearer $BOSUN_TASK_TOKEN\" --data-binary @- "
+    "\"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/artifact\" <<'BOSUN_ARTIFACT'\n"
+    "<完整阶段产物>\n"
+    "BOSUN_ARTIFACT\n"
+    "②再执行上面的 JSON 短回报；③最后打印完整结论正文，回报后不得再调工具。"
+    "artifact 不是摘要，必须足以让下一个角色脱离本终端日志继续工作；"
+    "done 缺少 artifact 会被后端拒绝。Windows 可用 curl.exe 配合 UTF-8 临时文件"
+    "和 `--data-binary @文件路径` 提交。"
+)
+
 # 引擎清单提示：告诉 agent 同机还装了哪些别的编码 CLI，可自行调用。
 # 刻意只列引擎、不列技能——cc 等 CLI 自带 skill 发现（实测本机 230 个），再注入
 # 一份是纯冗余。措辞刻意保守：默认不调，只在确有第二意见/交叉复审价值时才调，

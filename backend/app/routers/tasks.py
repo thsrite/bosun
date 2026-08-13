@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .. import auth, browser_computer, db, events, log_archive, nesting, routing, scheduler, sessions, subtasks
+from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, routing, scheduler, sessions, subtasks, uploads
 from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -420,8 +420,7 @@ def export_session(task_id: int):
 
 @router.post("/{task_id}/complete")
 def complete_task(task_id: int):
-    scheduler.complete(task_id)
-    return {"ok": True}
+    return _run_transition(task_id, scheduler.complete)
 
 
 class ReportBody(BaseModel):
@@ -430,6 +429,7 @@ class ReportBody(BaseModel):
     needs_reply: bool = False
     # 回报方 shell 自己的 pid，用于识别嵌套 agent 的冒名回报
     reporter_pid: int | None = None
+    artifact: str | None = None
 
 
 _REPORT_STATUS = {"done": "waiting_input", "failed": "failed", "needs_input": "waiting_input"}
@@ -464,6 +464,37 @@ def _report_authorized(task_id: int, request: Request | None) -> bool:
     )
 
 
+@router.post("/{task_id}/artifact")
+async def save_task_artifact(task_id: int, request: Request):
+    """编排步骤在收尾回报前以 UTF-8 纯文本提交完整阶段产物。"""
+    if not _report_authorized(task_id, request):
+        raise HTTPException(status_code=401, detail="回报凭证无效")
+    artifact = await _read_artifact_body(request)
+    try:
+        return orchestrations.save_task_artifact(task_id, artifact)
+    except orchestrations.OrchestrationError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+async def _read_artifact_body(request: Request) -> str:
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > orchestrations.MAX_ARTIFACT_BYTES:
+                raise HTTPException(status_code=413, detail="阶段产物过大（上限 200 KiB）")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Content-Length 无效")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > orchestrations.MAX_ARTIFACT_BYTES:
+            raise HTTPException(status_code=413, detail="阶段产物过大（上限 200 KiB）")
+        body.extend(chunk)
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="阶段产物必须是 UTF-8 文本") from exc
+
+
 @router.post("/{task_id}/report")
 def report_task(task_id: int, body: ReportBody, request: Request = None):
     """任务收尾时的权威状态回调（agent 按收尾约定直接 HTTP POST）。"""
@@ -479,6 +510,10 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
     # skill 脚本里：后端不受 agent 沙箱限制，读得到完整进程表。
     if nesting.is_nested_report(body.reporter_pid):
         raise HTTPException(status_code=409, detail="嵌套 agent 不能代替父任务回报状态")
+    try:
+        is_orchestration_step = orchestrations.validate_task_report(task_id, body.result, body.artifact)
+    except orchestrations.OrchestrationError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
     session = scheduler.get_session(task_id)
     status = _REPORT_STATUS[body.result]
     summary = (body.summary or "")[:2000]
@@ -511,6 +546,10 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
             t["status"] != "waiting_input" or t["waiting_since"] is None
         ),
     })
+    if is_orchestration_step:
+        orchestrations.handle_task_report(task_id, body.result, summary, body.artifact)
+        if body.result in {"done", "failed"}:
+            scheduler.finish_orchestration_step(task_id)
     return {
         "ok": True,
         "status": status,
@@ -712,8 +751,7 @@ def restore_paused_task(task_id: int):
 
 @router.post("/{task_id}/to-draft")
 def task_to_draft(task_id: int):
-    scheduler.to_draft(task_id)
-    return {"ok": True}
+    return _run_transition(task_id, scheduler.to_draft)
 
 
 @router.post("/{task_id}/cancel")
@@ -772,24 +810,7 @@ def get_task(task_id: int):
     return out
 
 
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # OpenAI audio transcription request guardrail
-
-
-def _ensure_gitignored(project_root: Path, entry: str) -> None:
-    """把上传目录写进项目 .gitignore（幂等），避免上传文件进版本库。仅当项目是 git 仓库时。"""
-    if not (project_root / ".git").exists():
-        return
-    gi = project_root / ".gitignore"
-    try:
-        lines = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
-        if any(ln.strip() == entry for ln in lines):
-            return
-        prefix = "" if not lines or lines[-1] == "" else "\n"
-        with gi.open("a", encoding="utf-8") as f:
-            f.write(f"{prefix}{entry}\n")
-    except OSError:
-        pass  # .gitignore 写不了不阻断上传
 
 
 @router.post("/{task_id}/upload-file")
@@ -802,22 +823,14 @@ async def upload_file(task_id: int, file: UploadFile = File(...)):
     if project is None:
         raise HTTPException(404, "项目不存在")
 
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
-    if not data:
-        raise HTTPException(400, "空文件")
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "文件过大（上限 50MB）")
-
-    dest_dir = Path(project["path"]) / ".bosun-uploads"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    _ensure_gitignored(Path(project["path"]), ".bosun-uploads/")
-    # 文件名只保留安全字符 + 毫秒时间戳去重，杜绝路径穿越/覆盖；保留原扩展名（任意类型）
-    base = os.path.basename(file.filename or "file")
-    ext = os.path.splitext(base)[1].lower()
-    stem = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.splitext(base)[0]) or "file"
-    dest = dest_dir / f"{int(time.time() * 1000)}_{stem}{ext}"
-    dest.write_bytes(data)
-    return {"path": str(dest)}
+    data = await file.read(uploads.MAX_UPLOAD_BYTES + 1)
+    try:
+        path = uploads.save_project_upload(project["path"], file.filename or "file", data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OverflowError as exc:
+        raise HTTPException(413, str(exc)) from exc
+    return {"path": path}
 
 
 @router.post("/{task_id}/transcribe-audio")

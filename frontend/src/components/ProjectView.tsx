@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import type { Project, Task } from "../types";
+import type { OrchestrationRun, Project, Task } from "../types";
 import { AutopilotDialog } from "./AutopilotDialog";
 import { CreateTaskDialog } from "./CreateTaskDialog";
 import { FindingsInbox } from "./FindingsInbox";
 import { SourcesDialog } from "./SourcesDialog";
 import { ImportSessionDialog } from "./ImportSessionDialog";
 import { TaskBoard } from "./TaskBoard";
+import { OrchestrationRunList } from "./OrchestrationRunList";
 import { TerminalPanel } from "./TerminalPanel";
 import { guardQuota } from "../quota";
 import { useSingleFlight } from "../useSingleFlight";
@@ -26,6 +27,7 @@ export function ProjectView({
   onDeleteProject: (project: Project) => void;
 }) {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [orchestrationRuns, setOrchestrationRuns] = useState<OrchestrationRun[]>([]);
   const [openTerminal, setOpenTerminal] = useState<Task | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showFindings, setShowFindings] = useState(false);
@@ -36,7 +38,12 @@ export function ProjectView({
   const { busy: startingAll, run: runStartAll } = useSingleFlight();
 
   const load = useCallback(async () => {
-    setTasks(await api.tasks(project.id));
+    const [nextTasks, nextRuns] = await Promise.all([
+      api.tasks(project.id),
+      api.orchestrationRuns.list(project.id),
+    ]);
+    setTasks(nextTasks);
+    setOrchestrationRuns(nextRuns);
   }, [project.id]);
 
   useEffect(() => {
@@ -165,6 +172,8 @@ export function ProjectView({
         onOpenTerminal={setOpenTerminal}
         onChanged={changed}
       />
+
+      <OrchestrationRunList runs={orchestrationRuns} onChanged={changed} />
 
       {currentTerminalTask && (
         <TerminalPanel

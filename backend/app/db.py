@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS task (
     status TEXT NOT NULL DEFAULT 'draft',
     waiting_since REAL,                  -- 当前 waiting_input 轮次起点
     auto_approve INTEGER NOT NULL DEFAULT 0,
-    kind TEXT NOT NULL DEFAULT 'task',   -- task | analysis | repair | continue | shared
+    kind TEXT NOT NULL DEFAULT 'task',   -- task | analysis | repair | continue | shared | orchestration
     session_uid TEXT,                    -- 引擎会话 id(cc 钉住 / codex 捕获)
     resume INTEGER NOT NULL DEFAULT 0,   -- 1=以 --resume 方式恢复已有会话
     post_input TEXT,                     -- 启动后自动发给 pty 的输入(如 /compact)
@@ -142,6 +142,66 @@ CREATE TABLE IF NOT EXISTS issue_source (
     last_pull_at REAL,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS orchestration (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orchestration_name_active
+    ON orchestration(name) WHERE deleted=0;
+CREATE TABLE IF NOT EXISTS orchestration_step (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_id INTEGER NOT NULL REFERENCES orchestration(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    reasoning_effort TEXT NOT NULL DEFAULT '',
+    role_prompt TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(orchestration_id, position)
+);
+CREATE TABLE IF NOT EXISTS orchestration_run (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    orchestration_id INTEGER REFERENCES orchestration(id) ON DELETE SET NULL,
+    definition_snapshot TEXT NOT NULL,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    original_prompt TEXT NOT NULL,
+    title TEXT,
+    priority INTEGER NOT NULL DEFAULT 5,
+    auto_approve INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft',
+    current_position INTEGER,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    started_at REAL,
+    ended_at REAL
+);
+CREATE TABLE IF NOT EXISTS orchestration_step_run (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES orchestration_run(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    reasoning_effort TEXT NOT NULL DEFAULT '',
+    role_prompt TEXT NOT NULL,
+    task_id INTEGER REFERENCES task(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    input_artifact TEXT,
+    output_artifact TEXT,
+    result TEXT,
+    summary TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    started_at REAL,
+    ended_at REAL,
+    UNIQUE(run_id, position)
+);
 """
 
 
@@ -202,6 +262,14 @@ def _ensure_columns() -> None:
         "metrics_before": "TEXT",   # 应用时的健康快照 JSON(闭环: 事后回看是否变好)
         "dismissed_at": "REAL",
         "dismiss_reason": "TEXT",   # 否决理由, 回流给下一轮反思避免重复提出
+    })
+    _ensure_table_columns(conn, "orchestration_step", {
+        "model": "TEXT NOT NULL DEFAULT ''",
+        "reasoning_effort": "TEXT NOT NULL DEFAULT ''",
+    })
+    _ensure_table_columns(conn, "orchestration_step_run", {
+        "model": "TEXT NOT NULL DEFAULT ''",
+        "reasoning_effort": "TEXT NOT NULL DEFAULT ''",
     })
     conn.commit()
 

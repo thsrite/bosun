@@ -61,9 +61,15 @@ def with_claude_model_arg(argv: list[str]) -> list[str]:
     return [*argv, "--model", model]
 
 
-def with_claude_runtime_args(argv: list[str]) -> list[str]:
-    argv = with_claude_model_arg(argv)
-    effort = claude_effort()
+def with_claude_runtime_args(
+    argv: list[str],
+    model_override: str | None = None,
+    reasoning_override: str | None = None,
+) -> list[str]:
+    model = normalize_claude_model(model_override) if model_override else claude_model()
+    if model:
+        argv = [*argv, "--model", model]
+    effort = normalize_claude_effort(reasoning_override) if reasoning_override else claude_effort()
     if effort:
         argv = [*argv, "--effort", effort]
     return argv
@@ -145,15 +151,19 @@ def with_codex_model_arg(argv: list[str]) -> list[str]:
     return [argv[0], "-m", model, *argv[1:]]
 
 
-def with_codex_runtime_args(argv: list[str]) -> list[str]:
+def with_codex_runtime_args(
+    argv: list[str],
+    model_override: str | None = None,
+    reasoning_override: str | None = None,
+) -> list[str]:
     """Codex 的模型与 config override 都是全局参数，必须放在子命令前。"""
     if not argv:
         return argv
     prefix = [argv[0]]
-    model = codex_model()
+    model = normalize_codex_model(model_override) if model_override else codex_model()
     if model:
         prefix += ["-m", model]
-    effort = codex_effort()
+    effort = normalize_codex_effort(reasoning_override) if reasoning_override else codex_effort()
     if effort:
         # -c 的 value 按 TOML 解析，显式加双引号保证它是字符串。
         prefix += ["-c", f'model_reasoning_effort="{effort}"']
@@ -213,7 +223,11 @@ def omp_thinking_options() -> list[dict[str, str]]:
     return [dict(opt) for opt in OMP_THINKING_OPTIONS]
 
 
-def with_omp_runtime_args(argv: list[str]) -> list[str]:
+def with_omp_runtime_args(
+    argv: list[str],
+    model_override: str | None = None,
+    reasoning_override: str | None = None,
+) -> list[str]:
     """omp 的模型与思考档位插在可执行文件之后、其余参数之前。
 
     argv 里可能已经带上了 prompt(如 build_audit_argv)，追加到末尾会让 flag 落在
@@ -222,10 +236,10 @@ def with_omp_runtime_args(argv: list[str]) -> list[str]:
     if not argv:
         return argv
     prefix = [argv[0]]
-    model = omp_model()
+    model = normalize_omp_model(model_override) if model_override else omp_model()
     if model:
         prefix += ["--model", model]
-    thinking = omp_thinking()
+    thinking = normalize_omp_thinking(reasoning_override) if reasoning_override else omp_thinking()
     if thinking:
         prefix += ["--thinking", thinking]
     return [*prefix, *argv[1:]]
@@ -251,11 +265,11 @@ def kimi_model_options() -> list[dict[str, str]]:
     return _cached_model_options("kimi_model_options", KIMI_MODEL_OPTIONS)
 
 
-def with_kimi_runtime_args(argv: list[str]) -> list[str]:
+def with_kimi_runtime_args(argv: list[str], model_override: str | None = None) -> list[str]:
     """kimi 的 -m 按前缀插入：argv 里可能已带 -p <prompt>，追加会落到选项值之后。"""
     if not argv:
         return argv
-    model = kimi_model()
+    model = normalize_kimi_model(model_override) if model_override else kimi_model()
     if not model:
         return argv
     return [argv[0], "-m", model, *argv[1:]]
