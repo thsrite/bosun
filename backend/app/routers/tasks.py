@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .. import auth, db, events, log_archive, nesting, routing, scheduler, sessions, subtasks
-from ..engines import ENGINES
+from .. import auth, browser_computer, db, events, log_archive, nesting, routing, scheduler, sessions, subtasks
+from ..engines import CODING_ENGINES, ENGINES
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -84,6 +85,13 @@ def create_task(body: CreateTask):
         engine, reason = routing.pick_engine()
     if engine not in ENGINES:
         raise HTTPException(400, f"未知引擎: {engine}")
+    if engine == "browser":
+        try:
+            browser_computer.extract_start_url(body.prompt)
+        except browser_computer.BrowserPolicyError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if body.start and not browser_computer.availability()["available"]:
+            raise HTTPException(409, "；".join(browser_computer.availability()["missing"]))
     if db.query_one("SELECT id FROM project WHERE id=?", (body.project_id,)) is None:
         raise HTTPException(404, "项目不存在")
     status = "queued" if body.start else "draft"
@@ -125,6 +133,13 @@ def update_task(task_id: int, body: UpdateTask):
         if t["status"] != "draft":
             raise HTTPException(409, "已启动任务不能直接改引擎，请使用接力")
         fields["engine"] = body.engine
+    next_engine = fields.get("engine", t["engine"])
+    next_prompt = fields.get("prompt", t["prompt"])
+    if next_engine == "browser":
+        try:
+            browser_computer.extract_start_url(next_prompt)
+        except browser_computer.BrowserPolicyError as exc:
+            raise HTTPException(400, str(exc)) from exc
     if fields:
         sets = ", ".join(f"{k}=?" for k in fields)
         db.execute(f"UPDATE task SET {sets} WHERE id=?", (*fields.values(), task_id))
@@ -142,6 +157,17 @@ def reorder(body: Reorder):
 @router.post("/{task_id}/start")
 def start_task(task_id: int):
     """把单个 draft 任务排入执行（draft → queued），交给调度器。"""
+    task = db.query_one("SELECT engine,prompt FROM task WHERE id=? AND deleted=0", (task_id,))
+    if task is None:
+        raise HTTPException(404, "任务不存在")
+    if task["engine"] == "browser":
+        info = browser_computer.availability()
+        if not info["available"]:
+            raise HTTPException(409, "；".join(info["missing"]))
+        try:
+            browser_computer.extract_start_url(task["prompt"])
+        except browser_computer.BrowserPolicyError as exc:
+            raise HTTPException(400, str(exc)) from exc
     db.execute("UPDATE task SET status='queued' WHERE id=? AND status='draft'", (task_id,))
     scheduler.tick()
     return {"ok": True}
@@ -154,13 +180,15 @@ class StartAll(BaseModel):
 @router.post("/start-all")
 def start_all(body: StartAll):
     """把待办任务批量排入执行；不传 project_id 则全部项目。"""
+    browser_ready = bool(browser_computer.availability()["available"])
+    engine_guard = "" if browser_ready else " AND engine!='browser'"
     if body.project_id is not None:
         db.execute(
-            "UPDATE task SET status='queued' WHERE status='draft' AND project_id=?",
+            f"UPDATE task SET status='queued' WHERE status='draft' AND project_id=?{engine_guard}",
             (body.project_id,),
         )
     else:
-        db.execute("UPDATE task SET status='queued' WHERE status='draft'")
+        db.execute(f"UPDATE task SET status='queued' WHERE status='draft'{engine_guard}")
     scheduler.tick()
     return {"ok": True}
 
@@ -250,7 +278,7 @@ def handoff_task(task_id: int, body: HandoffBody):
     t = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
     if t is None:
         raise HTTPException(404, "任务不存在")
-    if body.engine not in ENGINES:
+    if body.engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {body.engine}")
     if body.engine == t["engine"]:
         raise HTTPException(400, "接力引擎必须与当前引擎不同")
@@ -548,7 +576,7 @@ def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
     engine = body.engine
     if engine == "auto":
         engine, _ = routing.pick_engine()
-    if engine not in ENGINES:
+    if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {engine}")
 
     # 名额在建行之前占：拿不到就直接回 429，不留一条起不来的子任务记录
@@ -654,6 +682,22 @@ def get_permission(task_id: int):
 def respond_permission(task_id: int, body: PermissionBody):
     ok = scheduler.respond_permission(task_id, body.allow)
     return {"ok": ok}
+
+
+@router.get("/{task_id}/browser-assets/{asset_id}")
+def get_browser_asset(task_id: int, asset_id: str):
+    task = db.query_one("SELECT engine FROM task WHERE id=? AND deleted=0", (task_id,))
+    if task is None:
+        raise HTTPException(404, "任务不存在")
+    if task["engine"] != "browser":
+        raise HTTPException(404, "该任务没有 Browser 截图")
+    try:
+        path = browser_computer.asset_path(task_id, asset_id)
+    except browser_computer.BrowserPolicyError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not path.is_file():
+        raise HTTPException(404, "截图不存在")
+    return FileResponse(path, media_type="image/png", filename=asset_id)
 
 
 @router.delete("/{task_id}")

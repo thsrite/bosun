@@ -19,12 +19,12 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-from . import db, engine_settings, events, rate_limit, sessions
+from . import browser_computer, db, engine_settings, events, rate_limit, sessions
 from .config import DATA_DIR, LOG_DIR
 from .engines import build_argv, build_resume_argv, uses_stdin_prompt, with_report_directive
 from .pty_session import PtySession, remove_terminal_log_files
 
-_sessions: dict[int, PtySession] = {}
+_sessions: dict[int, object] = {}
 _live_tokens = sessions.LiveTokenCounter()  # 增量统计运行中会话用量, 避免每 15s 重解析整份 transcript
 _loop: asyncio.AbstractEventLoop | None = None
 _tick_lock = threading.RLock()  # tick 会被请求线程与事件循环线程调用, 串行化避免重复启动
@@ -112,7 +112,7 @@ def _claim_scheduler() -> bool:
     return False
 
 
-def get_session(task_id: int) -> PtySession | None:
+def get_session(task_id: int) -> object | None:
     return _sessions.get(task_id)
 
 
@@ -378,14 +378,29 @@ def _start_task(row) -> None:
     run_started_at = time.time()
     capture = None  # (before, since)
 
+    if engine == "browser":
+        session = browser_computer.BrowserSession(
+            task_id=row["id"],
+            prompt=row["prompt"],
+            log_path=log_path,
+            loop=_loop,
+            on_status=_on_status,
+            on_exit=_on_exit,
+            on_tokens=_on_tokens,
+            on_permission=_on_permission,
+        )
+        use_sdk = True
     # cc 首跑(非resume、无post_input) 默认走 SDK；设置可强制 CLI。
-    use_sdk = engine_settings.should_use_claude_sdk(
-        engine,
-        resume=bool(row["resume"]),
-        post_input=row["post_input"],
-    )
+    else:
+        use_sdk = engine_settings.should_use_claude_sdk(
+            engine,
+            resume=bool(row["resume"]),
+            post_input=row["post_input"],
+        )
 
-    if use_sdk:
+    if engine == "browser":
+        pass
+    elif use_sdk:
         from .sdk_session import SdkSession
 
         session = SdkSession(

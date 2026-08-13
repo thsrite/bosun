@@ -4,13 +4,15 @@
 # 产物：dist/bosun/bosun（macOS/Linux 同一份 spec）
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent  # noqa: F821  # SPECPATH 由 PyInstaller 注入
 
 dist_dir = ROOT / "frontend" / "dist"
 if not (dist_dir / "index.html").is_file():
     raise SystemExit("缺少 frontend/dist，请先执行：cd frontend && npm run build")
+
+playwright_datas, playwright_binaries, playwright_hiddenimports = collect_all("playwright")
 
 a = Analysis(
     [str(ROOT / "backend" / "run.py")],
@@ -19,7 +21,9 @@ a = Analysis(
         (str(dist_dir), "frontend/dist"),
         *collect_data_files("claude_agent_sdk"),
         *collect_data_files("certifi"),
+        *playwright_datas,
     ],
+    binaries=playwright_binaries,
     hiddenimports=[
         # uvicorn 的协议实现按配置字符串动态加载，静态图追不到
         *collect_submodules("uvicorn"),
@@ -27,6 +31,7 @@ a = Analysis(
         *collect_submodules("claude_agent_sdk"),
         # harness 演进核心包：app 内经 try/except 双导入引用，静态图可能追不全
         *collect_submodules("harness_evolve"),
+        *playwright_hiddenimports,
     ],
     excludes=["tkinter"],
 )

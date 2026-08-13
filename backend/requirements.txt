@@ -5,4 +5,5 @@ pywinpty>=2.0; sys_platform == "win32"
 certifi>=2024.0
 claude-agent-sdk>=0.2
 openai>=2.0
+playwright>=1.49
 psutil>=5.9

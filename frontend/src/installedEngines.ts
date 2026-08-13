@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { ENGINE_ORDER } from "./engines";
+import { ENGINE_ORDER, TASK_ENGINE_ORDER } from "./engines";
 import type { Engine } from "./types";
 
 /** 各引擎是否已安装；null = 还没探测出结果。 */
@@ -25,4 +25,12 @@ export function useEngineVisible(engine: string): boolean {
 export function useAvailableEngines(): Engine[] {
   const installed = useInstalledEngines();
   return ENGINE_ORDER.filter((engine) => !installed || installed[engine] !== false);
+}
+
+/** 新建普通任务可选 Browser；其它编码工作流继续只使用 useAvailableEngines。 */
+export function useAvailableTaskEngines(): Engine[] {
+  const installed = useInstalledEngines();
+  return TASK_ENGINE_ORDER.filter((engine) => (
+    engine === "browser" ? installed?.browser === true : !installed || installed[engine] !== false
+  ));
 }

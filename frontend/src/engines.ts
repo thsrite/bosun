@@ -6,10 +6,12 @@ const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }
   codex: { name: "Codex", short: "Codex", badge: "bg-emerald-500/10 text-emerald-300" },
   omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-500/10 text-sky-300" },
   kimi: { name: "Kimi Code", short: "Kimi", badge: "bg-amber-500/10 text-amber-300" },
+  browser: { name: "Browser", short: "Browser", badge: "bg-cyan-500/10 text-cyan-300" },
 };
 
-/** 界面里引擎的展示顺序。 */
+/** 编码工作流里的引擎顺序；Browser 不参与自动路由、接力或 Autopilot。 */
 export const ENGINE_ORDER: Engine[] = ["cc", "codex", "omp", "kimi"];
+export const TASK_ENGINE_ORDER: Engine[] = [...ENGINE_ORDER, "browser"];
 
 /** 各引擎的全权限运行参数，用于提示语。 */
 export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
@@ -17,6 +19,7 @@ export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
   codex: "--dangerously-bypass-approvals-and-sandbox",
   omp: "--auto-approve",
   kimi: "--yolo",
+  browser: "危险动作始终逐次确认",
 };
 
 const FALLBACK = { name: "未知引擎", short: "?", badge: "bg-dh-s2 text-dh-muted" };

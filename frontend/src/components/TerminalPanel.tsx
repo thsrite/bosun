@@ -2135,7 +2135,12 @@ export function TerminalPanel({
         >
           {hasSession ? (
             isChat ? (
-              <ChatView key={`chat-${detail.id}`} taskId={detail.id} live={active} />
+              <ChatView
+                key={`chat-${detail.id}`}
+                taskId={detail.id}
+                live={active}
+                interactive={detail.engine !== "browser"}
+              />
             ) : hasStoredHistory ? (
               <div className="flex h-full min-h-0 flex-col">
                 <div className="flex shrink-0 items-center gap-1 border-b border-dh-border bg-[#131316] px-2 py-1.5">
