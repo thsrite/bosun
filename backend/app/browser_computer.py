@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import socket
 import threading
 import time
@@ -61,34 +62,68 @@ def _field(value: Any, name: str, default: Any = None) -> Any:
     return value.get(name, default) if isinstance(value, dict) else getattr(value, name, default)
 
 
-def validate_loopback_url(url: str) -> str:
-    """Allow only HTTP(S) URLs whose hostname and every DNS answer are loopback."""
+def _validate_loopback_target(url: str, allowed_schemes: frozenset[str]) -> str:
     try:
         parsed = urlsplit(str(url).strip())
         port = parsed.port
     except ValueError as exc:
         raise BrowserPolicyError("URL 格式无效") from exc
-    if parsed.scheme not in {"http", "https"}:
-        raise BrowserPolicyError("Browser MVP 只允许 HTTP(S) URL")
+    if parsed.scheme not in allowed_schemes:
+        schemes = "/".join(sorted(allowed_schemes))
+        raise BrowserPolicyError(f"Browser MVP 只允许 {schemes} URL")
     if not parsed.hostname or parsed.username is not None or parsed.password is not None:
         raise BrowserPolicyError("URL 不得包含凭据，且必须包含主机名")
 
     host = parsed.hostname.rstrip(".").lower()
     if host != "localhost":
         try:
-            if not ipaddress.ip_address(host).is_loopback:
-                raise BrowserPolicyError("Browser MVP 只允许回环地址")
+            address = ipaddress.ip_address(host)
         except ValueError as exc:
             raise BrowserPolicyError("Browser MVP 只允许 localhost 或回环 IP") from exc
+        if not address.is_loopback:
+            raise BrowserPolicyError("Browser MVP 只允许回环地址")
 
     try:
-        answers = socket.getaddrinfo(host, port or (443 if parsed.scheme == "https" else 80))
+        default_port = 443 if parsed.scheme in {"https", "wss"} else 80
+        answers = socket.getaddrinfo(host, port or default_port)
     except OSError as exc:
         raise BrowserPolicyError(f"无法解析本地主机：{host}") from exc
     addresses = {answer[4][0] for answer in answers if answer[4]}
     if not addresses or any(not ipaddress.ip_address(address).is_loopback for address in addresses):
         raise BrowserPolicyError("URL 解析结果包含非回环地址")
     return url
+
+
+def validate_loopback_url(url: str) -> str:
+    """Allow only HTTP(S) URLs whose hostname and every DNS answer are loopback."""
+    return _validate_loopback_target(url, frozenset({"http", "https"}))
+
+
+def validate_loopback_websocket_url(url: str) -> str:
+    """Allow only loopback WebSocket URLs."""
+    return _validate_loopback_target(url, frozenset({"ws", "wss"}))
+
+
+async def install_loopback_routes(context: Any) -> None:
+    """Install guards for request types that Playwright routes separately."""
+    async def guard_http(route: Any) -> None:
+        try:
+            validate_loopback_url(route.request.url)
+        except BrowserPolicyError:
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
+
+    async def guard_websocket(route: Any) -> None:
+        try:
+            validate_loopback_websocket_url(route.url)
+        except BrowserPolicyError:
+            await route.close(code=1008, reason="Browser loopback policy")
+            return
+        route.connect_to_server()
+
+    await context.route("**/*", guard_http)
+    await context.route_web_socket("**/*", guard_websocket)
 
 
 def extract_start_url(prompt: str) -> str:
@@ -170,17 +205,28 @@ async def risky_action_reason(page: Any, action: Any) -> str | None:
     """Best-effort local guard in addition to the model's confirmation tool."""
     action_type = _field(action, "type", "")
     if action_type in {"click", "double_click"}:
-        label = await page.evaluate(
+        target = await page.evaluate(
             """([x, y]) => {
               const el = document.elementFromPoint(x, y);
-              if (!el) return '';
-              return [el.innerText, el.getAttribute('aria-label'), el.getAttribute('title'), el.value]
-                .filter(Boolean).join(' ').slice(0, 240);
+              const control = el?.closest?.('button, input, [role="button"]') ?? el;
+              if (!control) return { label: '', isSubmit: false };
+              const label = [control.innerText, control.getAttribute?.('aria-label'),
+                control.getAttribute?.('title'), control.value].filter(Boolean).join(' ').slice(0, 240);
+              const type = String(control.getAttribute?.('type') || '').toLowerCase();
+              const tag = String(control.tagName || '').toLowerCase();
+              const isSubmit = Boolean(control.form) && (
+                (tag === 'button' && (!type || type === 'submit')) ||
+                (tag === 'input' && (type === 'submit' || type === 'image'))
+              );
+              return { label, isSubmit };
             }""",
             [_field(action, "x", 0), _field(action, "y", 0)],
         )
+        label = str(_field(target, "label", target if isinstance(target, str) else ""))
         if label and _RISKY_LABEL_RE.search(str(label)):
             return f"即将点击可能改变状态的控件：{str(label)[:80]}"
+        if _field(target, "isSubmit", False):
+            return f"即将提交表单：{label[:80] or '未命名控件'}"
     if action_type == "type":
         field_type = await page.evaluate(
             """() => {
@@ -192,6 +238,10 @@ async def risky_action_reason(page: Any, action: Any) -> str | None:
         )
         if re.search(r"password|one-time-code|token|secret|api.?key", str(field_type), re.IGNORECASE):
             return "即将向敏感输入框填写内容"
+    if action_type == "keypress":
+        keys = {_normalize_key(key) for key in list(_field(action, "keys", []) or [])}
+        if "Enter" in keys:
+            return "即将按 Enter，可能提交当前表单"
     return None
 
 
@@ -228,6 +278,11 @@ def asset_path(task_id: int, asset_id: str) -> Path:
     if not _ASSET_RE.fullmatch(asset_id):
         raise BrowserPolicyError("截图标识无效")
     return DATA_DIR / "browser-runs" / str(task_id) / asset_id
+
+
+def remove_browser_assets(task_id: int) -> None:
+    """Remove screenshots created for one exact task id."""
+    shutil.rmtree(DATA_DIR / "browser-runs" / str(int(task_id)), ignore_errors=True)
 
 
 def _message_text(item: Any) -> str:
@@ -326,17 +381,12 @@ class BrowserSession:
         playwright_manager = self._playwright_factory() if self._playwright_factory else async_playwright()
         async with playwright_manager as playwright:
             self._browser = await playwright.chromium.launch(headless=True)
-            context = await self._browser.new_context(viewport=VIEWPORT, accept_downloads=False)
-
-            async def guard_route(route: Any) -> None:
-                try:
-                    validate_loopback_url(route.request.url)
-                except BrowserPolicyError:
-                    await route.abort("blockedbyclient")
-                    return
-                await route.continue_()
-
-            await context.route("**/*", guard_route)
+            context = await self._browser.new_context(
+                viewport=VIEWPORT,
+                accept_downloads=False,
+                service_workers="block",
+            )
+            await install_loopback_routes(context)
             page = await context.new_page()
             await page.goto(start_url, wait_until="domcontentloaded")
             self._event({"t": "text", "text": f"已打开 `{start_url}`，开始执行浏览器验收。"})
@@ -413,7 +463,7 @@ class BrowserSession:
                                 "action": _field(action, "type", "unknown"),
                                 "detail": self._action_detail(action),
                             })
-                            risk = None if safety_checks else await risky_action_reason(page, action)
+                            risk = await risky_action_reason(page, action)
                             if risk and not await self._ask_permission({"action": risk, "risk": "可能改变数据或传输敏感信息"}):
                                 raise BrowserPolicyError("用户拒绝了高风险浏览器动作")
                             await execute_action(page, action)

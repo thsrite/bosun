@@ -8,14 +8,17 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.browser_computer import (
     BrowserPolicyError,
     BrowserSession,
     execute_action,
+    install_loopback_routes,
+    remove_browser_assets,
     risky_action_reason,
     validate_loopback_url,
+    validate_loopback_websocket_url,
 )
 
 
@@ -57,6 +60,47 @@ class ValidateLoopbackUrlTests(unittest.TestCase):
             with self.assertRaises(BrowserPolicyError):
                 validate_loopback_url("http://localhost:8770")
 
+    def test_websocket_policy_accepts_only_loopback_ws_schemes(self) -> None:
+        with patch("app.browser_computer.socket.getaddrinfo") as getaddrinfo:
+            getaddrinfo.return_value = [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))
+            ]
+            self.assertEqual(
+                validate_loopback_websocket_url("ws://localhost:8770/events"),
+                "ws://localhost:8770/events",
+            )
+            with self.assertRaises(BrowserPolicyError):
+                validate_loopback_websocket_url("wss://example.com/events")
+            with self.assertRaises(BrowserPolicyError):
+                validate_loopback_websocket_url("http://localhost:8770/events")
+
+
+class NetworkPolicyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_installs_http_and_websocket_guards(self) -> None:
+        context = AsyncMock()
+        await install_loopback_routes(context)
+
+        context.route.assert_awaited_once()
+        context.route_web_socket.assert_awaited_once()
+        http_guard = context.route.await_args.args[1]
+        websocket_guard = context.route_web_socket.await_args.args[1]
+
+        blocked_http = AsyncMock()
+        blocked_http.request.url = "https://example.com/data"
+        await http_guard(blocked_http)
+        blocked_http.abort.assert_awaited_once_with("blockedbyclient")
+
+        blocked_websocket = AsyncMock()
+        blocked_websocket.url = "wss://example.com/events"
+        await websocket_guard(blocked_websocket)
+        blocked_websocket.close.assert_awaited_once_with(code=1008, reason="Browser loopback policy")
+
+        allowed_websocket = AsyncMock()
+        allowed_websocket.url = "ws://127.0.0.1:8770/events"
+        allowed_websocket.connect_to_server = Mock()
+        await websocket_guard(allowed_websocket)
+        allowed_websocket.connect_to_server.assert_called_once_with()
+
 
 class ExecuteActionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -97,7 +141,7 @@ class ExecuteActionTests(unittest.IsolatedAsyncioTestCase):
                 await execute_action(self.page, {"type": "wait", "seconds": 30})
 
     async def test_flags_destructive_click_and_sensitive_typing(self) -> None:
-        self.page.evaluate = AsyncMock(return_value="删除账户")
+        self.page.evaluate = AsyncMock(return_value={"label": "删除账户", "isSubmit": False})
         reason = await risky_action_reason(self.page, {"type": "click", "x": 10, "y": 10})
         self.assertIn("删除账户", reason or "")
 
@@ -105,8 +149,69 @@ class ExecuteActionTests(unittest.IsolatedAsyncioTestCase):
         reason = await risky_action_reason(self.page, {"type": "type", "text": "hidden"})
         self.assertEqual(reason, "即将向敏感输入框填写内容")
 
-        self.page.evaluate = AsyncMock(return_value="查看详情")
+        self.page.evaluate = AsyncMock(return_value={"label": "查看详情", "isSubmit": False})
         self.assertIsNone(await risky_action_reason(self.page, {"type": "click", "x": 10, "y": 10}))
+
+    async def test_flags_form_submission_and_enter_keypress(self) -> None:
+        self.page.evaluate = AsyncMock(return_value={"label": "继续", "isSubmit": True})
+        self.assertEqual(
+            await risky_action_reason(self.page, {"type": "click", "x": 10, "y": 10}),
+            "即将提交表单：继续",
+        )
+        self.assertEqual(
+            await risky_action_reason(self.page, {"type": "keypress", "keys": ["ENTER"]}),
+            "即将按 Enter，可能提交当前表单",
+        )
+
+
+class BrowserAssetTests(unittest.TestCase):
+    def test_remove_browser_assets_deletes_only_the_task_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir, patch(
+            "app.browser_computer.DATA_DIR", Path(data_dir)
+        ):
+            target = Path(data_dir) / "browser-runs/42"
+            sibling = Path(data_dir) / "browser-runs/43"
+            target.mkdir(parents=True)
+            sibling.mkdir(parents=True)
+            (target / "step-0001.png").write_bytes(b"target")
+            (sibling / "step-0001.png").write_bytes(b"sibling")
+
+            remove_browser_assets(42)
+
+            self.assertFalse(target.exists())
+            self.assertTrue(sibling.is_dir())
+
+    def test_scheduler_deletion_cleans_browser_assets(self) -> None:
+        from app import scheduler
+
+        with patch.object(
+            scheduler.db,
+            "query_one",
+            return_value={"engine": "browser", "log_path": None, "status": "done"},
+        ), patch.object(scheduler.db, "execute"), patch.object(
+            scheduler.browser_computer, "remove_browser_assets"
+        ) as remove_assets, patch.object(scheduler.events, "emit"), patch.object(
+            scheduler, "_cancel_active_children"
+        ), patch.object(scheduler, "tick"):
+            scheduler.delete(42)
+
+        remove_assets.assert_called_once_with(42)
+
+    def test_project_deletion_cleans_only_browser_task_assets(self) -> None:
+        from app import scheduler
+
+        rows = [
+            {"id": 42, "engine": "browser", "log_path": None},
+            {"id": 43, "engine": "codex", "log_path": None},
+        ]
+        with patch.object(scheduler.db, "query", return_value=rows), patch.object(
+            scheduler.db, "execute"
+        ), patch.object(
+            scheduler.browser_computer, "remove_browser_assets"
+        ) as remove_assets, patch.object(scheduler.events, "emit"), patch.object(scheduler, "tick"):
+            scheduler.delete_project_tasks(7)
+
+        remove_assets.assert_called_once_with(42)
 
 
 class BrowserSessionLoopTests(unittest.IsolatedAsyncioTestCase):
@@ -175,7 +280,9 @@ class BrowserSessionLoopTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as data_dir, patch.dict(
             "os.environ", {"BOSUN_OPENAI_API_KEY": "test-key"}, clear=False
-        ), patch("app.browser_computer.DATA_DIR", Path(data_dir)):
+        ), patch("app.browser_computer.DATA_DIR", Path(data_dir)), patch(
+            "app.browser_computer.risky_action_reason", new=AsyncMock(return_value="本地风险")
+        ):
             session = BrowserSession(
                 task_id=999,
                 prompt=f"点击按钮并确认结果 http://127.0.0.1:{port}",
@@ -203,7 +310,7 @@ class BrowserSessionLoopTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(followup["type"], "computer_call_output")
             self.assertEqual(followup["call_id"], "call-1")
             self.assertEqual(followup["acknowledged_safety_checks"][0]["id"], "safe-1")
-            session._ask_permission.assert_awaited_once()  # type: ignore[attr-defined]
+            self.assertEqual(session._ask_permission.await_count, 2)  # type: ignore[attr-defined]
             self.assertEqual(token_updates, [(999, 60)])
             self.assertEqual(next(event for event in events if event["t"] == "result")["tokens"], 60)
 

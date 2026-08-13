@@ -716,9 +716,11 @@ def delete(task_id: int) -> bool:
     session = _sessions.pop(task_id, None)
     if session is not None:
         session.terminate()
-    row = db.query_one("SELECT log_path, status FROM task WHERE id=?", (task_id,))
+    row = db.query_one("SELECT engine, log_path, status FROM task WHERE id=?", (task_id,))
     if row and row["log_path"]:
         remove_terminal_log_files(row["log_path"])
+    if row and row["engine"] == "browser":
+        browser_computer.remove_browser_assets(task_id)
     # 活动态删除时补一个终态，避免 reconcile 反复处理
     end = "ended_at=COALESCE(ended_at, %f)," % time.time()
     db.execute(
@@ -735,7 +737,7 @@ def delete(task_id: int) -> bool:
 
 def delete_project_tasks(project_id: int) -> int:
     """删除项目时清理关联任务：终止活动会话、移除终端日志，再交给外层删项目级数据。"""
-    rows = db.query("SELECT id, log_path FROM task WHERE project_id=?", (project_id,))
+    rows = db.query("SELECT id, engine, log_path FROM task WHERE project_id=?", (project_id,))
     now = time.time()
     for row in rows:
         session = _sessions.pop(row["id"], None)
@@ -743,6 +745,8 @@ def delete_project_tasks(project_id: int) -> int:
             session.terminate()
         if row["log_path"]:
             remove_terminal_log_files(row["log_path"])
+        if row["engine"] == "browser":
+            browser_computer.remove_browser_assets(row["id"])
     db.execute(
         "UPDATE task SET deleted=1, ended_at=COALESCE(ended_at, ?), "
         "status=CASE WHEN status IN ('running','waiting_input','queued') THEN 'cancelled' ELSE status END "

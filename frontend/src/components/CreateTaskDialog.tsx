@@ -133,7 +133,23 @@ export function CreateTaskDialog({
     }));
   }
 
+  function clearAttachments() {
+    setAttachments((current) => {
+      current.forEach((attachment) => {
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+      });
+      previews.current.clear();
+      return [];
+    });
+  }
+
+  function selectEngine(nextEngine: "auto" | Engine) {
+    if (nextEngine === "browser") clearAttachments();
+    setEngine(nextEngine);
+  }
+
   function handlePaste(event: ReactClipboardEvent<HTMLElement>) {
+    if (isBrowser) return;
     const itemImages = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -149,7 +165,8 @@ export function CreateTaskDialog({
   async function submit(start: boolean) {
     await run(async () => {
       const trimmed = prompt.trim();
-      if ((!trimmed && attachments.length === 0) || !selectedProject) return;
+      const taskAttachments = isBrowser ? [] : attachments;
+      if ((!trimmed && taskAttachments.length === 0) || !selectedProject) return;
       const initialPrompt = promptWithAttachments(trimmed, []);
       let r: { id: number; engine: string; auto_reason: string | null };
       try {
@@ -175,7 +192,7 @@ export function CreateTaskDialog({
 
       const uploadedPaths: string[] = [];
       let attachmentFailures = 0;
-      for (const attachment of attachments) {
+      for (const attachment of taskAttachments) {
         try {
           const uploaded = await api.uploadFile(r.id, attachment.file);
           uploadedPaths.push(uploaded.path);
@@ -240,13 +257,13 @@ export function CreateTaskDialog({
         <div className="flex flex-wrap gap-3">
           {availableEngines.length > 1 && (
             <label className="flex items-center gap-1.5" title="按配额余量+历史成功率自动选">
-              <input type="radio" checked={engine === "auto"} onChange={() => setEngine("auto")} />
+              <input type="radio" checked={engine === "auto"} onChange={() => selectEngine("auto")} />
               🤖 自动
             </label>
           )}
           {availableEngines.map((item) => (
             <label key={item} className="flex items-center gap-1.5">
-              <input type="radio" checked={engine === item} onChange={() => setEngine(item)} />
+              <input type="radio" checked={engine === item} onChange={() => selectEngine(item)} />
               {engineName(item)}
             </label>
           ))}
@@ -356,14 +373,14 @@ export function CreateTaskDialog({
             </button>
             <button
               className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
-              disabled={busy || !selectedProject || (!prompt.trim() && attachments.length === 0)}
+              disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
               onClick={() => submit(false)}
             >
               {busy ? "处理中…" : "加入待办"}
             </button>
             <button
               className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-              disabled={busy || !selectedProject || (!prompt.trim() && attachments.length === 0)}
+              disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
               onClick={() => submit(true)}
               title="创建并立即排入调度执行"
             >
