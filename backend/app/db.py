@@ -180,6 +180,8 @@ def _ensure_columns() -> None:
         "report_summary": "TEXT",      # agent 回调的一句话结论
         "waiting_since": "REAL",       # 当前 waiting_input 轮次起点；用于通知补发/去重
         "report_token": "TEXT",        # 本轮派发给 agent 的 /report 回调凭证
+        "resume_after": "REAL",        # 撞限流后自动续跑的时刻(epoch)；rate_limited 态专用
+        "rate_limit_attempts": "INTEGER NOT NULL DEFAULT 0",  # 已自动续跑次数，触顶转 failed
     })
     _ensure_table_columns(conn, "finding", {
         "origin": "TEXT NOT NULL DEFAULT 'manual'",  # manual | autopilot

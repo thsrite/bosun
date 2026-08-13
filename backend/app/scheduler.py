@@ -3,6 +3,7 @@
 - 持有 task_id -> PtySession
 - 后台循环：有空槽时从 queued 里按 priority 挑最高的启动
 - running / waiting_input 都占槽；done/failed/cancelled 释放
+- rate_limited（撞引擎限流待自动续跑）刻意不占槽，否则干等的任务会堵死队列
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-from . import db, engine_settings, events, sessions
+from . import db, engine_settings, events, rate_limit, sessions
 from .config import DATA_DIR, LOG_DIR
 from .engines import build_argv, build_resume_argv, uses_stdin_prompt, with_report_directive
 from .pty_session import PtySession, remove_terminal_log_files
@@ -37,12 +38,15 @@ _PAUSABLE_STATUSES = {
     "queued",
     "running",
     "waiting_input",
+    "rate_limited",
     "done",
     "failed",
     "cancelled",
     "interrupted",
 }
 _TERMINAL_STATUSES = {"done", "failed", "cancelled", "interrupted"}
+# 限流自动续跑时补投的指令：原指令已在恢复的会话上下文里，重发会让 agent 从头再来。
+RATE_LIMIT_RESUME_PROMPT = "[Bosun] 上一轮因引擎额度限流被中断，请从中断处继续未完成的工作。"
 
 
 class TaskTransitionError(ValueError):
@@ -154,6 +158,71 @@ def _on_status(task_id: int, status: str) -> None:
         row = db.query_one("SELECT waiting_since FROM task WHERE id=?", (task_id,))
         payload["waiting_since"] = row["waiting_since"] if row else None
     events.emit("task.status", payload)
+
+
+def _on_rate_limit(task_id: int, hit) -> None:
+    """引擎撞上限流：停掉会话，转入 rate_limited 并安排到点自动续跑。
+
+    rate_limited 刻意是**独立且不占并发槽**的状态：复用 waiting_input 会让一个
+    干等一小时的任务白占槽位，把整条队列堵死（waiting_input 占槽，见 _running_count/tick）。
+    触顶(max_attempts)则转 failed 并写明原因，不无限重试。
+    """
+    row = db.query_one("SELECT status, rate_limit_attempts FROM task WHERE id=?", (task_id,))
+    if row is None or row["status"] not in ("running", "waiting_input"):
+        return
+    attempts = int(row["rate_limit_attempts"] or 0)
+    session = _sessions.pop(task_id, None)
+    if session is not None:
+        session.graceful_stop()  # 尽量让引擎落盘会话，续跑才能 --resume 回来
+
+    if attempts >= rate_limit.max_attempts():
+        db.execute(
+            "UPDATE task SET status='failed', ended_at=?, waiting_since=NULL, "
+            "report_summary=? WHERE id=?",
+            (time.time(), f"连续 {attempts} 次撞上引擎限流，已停止自动续跑", task_id),
+        )
+        events.emit("task.status", {"task_id": task_id, "status": "failed", "reason": "rate_limit"})
+        tick()
+        return
+
+    resume_at = rate_limit.resume_after(hit, attempt=attempts, now=time.time())
+    db.execute(
+        "UPDATE task SET status='rate_limited', resume_after=?, rate_limit_attempts=?, "
+        "ended_at=?, waiting_since=NULL WHERE id=?",
+        (resume_at, attempts + 1, time.time(), task_id),
+    )
+    events.emit(
+        "task.status",
+        {"task_id": task_id, "status": "rate_limited", "resume_after": resume_at},
+    )
+    tick()  # 让出的槽位立刻给别的任务
+
+
+def _resume_rate_limited() -> None:
+    """把到点的 rate_limited 任务放回队列（复用既有 resume 能力，不新造恢复路径）。"""
+    rows = db.query(
+        "SELECT id, session_uid, prompt, original_prompt FROM task WHERE status='rate_limited' "
+        "AND deleted=0 AND resume_after IS NOT NULL AND resume_after<=?",
+        (time.time(),),
+    )
+    for row in rows:
+        can_resume = bool(row["session_uid"])
+        # 会话能恢复就只补一句「接着干」（原指令已在上下文里，重发会让 agent 从头再来）；
+        # 恢复不了才拿原始指令重开。空 prompt 不行——那是「只加载上下文」，agent 会干坐着。
+        prompt = (
+            RATE_LIMIT_RESUME_PROMPT
+            if can_resume
+            else (row["original_prompt"] or row["prompt"] or "")
+        )
+        changed = db.execute_rowcount(
+            "UPDATE task SET status='queued', resume=?, prompt=?, resume_after=NULL, "
+            "started_at=NULL, ended_at=NULL, exit_code=NULL, "
+            "original_prompt=COALESCE(NULLIF(original_prompt,''), NULLIF(prompt,'')) "
+            "WHERE id=? AND status='rate_limited'",
+            (int(can_resume), prompt, row["id"]),
+        )
+        if changed:
+            events.emit("task.status", {"task_id": row["id"], "status": "queued"})
 
 
 def _on_exit(task_id: int, exit_code: int) -> None:
@@ -358,6 +427,7 @@ def _start_task(row) -> None:
             on_exit=_on_exit,
             post_input=row["post_input"],
             initial_prompt=initial_prompt,
+            on_rate_limit=_on_rate_limit,
         )
     _sessions[row["id"]] = session
     db.execute(
@@ -400,6 +470,8 @@ def _start_task(row) -> None:
 def tick() -> None:
     """尝试用空槽拉起 queued 任务（按优先级降序）。多线程调用, 加锁串行。"""
     with _tick_lock:
+        # 先把到点的限流任务放回队列，它们和普通 queued 一起按优先级竞争空槽
+        _resume_rate_limited()
         free = _max_concurrent() - _running_count()
         if free <= 0:
             return

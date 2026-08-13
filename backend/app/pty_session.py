@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, NamedTuple
 
+from . import rate_limit
 from .config import IDLE_SECONDS
 from .directives import REPORT_NUDGE
 from .pty_compat import PtyProcess
@@ -388,6 +389,7 @@ class PtySession:
         on_exit: Callable[[int, int], None],
         post_input: str | None = None,
         initial_prompt: str | None = None,
+        on_rate_limit: Callable[[int, "rate_limit.RateLimitHit"], None] | None = None,
     ):
         self.task_id = task_id
         self.argv = argv
@@ -398,7 +400,10 @@ class PtySession:
         self.initial_prompt = initial_prompt
         self.on_status = on_status  # (task_id, status)
         self.on_exit = on_exit      # (task_id, exit_code)
+        self.on_rate_limit = on_rate_limit  # (task_id, RateLimitHit)
         self.script_log_path: str | None = None
+        # 本次运行是否已判定撞上限流（粘性，每次运行只上报一次）
+        self.rate_limit_hit: "rate_limit.RateLimitHit | None" = None
 
         self.proc: PtyProcess | None = None
         self.subscribers: set[asyncio.Queue] = set()
@@ -521,8 +526,25 @@ class PtySession:
             self._note_session_clear(self._buf[-800:])
             if _looks_like_busy(text) or _looks_like_busy(self._buf[-800:]):
                 self._busy_until = max(self._busy_until, time.time() + _BUSY_GRACE_SECONDS)
+            self._note_rate_limit(self._buf[-800:])
             self._set_status(self._next_status_for_output(self._buf[-800:]))
         self._finish()
+
+    def _note_rate_limit(self, tail: str) -> None:
+        """撞上引擎限流 → 上报一次，交给调度器转 rate_limited 并安排自动续跑。
+
+        刻意**不受 BOSUN_WAIT_HEURISTICS 约束**：那个开关关的是噪声大的提示词正则，
+        限流判据是另一套（保守短语 + 反匹配，见 rate_limit 模块），有自己的
+        BOSUN_RATE_LIMIT_RESUME 闸门。粘性上报，一次运行只报一次。
+        """
+        if self.rate_limit_hit is not None or not rate_limit.auto_resume_enabled():
+            return
+        hit = rate_limit.detect(tail)
+        if hit is None:
+            return
+        self.rate_limit_hit = hit
+        if self.on_rate_limit is not None:
+            self.loop.call_soon_threadsafe(self.on_rate_limit, self.task_id, hit)
 
     def _next_status_for_output(self, tail: str) -> str:
         """收到一段输出后应处的状态。
