@@ -539,6 +539,21 @@ def finish_subtask(task_id: int) -> None:
     tick()
 
 
+def send_subtask_reply(task_id: int, message: str) -> bool:
+    """把父任务的回复作为新一轮用户消息投递给仍存活的子任务会话。"""
+    session = _sessions.get(task_id)
+    if session is None or not session.is_alive():
+        return False
+    submit = getattr(session, "submit_message", None)
+    if submit is None:
+        return False
+    try:
+        submit(message)
+    except Exception:  # 会话可能恰在投递时退出；调用方会保留上一轮问题供重试
+        return False
+    return True
+
+
 def _cancel_active_children(parent_id: int) -> None:
     """父任务终止时级联取消仍在跑的子任务。
 

@@ -59,11 +59,17 @@ SUBTASK_TEMPLATE = (
     "\n\n---\n"
     "[Bosun 环境] 需要另一个模型出第二意见/交叉复审时，**优先用下面这条派生子任务**，"
     "不要自己在终端里直接起别的 CLI——直接起的那个 Bosun 看不见、管不了、也不计额度。"
-    "可用引擎：{engines}。命令会阻塞到子任务出结论并把结论打印出来：\n"
+    "可用引擎：{engines}。命令会阻塞到子任务本轮回报并把内容打印出来：\n"
     "curl -sS -X POST -H 'Content-Type: application/json' "
     '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
     '-d "{{\\"engine\\":\\"<引擎>\\",\\"prompt\\":\\"<要它做什么>\\"}}" '
     '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/spawn"\n'
+    "若返回 `needs_reply:true`，读取其中的 `id` 和 `summary`，决定后用父任务同一凭证回复：\n"
+    "curl -sS -X POST -H 'Content-Type: application/json' "
+    '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
+    '-d "{{\\"message\\":\\"<回复内容>\\"}}" '
+    '"$BOSUN_API/api/tasks/<子任务id>/reply"\n'
+    "可重复回复，直到返回最终结论。"
     "（默认最多 3 个子任务、单个最长 15 分钟；子任务不能再派生子任务。"
     "**本轮的收尾回报仍由你自己发**，子任务的回报只属于它自己。）"
 )

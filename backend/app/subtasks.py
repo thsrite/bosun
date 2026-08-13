@@ -48,6 +48,13 @@ def _finished(status: str, report_result: str | None) -> bool:
     return status == "waiting_input" and bool(report_result)
 
 
+def is_final(status: str, report_result: str | None) -> bool:
+    """是否已得到最终结果；needs_input 只结束当前通信回合。"""
+    return status in _TERMINAL_STATUSES or (
+        status == "waiting_input" and report_result == "done"
+    )
+
+
 def enabled() -> bool:
     """子任务总开关（默认开）。BOSUN_SUBTASK=0 关闭。"""
     return os.environ.get("BOSUN_SUBTASK", "1").strip().lower() not in _FALSE
@@ -122,11 +129,11 @@ def child_count(parent_id: int) -> int:
 
 
 def wait_for_result(child_id: int, timeout: float) -> dict:
-    """阻塞等子任务出结论；拿到结论就收掉它，超时则杀掉它并标记 timed_out。
+    """阻塞等子任务本轮回报；最终结论收进程，提问则保留会话等待父任务回复。
 
-    两条路径都必须收进程，理由相同：父任务已经不再关心这个子任务了。
-    超时不杀会继续烧额度；出了结论不收则更隐蔽——agent 回报后停在 waiting_input，
-    进程常驻还占着槽（见 scheduler.finish_subtask）。
+    最终结论与超时必须收进程：超时不杀会继续烧额度；最终结论不收则更隐蔽——
+    agent 回报后停在 waiting_input，进程常驻还占着槽（见 scheduler.finish_subtask）。
+    needs_input 是例外：父任务仍要向这个会话回复，不能提前回收。
     """
     from . import scheduler  # 延迟导入：scheduler 依赖本模块，避免循环
 
@@ -136,15 +143,24 @@ def wait_for_result(child_id: int, timeout: float) -> dict:
             "SELECT status, report_result, report_summary FROM task WHERE id=?", (child_id,)
         )
         if row is None:  # 被删了，没有结论可等
-            return {"status": "cancelled", "summary": "", "timed_out": False}
+            return {
+                "status": "cancelled", "result": None, "summary": "",
+                "needs_reply": False, "timed_out": False,
+            }
         if _finished(row["status"], row["report_result"]):
-            scheduler.finish_subtask(child_id)
+            needs_reply = row["report_result"] == "needs_input"
+            if not needs_reply:
+                scheduler.finish_subtask(child_id)
             # 收尾会把 waiting_input 落成 done，回报给 agent 的应是收尾后的终态
             settled = db.query_one("SELECT status FROM task WHERE id=?", (child_id,))
             return {
-                "status": settled["status"] if settled else row["status"],
+                "status": (
+                    row["status"] if needs_reply
+                    else settled["status"] if settled else row["status"]
+                ),
                 "result": row["report_result"],
                 "summary": row["report_summary"] or "",
+                "needs_reply": needs_reply,
                 "timed_out": False,
             }
         if time.time() >= deadline:
@@ -153,6 +169,7 @@ def wait_for_result(child_id: int, timeout: float) -> dict:
                 "status": "cancelled",
                 "result": None,
                 "summary": f"子任务超时({int(timeout)}s)未出结论，已终止",
+                "needs_reply": False,
                 "timed_out": True,
             }
         time.sleep(_POLL_INTERVAL)

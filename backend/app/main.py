@@ -73,7 +73,7 @@ app = FastAPI(title="Bosun")
 _PUBLIC_API_PATHS = {"/api/health", "/api/auth/status", "/api/auth/login"}
 
 # agent 回调端点不走会话 token(agent 登录不了)，改由各端点自己校验任务级凭证。
-_TASK_CREDENTIAL_PATH = re.compile(r"^/api/tasks/\d+/(?:report|spawn|result)$")
+_TASK_CREDENTIAL_PATH = re.compile(r"^/api/tasks/\d+/(?:report|spawn|result|reply)$")
 
 
 @app.middleware("http")

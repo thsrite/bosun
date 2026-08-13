@@ -788,6 +788,12 @@ class PtySession:
             self._nudge_sent = False  # 新一轮重新获得一次催报机会
             self._set_status("running")
 
+    def submit_message(self, message: str) -> None:
+        """安全提交完整消息；括号粘贴避免多行内容被 PTY 逐行执行。"""
+        if self.proc is None or not self.proc.isalive():
+            return
+        self.write(f"\x1b[200~{message}\x1b[201~\r")
+
     def resize(self, rows: int, cols: int) -> None:
         if self.proc is not None and self.proc.isalive():
             try:
