@@ -1719,6 +1719,12 @@ export function TerminalPanel({
 
   async function doComplete() {
     await run(async () => {
+      // 完成会停掉正在跑的执行器，且按钮紧挨着日志/删除，加一道确认避免误点
+      const running = ["running", "waiting_input", "queued"].includes(detail.status);
+      const message = running
+        ? `标记任务 #${detail.id} 完成？当前执行器会被停止。`
+        : `标记任务 #${detail.id} 完成？`;
+      if (!(await confirmDialog(message, { danger: running }))) return;
       const nextTask = nextTaskAfterComplete();
       await api.completeTask(detail.id);
       onChanged();
