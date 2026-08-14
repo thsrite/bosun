@@ -29,6 +29,8 @@ class Settings(BaseModel):
     omp_model: str = ""
     omp_thinking: str = ""
     kimi_model: str = ""
+    # None = 本次不改动（前端保存其它设置时不必回传密钥）；"" = 清除
+    browser_api_key: str | None = None
 
 
 def status_badge_enabled() -> bool:
@@ -199,6 +201,9 @@ def update_settings(body: Settings):
     db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
     db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
     db.set_setting("kimi_model", engine_settings.normalize_kimi_model(body.kimi_model))
+    if body.browser_api_key is not None:
+        db.set_setting(browser_computer.API_KEY_SETTING, body.browser_api_key.strip())
+        browser_computer.invalidate_availability()
     for engine, old_root in old_roots.items():
         agent_skills.migrate_managed_skills(engine, old_root, agent_skills.skills_dir(engine))
     agent_skills.sync_installed_engines()

@@ -13,12 +13,14 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
+from . import db
 from .config import DATA_DIR
 from .pty_session import TerminalBacklog, _put_drop
 
@@ -245,6 +247,45 @@ async def risky_action_reason(page: Any, action: Any) -> str | None:
     return None
 
 
+API_KEY_SETTING = "browser_openai_api_key"
+
+
+def resolve_api_key() -> tuple[str, str]:
+    """返回 (key, 来源)：设置页填写的优先，其次环境变量（兼容旧部署），都没有则为空。
+
+    来源取值 "settings" / "env" / ""。
+    """
+    try:
+        stored = str(db.get_setting(API_KEY_SETTING, "") or "").strip()
+    except sqlite3.Error:
+        stored = ""  # 数据库尚未就绪（如启动早期）时退回环境变量，不阻塞可用性探测
+    if stored:
+        return stored, "settings"
+    for name in ("BOSUN_OPENAI_API_KEY", "OPENAI_API_KEY"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value, "env"
+    return "", ""
+
+
+def api_key() -> str:
+    return resolve_api_key()[0]
+
+
+def mask_api_key(key: str) -> str:
+    """只回前端掩码，明文永不出后端。"""
+    if not key:
+        return ""
+    return f"{key[:3]}…{key[-4:]}" if len(key) > 8 else "已配置"
+
+
+def invalidate_availability() -> None:
+    """改动 Key 后立即失效可用性缓存，免得设置页还显示旧状态。"""
+    global _availability_cache
+    with _availability_lock:
+        _availability_cache = None
+
+
 def availability() -> dict[str, Any]:
     """Return a user-facing readiness result without launching a browser."""
     global _availability_cache
@@ -253,8 +294,9 @@ def availability() -> dict[str, Any]:
         if _availability_cache and now - _availability_cache[0] < _AVAILABILITY_TTL:
             return dict(_availability_cache[1])
         missing: list[str] = []
-        if not (os.environ.get("BOSUN_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")):
-            missing.append("未配置 BOSUN_OPENAI_API_KEY 或 OPENAI_API_KEY")
+        key, key_source = resolve_api_key()
+        if not key:
+            missing.append("未配置 OpenAI API Key（可在下方填写，或设置 BOSUN_OPENAI_API_KEY 环境变量）")
         try:
             from playwright.sync_api import sync_playwright
 
@@ -265,7 +307,13 @@ def availability() -> dict[str, Any]:
             missing.append("未安装 Playwright Python 包")
         except Exception as exc:  # noqa: BLE001
             missing.append(f"Playwright Chromium 检测失败：{exc}")
-        result = {"available": not missing, "missing": missing, "model": computer_model()}
+        result = {
+            "available": not missing,
+            "missing": missing,
+            "model": computer_model(),
+            "api_key_source": key_source,
+            "api_key_hint": mask_api_key(key),
+        }
         _availability_cache = (now, result)
         return dict(result)
 
@@ -373,8 +421,8 @@ class BrowserSession:
         from openai import AsyncOpenAI
         from playwright.async_api import async_playwright
 
-        api_key = os.environ.get("BOSUN_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        client = self._client_factory(api_key) if self._client_factory else AsyncOpenAI(api_key=api_key)
+        key = api_key()
+        client = self._client_factory(key) if self._client_factory else AsyncOpenAI(api_key=key)
         run_dir = DATA_DIR / "browser-runs" / str(self.task_id)
         run_dir.mkdir(parents=True, exist_ok=True)
 

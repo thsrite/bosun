@@ -175,12 +175,13 @@ pkill -x Bosun; rm -rf /Applications/Bosun.app
 
 Browser 是独立的任务引擎，用于验收本机正在运行的 Web 应用。任务指令必须包含 `http://localhost:端口`、`http://127.0.0.1:端口` 或其它回环地址；公网、局域网地址、文件上传下载、剪贴板和非 HTTP(S) 导航均会被阻止。提交、删除、支付、敏感字段填写等动作会暂停并等待人工确认。
 
-源码运行时安装 Chromium 并提供 OpenAI API Key：
+源码运行时安装 Chromium：
 
 ```bash
 backend/.venv/bin/python -m playwright install chromium
-export BOSUN_OPENAI_API_KEY="..."
 ```
+
+OpenAI API Key 直接在「设置 → Browser Computer Use → API Key」里填写（保存在本机数据库）；也可继续用 `BOSUN_OPENAI_API_KEY` / `OPENAI_API_KEY` 环境变量，设置页填写的优先。
 
 设置页显示 Browser「就绪」后，新建任务时才会出现该选项。MVP 默认使用 `gpt-5.6`，可用 `BOSUN_COMPUTER_MODEL` 覆盖；它不参与自动选引擎、Autopilot、子任务或 CLI 会话接续。二进制发行包会包含 Playwright 运行库，但 Chromium 仍需在运行机器上安装。
 
@@ -198,7 +199,7 @@ export BOSUN_OPENAI_API_KEY="..."
 | `BOSUN_CODEX_BIN` | 自动探测 `codex` | Codex CLI 可执行文件路径 |
 | `BOSUN_OMP_BIN` | 自动探测 `omp` | Oh My Pi 可执行文件路径 |
 | `BOSUN_KIMI_BIN` | 自动探测 `kimi` | Kimi Code CLI 可执行文件路径 |
-| `BOSUN_OPENAI_API_KEY` | 未设置 | Browser Computer Use 使用的 OpenAI API Key（也兼容 `OPENAI_API_KEY`） |
+| `BOSUN_OPENAI_API_KEY` | 未设置 | Browser Computer Use / 语音转写使用的 OpenAI API Key（也兼容 `OPENAI_API_KEY`）；设置页填写的优先 |
 | `BOSUN_COMPUTER_MODEL` | `gpt-5.6` | Browser Computer Use 模型 |
 | `BOSUN_COMPUTER_TIMEOUT` | `300` | 单个 Browser 任务最长运行秒数 |
 | `BOSUN_COMPUTER_MAX_ACTIONS` | `100` | 单个 Browser 任务最多执行的浏览器动作数 |
