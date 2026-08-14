@@ -841,9 +841,9 @@ async def transcribe_audio(task_id: int, file: UploadFile = File(...)):
     if db.query_one("SELECT id FROM task WHERE id=?", (task_id,)) is None:
         raise HTTPException(404, "任务不存在")
 
-    api_key = os.environ.get("BOSUN_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = browser_computer.api_key()
     if not api_key:
-        raise HTTPException(400, "未配置 OPENAI_API_KEY 或 BOSUN_OPENAI_API_KEY，无法语音转文字")
+        raise HTTPException(400, "未配置 OpenAI API Key，无法语音转文字（可在设置页填写）")
 
     data = await file.read(MAX_AUDIO_BYTES + 1)
     if not data:

@@ -34,7 +34,8 @@ function Section({ title, hint, aside, children }: { title: string; hint?: strin
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+    // 网格而非 flex-wrap：hint 再长也只在左列换行，右侧控件始终贴右对齐不掉行
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5">
       <div className="min-w-0">
         <div className="text-sm text-dh-tsoft">{label}</div>
         {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
@@ -425,12 +426,14 @@ function AccessControl({ auth, onAuthChanged }: { auth: AuthStatus; onAuthChange
   );
 }
 
-/** 设置分组：小节标题 + 桌面端两列网格(默认 stretch，配合卡片 h-full 同行等高)。 */
+/** 设置分组：小节标题 + 自适应多列网格。
+ * items-start 让卡片按内容高度收缩（不再被同行最高的卡撑出大片留白），
+ * 宽屏最多三列，避免正文只挤在中间一条。 */
 function SettingsGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
       <h3 className="px-1 text-[11px] font-semibold uppercase tracking-wider text-dh-muted">{label}</h3>
-      <div className="grid gap-4 lg:grid-cols-2">{children}</div>
+      <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">{children}</div>
     </section>
   );
 }
@@ -456,6 +459,77 @@ const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
   kimi: { blurb: "Moonshot 的 Kimi Code CLI，自带 provider 凭据", install: "npm i -g @moonshot-ai/kimi-code" },
   browser: { blurb: "OpenAI Computer Use + 隔离 Chromium", install: "playwright install chromium" },
 };
+
+/** Browser Computer Use 的 OpenAI Key：存后端设置（数据库），不再依赖环境变量。
+ * 明文只在提交那一刻存在于本地 state，后端只回掩码。 */
+function BrowserApiKeyField({
+  browser,
+  onChange,
+}: {
+  browser: AppSettings["browser"];
+  onChange: (patch: Partial<AppSettings>) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fromSettings = browser.api_key_source === "settings";
+
+  async function save(value: string) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onChange({ browser_api_key: value });
+      setDraft("");
+      toast(value ? "API Key 已保存" : "API Key 已清除", "success");
+    } catch (err) {
+      toast(`保存失败：${readDetail(err)}`, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clear() {
+    const ok = await confirmDialog("清除后 Browser Computer Use 将回退到环境变量（若未设置则不可用）。确定清除？", { danger: true });
+    if (ok) await save("");
+  }
+
+  return (
+    <Field
+      label="API Key"
+      hint={
+        fromSettings
+          ? `已保存 ${browser.api_key_hint}`
+          : browser.api_key_source === "env"
+            ? `当前用环境变量 ${browser.api_key_hint}；在此填写可覆盖`
+            : "OpenAI API Key，保存在本机数据库，仅用于调用 computer use 与语音转写"
+      }
+    >
+      <div className="flex items-center gap-2">
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={fromSettings ? "填写以替换" : "sk-…"}
+          className="w-44 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 font-mono text-xs text-dh-text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={saving || !draft.trim()}
+          onClick={() => void save(draft.trim())}
+          className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
+        >{saving ? "保存中…" : "保存"}</button>
+        {fromSettings && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void clear()}
+            className="shrink-0 rounded-md border border-rose-500/40 px-3 py-1 text-sm text-rose-500 transition hover:bg-rose-500/20 disabled:opacity-50"
+          >清除</button>
+        )}
+      </div>
+    </Field>
+  );
+}
 
 /** 未安装引擎的灰态摘要卡。其余界面对未安装引擎一律隐藏，
  * 只在设置页保留一张占位卡，成对展示「支持什么」和「怎么装」。 */
@@ -597,7 +671,7 @@ export function SettingsView({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-7 p-4 lg:p-6">
+    <div className="mx-auto w-full max-w-[1760px] space-y-7 p-4 lg:p-6">
       <SettingsGroup label="执行引擎">
       {!showClaude && <UninstalledEngineCard engine="claude" />}
       {showClaude && (
@@ -763,6 +837,7 @@ export function SettingsView({
             {settings.browser.model}
           </code>
         </Field>
+        <BrowserApiKeyField browser={settings.browser} onChange={onChange} />
         <Field label="运行条件">
           {settings.browser.available ? (
             <span className="text-sm text-emerald-400">API Key、Playwright 与 Chromium 已就绪</span>
@@ -777,12 +852,12 @@ export function SettingsView({
       </SettingsGroup>
 
       <SettingsGroup label="任务编排">
-        <div className="min-w-0 lg:col-span-2">
+        <div className="min-w-0 md:col-span-2 xl:col-span-3">
           <OrchestrationSettings settings={settings} />
         </div>
       </SettingsGroup>
 
-      <SettingsGroup label="运行与系统">
+      <SettingsGroup label="运行与数据">
         <Section title="运行" hint="控制任务并发与额度保护。">
           <Field label="并发上限">
             <input
@@ -845,11 +920,9 @@ export function SettingsView({
               {settings.report_skill_enabled ? "已开启" : "已关闭"}
             </label>
           </Field>
-          <div className="space-y-2 border-t border-dh-bsoft pt-3">
-            <div>
-              <div className="text-sm text-dh-tsoft">Agent Skills 安装目录</div>
-              <div className="text-[11px] text-slate-400">留空时使用各 CLI 的全局默认目录；修改后只迁移 Bosun 自有技能。</div>
-            </div>
+        </Section>
+        <Section title="Agent Skills 安装目录" hint="留空时使用各 CLI 的全局默认目录；修改后只迁移 Bosun 自有技能。">
+          <div className="space-y-2">
             {SKILL_ENGINES.map((engine) => {
               const info = settings.agent_skill_paths[engine];
               const value = settings.skill_path_overrides[engine] ?? "";
@@ -873,6 +946,12 @@ export function SettingsView({
             })}
           </div>
         </Section>
+        <StorageOverview />
+      </SettingsGroup>
+
+      <SettingsGroup label="维护与安全">
+        <BosunVersion />
+        <AccessControl auth={auth} onAuthChanged={onAuthChanged} />
         <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
           <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">
             <button
@@ -883,12 +962,6 @@ export function SettingsView({
             >重启后端</button>
           </Field>
         </Section>
-        <StorageOverview />
-      </SettingsGroup>
-
-      <SettingsGroup label="维护与安全">
-        <BosunVersion />
-        <AccessControl auth={auth} onAuthChanged={onAuthChanged} />
       </SettingsGroup>
     </div>
   );

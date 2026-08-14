@@ -42,7 +42,13 @@ export type AppSettings = {
     available: boolean;
     missing: string[];
     model: string;
+    /** "settings" = 页面填的，"env" = 环境变量，"" = 未配置 */
+    api_key_source: "settings" | "env" | "";
+    /** 掩码，明文不出后端 */
+    api_key_hint: string;
   };
+  /** 只写字段：保存 Browser Computer Use 的 OpenAI Key；不传表示不改动，"" 表示清除 */
+  browser_api_key?: string;
 };
 
 export type StorageInfo = {
