@@ -55,7 +55,7 @@ export function TaskCard({
   const s = STATUS_STYLE[statusKey] ?? STATUS_STYLE.draft;
   const isDraft = task.status === "draft";
   const isWaiting = task.status === "waiting_input" && !isPerm && !isChoice && !isReview;
-  const active = ["running", "waiting_input", "queued", "rate_limited"].includes(task.status);
+  const active = ["running", "waiting_input", "queued"].includes(task.status);
   // 受控子任务：标出来源，免得看板上多出一条来路不明的任务
   const isSubtask = task.parent_task_id != null;
   const terminal = ["done", "failed", "cancelled", "interrupted"].includes(task.status);

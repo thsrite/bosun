@@ -25,7 +25,6 @@ export type TaskStatus =
   | "queued"
   | "running"
   | "waiting_input"
-  | "rate_limited"
   | "paused"
   | "done"
   | "failed"
@@ -69,8 +68,6 @@ export interface Task {
   // 详情页此时才露出「恢复会话」；正常运行不显示，避免误点停掉执行器。
   session_cleared?: boolean;
   report_result?: "done" | "failed" | "needs_input" | null;
-  // 撞引擎限流后自动续跑的时刻(Unix 秒)；仅 status=rate_limited 时有值
-  resume_after?: number | null;
   // 受控子任务的父任务 id；非空表示这是某个任务派生出来的子任务
   parent_task_id?: number | null;
   report_summary?: string | null;

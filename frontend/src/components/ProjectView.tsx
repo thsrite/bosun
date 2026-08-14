@@ -68,7 +68,7 @@ export function ProjectView({
   const terminalSwitchTasks = currentTerminalTask
     ? tasks.filter(
         (t) =>
-          ["queued", "running", "waiting_input", "rate_limited"].includes(t.status) ||
+          ["queued", "running", "waiting_input"].includes(t.status) ||
           t.id === currentTerminalTask.id,
       )
     : [];

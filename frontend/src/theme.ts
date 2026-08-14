@@ -28,7 +28,6 @@ export const STATUS_STYLE: Record<string, { dot: string; text: string; label: st
   waiting_perm: { dot: "bg-fuchsia-400", text: "text-fuchsia-400", label: "待授权", pulse: true },
   waiting_choice: { dot: "bg-orange-400", text: "text-orange-400", label: "待选择", pulse: true },
   waiting_review: { dot: "bg-cyan-400", text: "text-cyan-400", label: "待人工核对", pulse: true },
-  rate_limited: { dot: "bg-yellow-500", text: "text-yellow-500", label: "限流等待", pulse: true },
   paused: { dot: "bg-violet-400", text: "text-violet-300", label: "等待执行" },
   done: { dot: "bg-sky-400", text: "text-sky-400", label: "完成" },
   failed: { dot: "bg-rose-400", text: "text-rose-400", label: "失败" },

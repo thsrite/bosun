@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from typing import Any
 
 from .config import DB_PATH, DEFAULT_MAX_CONCURRENT
@@ -241,8 +242,6 @@ def _ensure_columns() -> None:
         "report_summary": "TEXT",      # agent 回调的一句话结论
         "waiting_since": "REAL",       # 当前 waiting_input 轮次起点；用于通知补发/去重
         "report_token": "TEXT",        # 本轮派发给 agent 的 /report 回调凭证
-        "resume_after": "REAL",        # 撞限流后自动续跑的时刻(epoch)；rate_limited 态专用
-        "rate_limit_attempts": "INTEGER NOT NULL DEFAULT 0",  # 已自动续跑次数，触顶转 failed
         # 受控子任务的父任务 id。SET NULL 而非 CASCADE：父任务被硬删时子任务的
         # 统计历史不该跟着消失（与 task 表既有的软删除取向一致）。
         "parent_task_id": "INTEGER REFERENCES task(id) ON DELETE SET NULL",
@@ -350,6 +349,21 @@ def _migrate_engine_ids(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_rate_limited_tasks(conn: sqlite3.Connection) -> None:
+    """限流等待机制已摘除：历史遗留的 rate_limited 任务收进 done。
+
+    不迁的话这些任务谁也看不见——前端已不再收录该状态，调度器也不再有人把它们捞回
+    队列，任务就永久卡死在看板之外。exit_code 保持不动：这些任务并没有真的跑完，
+    只是人工归档为已完成，不伪造一个成功的退出码。重复执行安全。
+    """
+    conn.execute(
+        "UPDATE task SET status='done', ended_at=COALESCE(ended_at, ?) "
+        "WHERE status='rate_limited'",
+        (time.time(),),
+    )
+    conn.commit()
+
+
 def init_db() -> None:
     with _lock:
         conn = get_conn()
@@ -357,6 +371,7 @@ def init_db() -> None:
         conn.commit()
         _ensure_columns()
         _migrate_engine_ids(conn)
+        _migrate_rate_limited_tasks(conn)
         _clear_placeholder_prompts(conn)
         # 默认设置
         cur = conn.execute("SELECT value FROM setting WHERE key='max_concurrent'")

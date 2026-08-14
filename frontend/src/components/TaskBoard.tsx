@@ -22,7 +22,7 @@ type DoneArchive = { key: string; tasks: Task[] };
 
 const COLUMNS: { key: ColKey; title: string; accent: string; statuses: string[] }[] = [
   { key: "backlog", title: "待办", accent: "bg-slate-400", statuses: ["draft"] },
-  { key: "active", title: "执行中", accent: "bg-emerald-500", statuses: ["queued", "running", "waiting_input", "rate_limited"] },
+  { key: "active", title: "执行中", accent: "bg-emerald-500", statuses: ["queued", "running", "waiting_input"] },
   { key: "done", title: "已完成", accent: "bg-sky-400", statuses: ["done", "failed", "cancelled", "interrupted"] },
 ];
 
