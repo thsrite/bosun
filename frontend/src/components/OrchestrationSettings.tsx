@@ -71,11 +71,11 @@ function draftFromPreset(preset: BuiltInOrchestration, engines: CodingEngine[], 
     id: null,
     name: nextAvailableOrchestrationName(preset.name, existingNames),
     enabled: true,
-    steps: preset.steps.map(({ roleId, preferredEngine }) => {
+    steps: preset.steps.map(({ roleId, preferredEngine, name }) => {
       const role = getBuiltInRole(roleId);
       return emptyStep(
         engines.includes(preferredEngine) ? preferredEngine : fallbackEngine,
-        role.name,
+        name ?? role.name,
         role.rolePrompt,
       );
     }),
@@ -191,7 +191,6 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const { busy, run } = useSingleFlight();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const developmentPreset = BUILT_IN_ORCHESTRATIONS[0];
 
   const load = useCallback(async () => {
     setTemplates(await api.orchestrations.list());
@@ -298,13 +297,16 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
           <p className="mt-1 text-xs text-slate-400">按顺序运行多个自定义角色；角色提示词会与原任务、前序产物一起注入 CLI。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={engines.length === 0}
-            onClick={() => openDraft(draftFromPreset(developmentPreset, engines, templates.map((template) => template.name)))}
-            title={developmentPreset.description}
-            className="rounded-lg border border-dh-accent/50 px-3 py-1.5 text-sm font-medium text-dh-accent hover:bg-dh-accent/10 disabled:opacity-40"
-          >使用内置“{developmentPreset.name}”</button>
+          {BUILT_IN_ORCHESTRATIONS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              disabled={engines.length === 0}
+              onClick={() => openDraft(draftFromPreset(preset, engines, templates.map((template) => template.name)))}
+              title={preset.description}
+              className="rounded-lg border border-dh-accent/50 px-3 py-1.5 text-sm font-medium text-dh-accent hover:bg-dh-accent/10 disabled:opacity-40"
+            >使用内置“{preset.name}”</button>
+          ))}
           <button
             type="button"
             onClick={() => openDraft(emptyDraft(engines))}

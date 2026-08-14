@@ -359,7 +359,7 @@ export function CreateTaskDialog({
                 checked={executionMode === "orchestration"}
                 onChange={() => setExecutionMode("orchestration")}
               />
-              🔗 编排
+              🔗 {selectedOrchestration?.name ?? "编排"}
             </label>
           )}
         </div>

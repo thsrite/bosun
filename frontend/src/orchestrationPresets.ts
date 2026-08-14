@@ -39,6 +39,34 @@ export const BUILT_IN_ROLES = [
 输出要求：包含现状判断、推荐方案、影响范围、实施步骤、验证方法和残余风险；不得直接修改代码。`,
   },
   {
+    id: "ui-design",
+    name: "UI 设计",
+    description: "输出界面结构、交互与视觉规范",
+    rolePrompt: `你是界面设计负责人。结合原始任务与前序产物，产出可以直接交给实施者落地的界面方案，本环节不修改代码。
+
+工作要求：
+- 先查看项目现有页面、组件库和设计 token，沿用既有布局密度、配色与交互习惯，不引入第二套风格。
+- 明确信息层级、页面结构、关键交互流程，以及加载、空、错误、超长内容等状态的表现。
+- 颜色、间距、字号、圆角一律引用现有 token，禁止写死魔法值；深色背景下确保文字与控件对比度可读。
+- 说明响应式断点下的布局变化和可访问性要求（焦点、键盘操作、可点击区域）。
+
+输出要求：先给设计结论，再列页面结构、组件与状态清单、交互说明、复用的既有组件与 token，以及仍需确认的取舍；不输出实现代码。`,
+  },
+  {
+    id: "ui-restore",
+    name: "UI 还原",
+    description: "对照设计稿逐项列出差异与还原规格",
+    rolePrompt: `你是界面还原负责人。对照设计稿、截图或参考页面与当前实现，逐项找出偏差并给出精确的还原规格，本环节不修改代码。
+
+工作要求：
+- 先定位对应的页面与组件实现，再按区块自上而下比对，不凭印象下结论。
+- 逐项核对布局与尺寸、间距、字号字重行高、颜色、圆角阴影、图标、状态与交互反馈。
+- 每处偏差写清位置、当前值、目标值；目标值优先映射到项目既有 token，无对应 token 时说明并给出建议取值。
+- 区分必须还原的偏差与设计稿本身不合理、需要确认的地方，并标注实现成本较高的项。
+
+输出要求：按区块给出差异清单（位置 / 现状 / 目标 / 依据），再列改动涉及的文件与组件、还原顺序，以及无法还原或需确认的项；不输出实现代码。`,
+  },
+  {
     id: "plan-review",
     name: "方案审计",
     description: "在实施前审查方案漏洞",
@@ -130,7 +158,8 @@ export type BuiltInOrchestration = {
   id: string;
   name: string;
   description: string;
-  steps: readonly { roleId: BuiltInRoleId; preferredEngine: CodingEngine }[];
+  // name 仅在同一角色重复出现（如双模型交叉复核）时覆盖默认角色名，避免步骤重名难以分辨。
+  steps: readonly { roleId: BuiltInRoleId; preferredEngine: CodingEngine; name?: string }[];
 };
 
 export const BUILT_IN_ORCHESTRATIONS = [
@@ -143,6 +172,35 @@ export const BUILT_IN_ORCHESTRATIONS = [
       { roleId: "plan-review", preferredEngine: "claude" },
       { roleId: "implementation", preferredEngine: "claude" },
       { roleId: "test-validation", preferredEngine: "codex" },
+    ],
+  },
+  {
+    id: "ui-design",
+    name: "UI 设计",
+    description: "UI 设计 → 实施开发 → 测试验证",
+    steps: [
+      { roleId: "ui-design", preferredEngine: "claude" },
+      { roleId: "implementation", preferredEngine: "claude" },
+      { roleId: "test-validation", preferredEngine: "codex" },
+    ],
+  },
+  {
+    id: "ui-restore",
+    name: "UI 还原",
+    description: "UI 还原 → 实施开发 → 测试验证",
+    steps: [
+      { roleId: "ui-restore", preferredEngine: "claude" },
+      { roleId: "implementation", preferredEngine: "claude" },
+      { roleId: "test-validation", preferredEngine: "codex" },
+    ],
+  },
+  {
+    id: "security-audit",
+    name: "安全审计",
+    description: "安全审计 → 双模型交叉复核（只出风险清单，不改代码）",
+    steps: [
+      { roleId: "security-audit", preferredEngine: "codex" },
+      { roleId: "security-audit", preferredEngine: "claude", name: "安全复核" },
     ],
   },
 ] as const satisfies readonly BuiltInOrchestration[];
