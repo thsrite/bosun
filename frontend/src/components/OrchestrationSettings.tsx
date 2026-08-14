@@ -5,6 +5,15 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type AppSettings } from "../api";
 import { engineBadgeClass, engineName, engineShort } from "../engines";
 import { useAvailableEngines } from "../installedEngines";
+import {
+  BUILT_IN_ORCHESTRATIONS,
+  BUILT_IN_ROLES,
+  applyRolePreset,
+  getBuiltInRole,
+  nextAvailableOrchestrationName,
+  type BuiltInOrchestration,
+  type BuiltInRoleId,
+} from "../orchestrationPresets";
 import { confirmDialog, toast } from "../overlay";
 import type { Engine, OrchestrationTemplate } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
@@ -53,6 +62,23 @@ function emptyDraft(engines: CodingEngine[]): Draft {
       emptyStep(first, "方案负责人", "分析原始任务并输出清晰、可执行的方案。"),
       emptyStep(second, "实施负责人", "结合原始任务和前序产物完成实现与验证。"),
     ],
+  };
+}
+
+function draftFromPreset(preset: BuiltInOrchestration, engines: CodingEngine[], existingNames: readonly string[]): Draft {
+  const fallbackEngine = engines[0] ?? "claude";
+  return {
+    id: null,
+    name: nextAvailableOrchestrationName(preset.name, existingNames),
+    enabled: true,
+    steps: preset.steps.map(({ roleId, preferredEngine }) => {
+      const role = getBuiltInRole(roleId);
+      return emptyStep(
+        engines.includes(preferredEngine) ? preferredEngine : fallbackEngine,
+        role.name,
+        role.rolePrompt,
+      );
+    }),
   };
 }
 
@@ -165,6 +191,7 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const { busy, run } = useSingleFlight();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const developmentPreset = BUILT_IN_ORCHESTRATIONS[0];
 
   const load = useCallback(async () => {
     setTemplates(await api.orchestrations.list());
@@ -183,6 +210,13 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
     setDraft((current) => current ? {
       ...current,
       steps: current.steps.map((step, stepIndex) => stepIndex === index ? { ...step, ...patch } : step),
+    } : current);
+  }
+
+  function fillFromRolePreset(index: number, roleId: BuiltInRoleId) {
+    setDraft((current) => current ? {
+      ...current,
+      steps: current.steps.map((step, stepIndex) => stepIndex === index ? applyRolePreset(step, roleId) : step),
     } : current);
   }
 
@@ -263,11 +297,20 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
           <h2 className="text-sm font-semibold text-dh-text">任务编排</h2>
           <p className="mt-1 text-xs text-slate-400">按顺序运行多个自定义角色；角色提示词会与原任务、前序产物一起注入 CLI。</p>
         </div>
-        <button
-          type="button"
-          onClick={() => openDraft(emptyDraft(engines))}
-          className="rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov"
-        >+ 新建编排</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={engines.length === 0}
+            onClick={() => openDraft(draftFromPreset(developmentPreset, engines, templates.map((template) => template.name)))}
+            title={developmentPreset.description}
+            className="rounded-lg border border-dh-accent/50 px-3 py-1.5 text-sm font-medium text-dh-accent hover:bg-dh-accent/10 disabled:opacity-40"
+          >使用内置“{developmentPreset.name}”</button>
+          <button
+            type="button"
+            onClick={() => openDraft(emptyDraft(engines))}
+            className="rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov"
+          >+ 新建编排</button>
+        </div>
       </div>
 
       {templates.length === 0 && !draft ? (
@@ -331,6 +374,25 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
 
           {selected && models && (
             <div className="rounded-lg border border-dh-bsoft bg-dh-surface p-3">
+              <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-dh-bsoft bg-dh-soft p-2.5">
+                <label className="min-w-56">
+                  <span className="mb-1 block text-xs text-dh-muted">从内置角色填充</span>
+                  <select
+                    value=""
+                    onChange={(event) => {
+                      const roleId = event.target.value as BuiltInRoleId;
+                      if (roleId) fillFromRolePreset(selectedIndex, roleId);
+                    }}
+                    className="w-full rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1.5 text-sm"
+                  >
+                    <option value="">选择角色预设…</option>
+                    {BUILT_IN_ROLES.map((role) => (
+                      <option key={role.id} value={role.id}>{role.name} · {role.description}</option>
+                    ))}
+                  </select>
+                </label>
+                <p className="pb-1 text-xs text-dh-muted">仅填充角色名称和提示词，不改变 CLI、模型与推理强度；填充后可继续编辑。</p>
+              </div>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="min-w-40 flex-1">
                   <span className="mb-1 block text-xs text-dh-muted">第 {selectedIndex + 1} 步角色名称</span>
