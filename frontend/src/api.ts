@@ -14,6 +14,7 @@ import type {
 export type AppSettings = {
   max_concurrent: number;
   quota_enabled: boolean;
+  status_badge_enabled: boolean;
   subtask_skill_enabled: boolean;
   report_skill_enabled: boolean;
   skill_path_overrides: Partial<Record<Exclude<Engine, "browser">, string>>;

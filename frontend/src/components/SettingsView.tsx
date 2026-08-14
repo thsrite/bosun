@@ -558,12 +558,19 @@ export function SettingsView({
     enabled: boolean,
   ) {
     if (enabled) {
-      const paths = SKILL_ENGINES.map((engine) => {
-        const info = settings.agent_skill_paths[engine];
-        return `${engineName(engine)}${info.installed ? "" : "（尚未安装 CLI）"}：${info.path}`;
-      }).join("\n");
       const confirmed = await confirmDialog(
-        `Bosun 将把自有技能安装到以下目录，并在以后检测到新 CLI 时自动补装：\n\n${paths}\n\n路径不对时，请先在下方修改。确定开启？`,
+        "Bosun 将把自有技能安装到以下目录，并在以后检测到新 CLI 时自动补装：",
+        {
+          items: SKILL_ENGINES.map((engine) => {
+            const info = settings.agent_skill_paths[engine];
+            return {
+              label: engineName(engine),
+              note: info.installed ? undefined : "尚未安装 CLI",
+              value: info.path,
+            };
+          }),
+          footnote: "路径不对时，请先在下方修改。确定开启？",
+        },
       );
       if (!confirmed) return;
     }
@@ -797,6 +804,19 @@ export function SettingsView({
                 onChange={(e) => void onChange({ quota_enabled: e.target.checked })}
               />
               {settings.quota_enabled ? "已开启" : "已关闭"}
+            </label>
+          </Field>
+          <Field
+            label="顶栏状态徽标"
+            hint="顶栏的 CLI 额度 / 宿主机指标徽标，以及点开的状态详情弹窗；关闭后不再展示与轮询。"
+          >
+            <label className="flex items-center gap-2 text-sm text-dh-tsoft">
+              <input
+                type="checkbox"
+                checked={settings.status_badge_enabled}
+                onChange={(e) => void onChange({ status_badge_enabled: e.target.checked })}
+              />
+              {settings.status_badge_enabled ? "已开启" : "已关闭"}
             </label>
           </Field>
           <Field

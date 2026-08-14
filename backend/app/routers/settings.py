@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class Settings(BaseModel):
     max_concurrent: int
     quota_enabled: bool = True
+    status_badge_enabled: bool = True
     subtask_skill_enabled: bool = False
     report_skill_enabled: bool = False
     skill_path_overrides: dict[str, str] = Field(default_factory=dict)
@@ -30,11 +31,18 @@ class Settings(BaseModel):
     kimi_model: str = ""
 
 
+def status_badge_enabled() -> bool:
+    """顶栏 CLI 状态徽标是否显示；默认开，只影响前端展示。"""
+    value = db.get_setting("status_badge_enabled", "1")
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+
 @router.get("")
 def get_settings():
     return {
         "max_concurrent": int(db.get_setting("max_concurrent", 3)),
         "quota_enabled": quota.is_enabled(),
+        "status_badge_enabled": status_badge_enabled(),
         "subtask_skill_enabled": agent_skills.feature_enabled("subtask"),
         "report_skill_enabled": agent_skills.feature_enabled("report"),
         "skill_path_overrides": agent_skills.path_overrides(),
@@ -175,6 +183,7 @@ def update_settings(body: Settings):
 
     db.set_setting("max_concurrent", max(1, body.max_concurrent))
     db.set_setting("quota_enabled", "1" if body.quota_enabled else "0")
+    db.set_setting("status_badge_enabled", "1" if body.status_badge_enabled else "0")
     db.set_setting("subtask_skill_enabled", "1" if body.subtask_skill_enabled else "0")
     db.set_setting("report_skill_enabled", "1" if body.report_skill_enabled else "0")
     for engine, path in normalized_paths.items():

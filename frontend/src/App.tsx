@@ -34,6 +34,7 @@ const DEFAULT_AUTH: AuthStatus = {
 const DEFAULT_SETTINGS: AppSettings = {
   max_concurrent: 3,
   quota_enabled: true,
+  status_badge_enabled: true,
   subtask_skill_enabled: false,
   report_skill_enabled: false,
   skill_path_overrides: {},
@@ -422,7 +423,7 @@ export default function App() {
                   <span className="hidden sm:inline"> 待输入</span>
                 </button>
               )}
-              <QuotaBadge onModelOptionsUpdated={updateModelOptions} />
+              {settings.status_badge_enabled && <QuotaBadge onModelOptionsUpdated={updateModelOptions} />}
               {totalDrafts > 0 && (
                 <button
                   className="rounded-lg border border-slate-400/30 bg-slate-400/10 px-2.5 py-1.5 text-sm font-medium text-dh-tsoft hover:bg-slate-400/15 disabled:opacity-50 lg:px-3"

@@ -10,8 +10,17 @@ type Toast = {
   tone: "info" | "success" | "error";
   dedupeKey?: string;
 };
+/** 确认弹窗里的结构化条目：名称 + 值（如路径），比塞进正文换行更好读。 */
+export type ConfirmItem = { label: string; value: string; note?: string };
 type Dialog =
-  | { kind: "confirm"; message: string; danger?: boolean; resolve: (v: boolean) => void }
+  | {
+      kind: "confirm";
+      message: string;
+      danger?: boolean;
+      items?: ConfirmItem[];
+      footnote?: string;
+      resolve: (v: boolean) => void;
+    }
   | {
       kind: "prompt";
       message: string;
@@ -43,9 +52,15 @@ export function toast(message: string, tone: Toast["tone"] = "info", dedupeKey?:
   }, 3800);
 }
 
-export function confirmDialog(message: string, opts?: { danger?: boolean }): Promise<boolean> {
+export function confirmDialog(
+  message: string,
+  opts?: { danger?: boolean; items?: ConfirmItem[]; footnote?: string },
+): Promise<boolean> {
   return new Promise((resolve) => {
-    _dialogs = [..._dialogs, { kind: "confirm", message, danger: opts?.danger, resolve }];
+    _dialogs = [
+      ..._dialogs,
+      { kind: "confirm", message, danger: opts?.danger, items: opts?.items, footnote: opts?.footnote, resolve },
+    ];
     _emit();
   });
 }
@@ -206,7 +221,9 @@ export function OverlayHost() {
           aria-modal="true"
         >
           <div
-            className="max-h-full w-full max-w-[420px] overflow-auto rounded-2xl border border-dh-bsoft bg-dh-surface p-5 shadow-xl shadow-black/40 ring-1 ring-inset ring-white/[0.04]"
+            className={`max-h-full w-full overflow-auto rounded-2xl ${
+              dlg.kind === "confirm" && dlg.items?.length ? "max-w-[540px]" : "max-w-[420px]"
+            } border border-dh-bsoft bg-dh-surface p-5 shadow-xl shadow-black/40 ring-1 ring-inset ring-white/[0.04]`}
             onPaste={handlePaste}
           >
             <div className="mb-3 flex items-start gap-3">
@@ -220,6 +237,22 @@ export function OverlayHost() {
                 ✕
               </button>
             </div>
+            {dlg.kind === "confirm" && !!dlg.items?.length && (
+              <div className="divide-y divide-dh-bsoft rounded-lg border border-dh-bsoft bg-dh-soft">
+                {dlg.items.map((item) => (
+                  <div key={item.label} className="min-w-0 px-3 py-2">
+                    <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs font-medium text-dh-tsoft">
+                      {item.label}
+                      {item.note && <span className="font-normal text-[11px] text-slate-400">{item.note}</span>}
+                    </div>
+                    <div className="mt-0.5 break-all font-mono text-[11px] leading-snug text-dh-muted">{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {dlg.kind === "confirm" && dlg.footnote && (
+              <div className="mt-3 text-xs text-slate-400">{dlg.footnote}</div>
+            )}
             {dlg.kind === "prompt" && (
               <input
                 // 触屏不 autoFocus（同 CreateTaskDialog：iOS 弹窗 autofocus 键盘闪现即收陷阱）
