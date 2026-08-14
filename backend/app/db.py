@@ -204,6 +204,29 @@ CREATE TABLE IF NOT EXISTS orchestration_step_run (
     ended_at REAL,
     UNIQUE(run_id, position)
 );
+-- 角色之间的消息（常驻班组编排）。目标会话不在线时 delivered_at 留空，等它回来补投。
+CREATE TABLE IF NOT EXISTS orchestration_message (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES orchestration_run(id) ON DELETE CASCADE,
+    from_position INTEGER,          -- NULL = 系统/用户发出
+    to_position INTEGER NOT NULL,
+    kind TEXT NOT NULL,             -- handoff | rework | ask | answer | system
+    body TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    delivered_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_orchestration_message_run
+    ON orchestration_message(run_id, id);
+-- 被打回重跑前的产物归档：返工不抹掉历史，重跑产生新一版。
+CREATE TABLE IF NOT EXISTS orchestration_step_artifact (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    step_run_id INTEGER NOT NULL REFERENCES orchestration_step_run(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL,
+    output_artifact TEXT,
+    summary TEXT,
+    created_at REAL NOT NULL,
+    UNIQUE(step_run_id, attempt)
+);
 """
 
 
@@ -270,6 +293,12 @@ def _ensure_columns() -> None:
     _ensure_table_columns(conn, "orchestration_step_run", {
         "model": "TEXT NOT NULL DEFAULT ''",
         "reasoning_effort": "TEXT NOT NULL DEFAULT ''",
+        "role_kind": "TEXT NOT NULL DEFAULT 'step'",   # step | report(收口汇报角色)
+        "rework_count": "INTEGER NOT NULL DEFAULT 0",  # 本步骤被打回重跑的次数
+        "attempt": "INTEGER NOT NULL DEFAULT 1",       # 当前是第几次执行(返工递增)
+    })
+    _ensure_table_columns(conn, "orchestration_run", {
+        "rework_total": "INTEGER NOT NULL DEFAULT 0",  # 整个 run 的返工次数(限次熔断)
     })
     conn.commit()
 

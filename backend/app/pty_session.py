@@ -148,6 +148,11 @@ _ANSI_RE = re.compile(
 _BUSY_GRACE_SECONDS = max(IDLE_SECONDS * 2, 20.0)
 # 催报的静默门槛比 idle 判定更宽：正文打印完到 curl 之间有正常间隙，别抢跑误催
 NUDGE_IDLE_SECONDS = max(IDLE_SECONDS * 3, 24.0)
+# 硬静默兜底门槛：idle 判定与催报都要求画面停在空输入栏(_looks_like_idle_prompt)，
+# 对话被中断、TUI 停在报错或结束提示上时两条兜底一起落空，任务就永久显示运行中。
+# 这里只认「进程还活着但这么久一个字都没吐」，不看画面长什么样，所以门槛必须远高于
+# 上面两个：正常干活的 agent 不会十分钟不输出（跑长命令时 TUI 仍在刷计时器）。
+STALLED_SECONDS = 600.0
 # Semantic prompt words are common in source code, diffs and documentation (for
 # example ``getByText('请选择云盘实例')``).  Only treat them as prompts when they
 # begin a terminal/output line, optionally after a normal list/prompt marker.
@@ -390,6 +395,7 @@ class PtySession:
         task_engine: str | None = None,
         artifact_required: bool = False,
         report_nudge: str = "",
+        standby: bool = False,
     ):
         self.task_id = task_id
         self.argv = argv
@@ -401,6 +407,9 @@ class PtySession:
         self.task_engine = task_engine
         self.artifact_required = artifact_required
         self.report_nudge = report_nudge
+        # 常驻班组里未持棒的角色：安静等消息是它的正常状态，静默兜底与催报都不该找它。
+        # 由 orchestrations 在交棒/收棒时改写。
+        self.standby = standby
         self.on_status = on_status  # (task_id, status)
         self.on_exit = on_exit      # (task_id, exit_code)
         self.script_log_path: str | None = None
@@ -414,8 +423,9 @@ class PtySession:
         self._reported = False  # 收到 agent 权威回调后置真，正则不得再翻转状态
         self._nudge_sent = False  # 本轮已补发过催报提醒（每轮最多催一次）
         self._heuristics = wait_heuristics_enabled()
+        self._stalled = False  # 已按硬静默兜底标为待核对（有新输出即复位）
         # 记录进入 waiting_input 的来源: "prompt"(明确提示/完成标记,粘性) /
-        # "idle"(静默输入提示,可恢复)
+        # "idle"(静默输入提示,可恢复) / "stalled"(超长静默兜底,可恢复)
         self._wait_reason: str | None = None
         self._waiting_kind: str | None = None
         # 本次运行里检测到会话被 /clear 冲掉（粘性）：前端据此才显示「恢复会话」
@@ -545,6 +555,13 @@ class PtySession:
 
         启发式关闭时（默认）整段不生效：状态维持不变，只由 mark_reported 改写。
         """
+        # 硬静默兜底标的等待与画面无关，也与启发式开关无关：只要又吐字了就说明会话还活着，
+        # 立刻翻回 running，否则关闭启发式时这个低置信度判定会一直粘住。
+        if self._stalled:
+            self._stalled = False
+            self._wait_reason = None
+            self._waiting_kind = None
+            return "running"
         if not self._heuristics:
             return self.status
         if self._reported:
@@ -581,6 +598,37 @@ class PtySession:
             time.sleep(1.0)
             self._maybe_set_idle_waiting()
             self._maybe_nudge_report()
+            self._maybe_mark_stalled()
+
+    def _maybe_mark_stalled(self, now: float | None = None) -> bool:
+        """进程还活着但久未输出且没回报 → 标为待核对，别让任务永久挂"运行中"。
+
+        _maybe_set_idle_waiting 受启发式开关约束（线上默认关闭），且它和催报都要求画面
+        停在空输入栏；对话被中断后 TUI 停在别的画面时，两条路都不触发。这条兜底不看画面
+        内容、不受启发式开关约束，只按「活着 + 超长静默 + 本轮未回报」判定。
+        低置信度判定，所以只改状态不动进程：一有新输出就翻回 running
+        （见 _next_status_for_output 开头的复活分支），用户也仍可续跑或取消。
+        """
+        if self.proc is None or not self.proc.isalive():
+            return False
+        if self.standby:  # 待命角色本来就该一直安静，静默不是停摆
+            return False
+        if self._reported or self._stalled:
+            return False
+        now = now or time.time()
+        if now - self.last_output <= STALLED_SECONDS:
+            return False
+        if now < self._busy_until:
+            return False
+        tail = self._buf[-800:]
+        # 后台 shell 在跑 / 画面仍在转圈：真结果还在产出，不是停摆
+        if _has_active_background_shell(tail) or _looks_like_busy(tail):
+            return False
+        self._stalled = True
+        self._wait_reason = "stalled"
+        self._waiting_kind = "review"
+        self._set_status("waiting_input")
+        return True
 
     def _maybe_nudge_report(self, now: float | None = None) -> bool:
         """回合看似结束却没收到 /report 回调 → 往终端补投一条催报提醒（每轮一次）。
@@ -592,6 +640,8 @@ class PtySession:
         if not report_nudge_enabled():
             return False
         if not self.report_nudge:
+            return False
+        if self.standby:  # 待命角色没接活，没有「本轮」可回报，催了只会让它乱动
             return False
         if self._reported or self._nudge_sent:
             return False

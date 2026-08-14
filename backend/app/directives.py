@@ -50,5 +50,16 @@ ORCHESTRATION_REPORT_ADDENDUM = (
     "②再执行上面的 JSON 短回报；③最后打印完整结论正文，回报后不得再调工具。"
     "artifact 不是摘要，必须足以让下一个角色脱离本终端日志继续工作；"
     "done 缺少 artifact 会被后端拒绝。Windows 可用 curl.exe 配合 UTF-8 临时文件"
-    "和 `--data-binary @文件路径` 提交。"
+    "和 `--data-binary @文件路径` 提交。\n"
+    "【班组协作】编排里全体角色同时在线，接力棒只有一根：\n"
+    "· 没轮到你时保持待命，不要开工、不要回报 done（会被后端按接力棒守卫拒绝）；"
+    "Bosun 会把交棒、返工意见和别人的提问直接投进本会话，收到再动。\n"
+    "· 发现前面某位做错了：把 result 改成 rework，加 target_position=<第几位>，"
+    "summary 写返工意见（只能打回给你前面的角色，全程返工次数有上限，超限转人工）。\n"
+    "· 想问班组里另一位（不改变接力棒）：\n"
+    "curl -sS -X POST -H 'Content-Type: application/json' "
+    '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
+    '-d "{\\"to_position\\":2,\\"body\\":\\"你的问题\\",\\"reporter_pid\\":$$}" '
+    '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/message"\n'
+    "· 最后一位是汇报角色，由它输出面向用户的最终结论；其余角色不要越位替它总结。"
 )

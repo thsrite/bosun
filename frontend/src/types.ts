@@ -92,18 +92,35 @@ export interface OrchestrationTemplate {
   steps: OrchestrationStep[];
 }
 
+/** 班组角色的运行态：offline = 会话掉线，可由「恢复班组」重新拉起 */
+export type OrchestrationStepStatus = TaskStatus | "offline";
+
 export interface OrchestrationStepRun extends OrchestrationStep {
   id: number;
   run_id: number;
   task_id: number | null;
-  status: TaskStatus;
+  status: OrchestrationStepStatus;
   task_status?: TaskStatus;
   input_artifact: string | null;
   output_artifact: string | null;
-  result: "done" | "failed" | "needs_input" | "cancelled" | null;
+  result: "done" | "failed" | "needs_input" | "rework" | "cancelled" | null;
   summary: string | null;
   started_at: number | null;
   ended_at: number | null;
+  role_kind: "step" | "report";
+  rework_count: number;
+  attempt: number;
+}
+
+export interface OrchestrationMessage {
+  id: number;
+  run_id: number;
+  from_position: number | null;
+  to_position: number;
+  kind: "handoff" | "rework" | "ask" | "answer" | "system";
+  body: string;
+  created_at: number;
+  delivered_at: number | null;
 }
 
 export interface OrchestrationRun {
@@ -117,6 +134,7 @@ export interface OrchestrationRun {
   auto_approve: boolean;
   status: TaskStatus;
   current_position: number | null;
+  rework_total: number;
   created_at: number;
   started_at: number | null;
   ended_at: number | null;

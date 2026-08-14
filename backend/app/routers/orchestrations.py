@@ -108,6 +108,18 @@ def cancel_run(run_id: int):
     return _call(orchestrations.cancel_run, run_id)
 
 
+@router.post("/api/orchestration-runs/{run_id}/resume")
+def resume_run(run_id: int):
+    """重新拉起掉线的角色（后端重启后班组不会自动重开，由用户确认）。"""
+    return _call(orchestrations.resume_run, run_id)
+
+
+@router.get("/api/orchestration-runs/{run_id}/messages")
+def list_messages(run_id: int):
+    _call(orchestrations.get_run, run_id)
+    return _call(orchestrations.list_messages, run_id)
+
+
 @router.post("/api/orchestration-runs/{run_id}/upload-file")
 async def upload_run_file(run_id: int, file: UploadFile = File(...)):
     run = _call(orchestrations.get_run, run_id)

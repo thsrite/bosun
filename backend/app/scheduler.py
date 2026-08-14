@@ -156,8 +156,29 @@ def _on_status(task_id: int, status: str) -> None:
     events.emit("task.status", payload)
 
 
+def _exit_status(task_id: int, exit_code: int) -> str:
+    """进程退出后的终态：退出码 0 不等于任务完成。
+
+    CLI 被中断(用户 esc/Ctrl-C)、上下文耗尽自己停下、会话被 /exit 关掉，退出码都是 0。
+    只按退出码判定就会把这些「没干完」的任务标成 done，完成率和统计全部失真。
+    权威判据是 agent 按收尾约定落库的 report_result，编排步骤早就这么把关
+    (见 orchestrations.handle_task_exit)，普通任务和子任务同样适用。
+    没有回报的一律落 interrupted：它是可续跑、也允许人工确认完成的中间态，
+    比 failed 更贴合「被打断」的真实语义。
+    browser 引擎不注入回报契约(env.task_env 只发给 CLI 会话)，保持原有退出码语义。
+    """
+    if exit_code != 0:
+        return "failed"
+    row = db.query_one("SELECT engine, report_result FROM task WHERE id=?", (task_id,))
+    if row is None or row["engine"] == "browser":
+        return "done"
+    # 只拦「完全没回报」：回报过 failed/needs_input 的任务状态已由 /report 落定，
+    # 不在本函数的 WHERE 活动态里，无需也不应在这里改写。
+    return "done" if row["report_result"] else "interrupted"
+
+
 def _on_exit(task_id: int, exit_code: int) -> None:
-    status = "done" if exit_code == 0 else "failed"
+    status = _exit_status(task_id, exit_code)
     # 仅当仍处于活动态时才由进程退出决定终态，避免覆盖手动完成/取消
     db.execute(
         "UPDATE task SET status=?, exit_code=?, ended_at=?, waiting_since=NULL "
@@ -308,10 +329,18 @@ def _start_task(row) -> None:
     log_path = str(LOG_DIR / f"task-{row['id']}.log")
     engine, auto = row["engine"], bool(row["auto_approve"])
     orchestration_step = db.query_one(
-        "SELECT model,reasoning_effort FROM orchestration_step_run WHERE task_id=?",
+        "SELECT model,reasoning_effort,run_id,position FROM orchestration_step_run WHERE task_id=?",
         (row["id"],),
     )
     artifact_required = orchestration_step is not None
+    # 常驻班组：未持棒的角色以待命身份起会话，不参与静默兜底(它本来就该一直安静)
+    standby = False
+    if orchestration_step is not None:
+        run_row = db.query_one(
+            "SELECT current_position FROM orchestration_run WHERE id=?",
+            (orchestration_step["run_id"],),
+        )
+        standby = bool(run_row and run_row["current_position"] != orchestration_step["position"])
     model_override = orchestration_step["model"] if orchestration_step else None
     reasoning_override = orchestration_step["reasoning_effort"] if orchestration_step else None
     session_uid = row["session_uid"]
@@ -337,6 +366,10 @@ def _start_task(row) -> None:
             resume=bool(row["resume"]),
             post_input=row["post_input"],
         )
+        if orchestration_step is not None:
+            # 编排角色必须常驻等消息：SDK 会话一轮就退，撑不起「全员在线互相沟通」，
+            # 也收不到 submit_message 投递的交棒/返工/提问。统一走 PTY 交互会话。
+            use_sdk = False
 
     if engine == "browser":
         pass
@@ -408,6 +441,7 @@ def _start_task(row) -> None:
             task_engine=engine,
             artifact_required=artifact_required,
             report_nudge=agent_skills.report_nudge(engine, artifact_required),
+            standby=standby,
         )
     _sessions[row["id"]] = session
     db.execute(
@@ -477,6 +511,40 @@ def start_subtask(task_id: int) -> None:
         if task_id in _sessions:
             return
         _start_task(row)
+
+
+def start_orchestration_role(task_id: int) -> bool:
+    """拉起一个常驻编排角色，**绕过并发槽**（同 start_subtask 的取舍）。
+
+    班组编排要求全员同时在线才能互相发消息：走 tick 排队的话，max_concurrent(默认 3)
+    会让后面的角色永远起不来，而先起的角色又在等它们答话——直接互锁。
+    放大倍数由编排步骤数上限(MAX_STEPS + 汇报角色)兜住，不由槽位兜。
+    """
+    row = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if row is None or row["status"] != "queued":
+        return False
+    with _tick_lock:  # 与 tick 串行，避免同一任务被并发启动两次
+        if task_id in _sessions:
+            return False
+        _start_task(row)
+    return task_id in _sessions
+
+
+def set_standby(task_id: int, standby: bool) -> None:
+    """切换角色的待命身份（接棒时解除，交棒后恢复）。会话已退出时静默忽略。"""
+    session = _sessions.get(task_id)
+    if session is not None and hasattr(session, "standby"):
+        session.standby = standby
+
+
+def role_online(task_id: int) -> bool:
+    session = _sessions.get(task_id)
+    return session is not None and session.is_alive()
+
+
+def deliver_message(task_id: int, message: str) -> bool:
+    """把一条消息投进仍存活的会话（角色间通信 / 交棒 / 返工意见共用）。"""
+    return send_subtask_reply(task_id, message)
 
 
 def finish_subtask(task_id: int) -> None:
@@ -845,6 +913,8 @@ async def _run_loop() -> None:
             if _claim_scheduler():  # 单实例守卫: 非持锁进程不对账/不调度
                 _reconcile()
                 tick()
+                from . import orchestrations
+                orchestrations.sweep_timeouts()  # 常驻班组的整轮超时闸
         except Exception:
             pass
         await asyncio.sleep(2.0)

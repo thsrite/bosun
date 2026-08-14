@@ -4,6 +4,7 @@ import type {
   Finding,
   IssueSource,
   LocalSession,
+  OrchestrationMessage,
   OrchestrationRun,
   OrchestrationStep,
   OrchestrationTemplate,
@@ -428,6 +429,9 @@ export const api = {
     }) => write<OrchestrationRun>("POST", "/api/orchestration-runs", body),
     start: (id: number) => write<OrchestrationRun>("POST", `/api/orchestration-runs/${id}/start`),
     cancel: (id: number) => write<OrchestrationRun>("POST", `/api/orchestration-runs/${id}/cancel`),
+    resume: (id: number) => write<OrchestrationRun>("POST", `/api/orchestration-runs/${id}/resume`),
+    messages: (id: number) =>
+      fetch(`/api/orchestration-runs/${id}/messages`).then((r) => j<OrchestrationMessage[]>(r)),
     uploadFile: (id: number, file: File) => {
       const form = new FormData();
       form.append("file", file);

@@ -80,11 +80,16 @@ def _transcript_tail(log_path: str | None) -> str:
 
 def _failed_rows(days: int, limit: int):
     """失败口径 = 自报 failed ∪ 跑完但未回报（收尾契约失守，实测库里最主要的失败形态；
-    needs_input 是正常反问、cancelled/interrupted 是人为中止，均不算）。"""
+    needs_input 是正常反问、cancelled 和人为中止的 interrupted 均不算）。
+
+    「跑完但未回报」现在落 interrupted 而非 done（见 scheduler._exit_status），靠
+    exit_code=0 与人为中止区分——只有进程自己正常退出才会带上退出码。status='done'
+    的分支留给改动前入库的历史任务。"""
     cutoff = time.time() - days * 86400
     return db.query(
         "SELECT id, engine, report_summary, report_result, log_path FROM task "
-        "WHERE (report_result='failed' OR (report_result IS NULL AND status='done')) "
+        "WHERE (report_result='failed' OR (report_result IS NULL AND ("
+        "status='done' OR (status='interrupted' AND exit_code=0)))) "
         "AND COALESCE(ended_at, created_at) >= ? "
         "ORDER BY id DESC LIMIT ?", (cutoff, limit))
 

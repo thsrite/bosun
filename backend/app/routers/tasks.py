@@ -426,15 +426,21 @@ def complete_task(task_id: int):
 
 
 class ReportBody(BaseModel):
-    result: Literal["done", "failed", "needs_input"]
+    result: Literal["done", "failed", "needs_input", "rework"]
     summary: str = ""
     needs_reply: bool = False
     # 回报方 shell 自己的 pid，用于识别嵌套 agent 的冒名回报
     reporter_pid: int | None = None
     artifact: str | None = None
+    # rework 专用：打回给编排里的第几位角色
+    target_position: int | None = None
 
 
-_REPORT_STATUS = {"done": "waiting_input", "failed": "failed", "needs_input": "waiting_input"}
+# rework 之后本角色继续在班组里待命，所以它和 done 一样落 waiting_input（等 Bosun 投递）
+_REPORT_STATUS = {
+    "done": "waiting_input", "failed": "failed",
+    "needs_input": "waiting_input", "rework": "waiting_input",
+}
 
 
 def _is_loopback(request: Request) -> bool:
@@ -549,8 +555,12 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
         ),
     })
     if is_orchestration_step:
-        orchestrations.handle_task_report(task_id, body.result, summary, body.artifact)
-        if body.result in {"done", "failed"}:
+        orchestrations.handle_task_report(
+            task_id, body.result, summary, body.artifact, body.target_position,
+        )
+        # 班组编排里角色跑完不能收会话：它还要留在线上等交棒、返工和别人的提问。
+        # 回收统一由 orchestrations 在 run 收口时做（release_run_sessions）。
+        if body.result == "failed":
             scheduler.finish_orchestration_step(task_id)
     return {
         "ok": True,
@@ -561,6 +571,26 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
         "hint": "回报已送达。请紧接着把本轮完整结论正文作为你最后一条消息打印出来再停下"
                 "（不得再调工具）；summary 只是回执，用户只看正文。",
     }
+
+
+class CrewMessageBody(BaseModel):
+    to_position: int
+    body: str
+    kind: Literal["ask", "answer"] = "ask"
+    reporter_pid: int | None = None
+
+
+@router.post("/{task_id}/message")
+def send_crew_message(task_id: int, body: CrewMessageBody, request: Request = None):
+    """班组编排里点名给另一位角色发消息（agent 直接 HTTP POST）。"""
+    if not _report_authorized(task_id, request):
+        raise HTTPException(status_code=401, detail="回报凭证无效")
+    if nesting.is_nested_report(body.reporter_pid):
+        raise HTTPException(status_code=409, detail="嵌套 agent 不能代替本任务发消息")
+    try:
+        return orchestrations.send_message(task_id, body.to_position, body.body, body.kind)
+    except orchestrations.OrchestrationError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 def _run_transition(task_id: int, transition) -> dict:
