@@ -657,8 +657,9 @@ def cancel(task_id: int) -> bool:
         session.terminate()
         _sessions.pop(task_id, None)
     db.execute(
-        "UPDATE task SET status='cancelled', ended_at=? WHERE id=? AND status IN "
-        "('queued','running','waiting_input')",
+        # rate_limited 也要能取消，否则等自动续跑的任务点了取消还会被 _resume_rate_limited 捞回队列
+        "UPDATE task SET status='cancelled', ended_at=?, resume_after=NULL WHERE id=? AND status IN "
+        "('queued','running','waiting_input','rate_limited')",
         (time.time(), task_id),
     )
     events.emit("task.status", {"task_id": task_id, "status": "cancelled"})

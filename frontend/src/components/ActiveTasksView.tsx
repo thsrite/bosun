@@ -21,7 +21,7 @@ import { TerminalWorkspace, type WorkspaceLayout } from "./TerminalWorkspace";
 import { taskPromptText } from "../taskText";
 import { engineBadgeClass, engineName, engineShort } from "../engines";
 
-const ACTIVE_STATUSES = new Set(["queued", "running", "waiting_input"]);
+const ACTIVE_STATUSES = new Set(["queued", "running", "waiting_input", "rate_limited"]);
 const ARCHIVED_STATUSES = new Set(["done", "failed", "cancelled", "interrupted"]);
 
 // 任务行主操作（继续执行）的统一按钮样式：等待执行区与归档区共用，跟随全站品牌主色
