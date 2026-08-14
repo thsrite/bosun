@@ -1,6 +1,9 @@
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useState } from "react";
 import { api, type AppSettings } from "../api";
-import { engineName } from "../engines";
+import { engineBadgeClass, engineName, engineShort } from "../engines";
 import { useAvailableEngines } from "../installedEngines";
 import { confirmDialog, toast } from "../overlay";
 import type { Engine, OrchestrationTemplate } from "../types";
@@ -8,6 +11,9 @@ import { useSingleFlight } from "../useSingleFlight";
 import { ModelCombobox, type ModelOption } from "./ModelCombobox";
 
 type CodingEngine = Exclude<Engine, "browser">;
+
+const MIN_STEPS = 2;
+const MAX_STEPS = 5;
 
 type DraftStep = {
   key: string;
@@ -84,11 +90,81 @@ function inheritedLabel(value: string): string {
   return value ? `继承全局设置（${value}）` : "继承全局设置";
 }
 
+function stepIncomplete(step: DraftStep): boolean {
+  return !step.name.trim() || !step.role_prompt.trim();
+}
+
+/** 流水线上的一张角色节点卡：只负责展示与选中，编辑在下方详情面板里做。 */
+function StepNode({
+  step,
+  index,
+  selected,
+  onSelect,
+}: {
+  step: DraftStep;
+  index: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.key });
+  const incomplete = stepIncomplete(step);
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      onClick={onSelect}
+      {...attributes}
+      {...listeners}
+      className={`w-52 shrink-0 cursor-grab rounded-xl border bg-dh-surface p-3 text-left transition active:cursor-grabbing ${
+        selected ? "border-dh-accent shadow-[0_0_0_3px_rgb(var(--dh-accent-rgb)/0.16)]" : "border-dh-bsoft hover:border-dh-border"
+      } ${isDragging ? "z-10 opacity-70" : ""}`}
+    >
+      <div className="flex items-center gap-2">
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold ${
+          selected ? "bg-dh-accent text-dh-accfg" : "bg-dh-s2 text-dh-muted"
+        }`}>{index + 1}</span>
+        <span className={`min-w-0 flex-1 truncate text-sm font-medium ${step.name.trim() ? "text-dh-text" : "text-dh-muted-2"}`}>
+          {step.name.trim() || "未命名角色"}
+        </span>
+        {incomplete && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" title="角色名称与提示词都必须填写" />}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${engineBadgeClass(step.engine)}`}>{engineShort(step.engine)}</span>
+        <span className="rounded bg-dh-s2 px-1.5 py-0.5 text-[10px] text-dh-muted">{step.model || "继承模型"}</span>
+        {step.reasoning_effort && <span className="rounded bg-dh-s2 px-1.5 py-0.5 text-[10px] text-dh-muted">{step.reasoning_effort}</span>}
+      </div>
+      <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">
+        {step.role_prompt.trim() || "（未填写角色提示词）"}
+      </p>
+    </button>
+  );
+}
+
+/** 节点之间的连接线；悬停时露出 ⊕，就地插入一个角色。 */
+function Connector({ onInsert, disabled }: { onInsert: () => void; disabled: boolean }) {
+  return (
+    <div className="group/con relative flex h-full shrink-0 items-center px-1">
+      <span className="h-px w-6 bg-dh-border" />
+      <span className="-ml-1 text-dh-border">▶</span>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onInsert}
+        title={disabled ? `最多 ${MAX_STEPS} 个角色` : "在此插入角色"}
+        className="absolute left-1/2 top-1/2 hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-dh-accent bg-dh-surface text-xs leading-none text-dh-accent group-hover/con:flex disabled:hidden"
+      >+</button>
+    </div>
+  );
+}
+
 export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
   const engines = useAvailableEngines().filter((engine): engine is CodingEngine => engine !== "browser");
   const [templates, setTemplates] = useState<OrchestrationTemplate[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const { busy, run } = useSingleFlight();
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const load = useCallback(async () => {
     setTemplates(await api.orchestrations.list());
@@ -98,6 +174,11 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
     void load();
   }, [load]);
 
+  function openDraft(next: Draft) {
+    setDraft(next);
+    setSelectedKey(next.steps[0]?.key ?? null);
+  }
+
   function patchStep(index: number, patch: Partial<DraftStep>) {
     setDraft((current) => current ? {
       ...current,
@@ -105,14 +186,33 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
     } : current);
   }
 
-  function moveStep(index: number, direction: -1 | 1) {
+  function insertStep(at: number) {
+    setDraft((current) => {
+      if (!current || current.steps.length >= MAX_STEPS) return current;
+      const step = emptyStep(engines[0] ?? "claude", "新角色", "根据原始任务和前序产物完成当前角色职责。");
+      setSelectedKey(step.key);
+      return { ...current, steps: [...current.steps.slice(0, at), step, ...current.steps.slice(at)] };
+    });
+  }
+
+  function removeStep(index: number) {
+    setDraft((current) => {
+      if (!current || current.steps.length <= MIN_STEPS) return current;
+      const steps = current.steps.filter((_, stepIndex) => stepIndex !== index);
+      setSelectedKey(steps[Math.min(index, steps.length - 1)].key);
+      return { ...current, steps };
+    });
+  }
+
+  function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
     setDraft((current) => {
       if (!current) return current;
-      const target = index + direction;
-      if (target < 0 || target >= current.steps.length) return current;
-      const steps = [...current.steps];
-      [steps[index], steps[target]] = [steps[target], steps[index]];
-      return { ...current, steps };
+      const from = current.steps.findIndex((step) => step.key === active.id);
+      const to = current.steps.findIndex((step) => step.key === over.id);
+      if (from < 0 || to < 0) return current;
+      return { ...current, steps: arrayMove(current.steps, from, to) };
     });
   }
 
@@ -151,6 +251,11 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
     });
   }
 
+  const selectedIndex = draft ? draft.steps.findIndex((step) => step.key === selectedKey) : -1;
+  const selected = selectedIndex >= 0 && draft ? draft.steps[selectedIndex] : null;
+  const models = selected ? modelConfig(settings, selected.engine) : null;
+  const reasoning = selected ? reasoningConfig(settings, selected.engine) : null;
+
   return (
     <section className="card min-w-0 p-4 lg:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -160,7 +265,7 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
         </div>
         <button
           type="button"
-          onClick={() => setDraft(emptyDraft(engines))}
+          onClick={() => openDraft(emptyDraft(engines))}
           className="rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov"
         >+ 新建编排</button>
       </div>
@@ -178,7 +283,7 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
               <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
                 {template.steps.map((step) => `${engineName(step.engine)} · ${step.name}${step.model ? ` · ${step.model}` : ""}`).join(" → ")}
               </span>
-              <button type="button" onClick={() => setDraft(toDraft(template))} className="rounded px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover">编辑</button>
+              <button type="button" onClick={() => openDraft(toDraft(template))} className="rounded px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover">编辑</button>
               <button type="button" onClick={() => void remove(template)} className="rounded px-2 py-1 text-xs text-rose-400 hover:bg-rose-500/20">删除</button>
             </div>
           ))}
@@ -197,44 +302,71 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
             </label>
           </div>
 
-          {draft.steps.map((step, index) => {
-            const models = modelConfig(settings, step.engine);
-            const reasoning = reasoningConfig(settings, step.engine);
-            return <div key={step.key} className="rounded-lg border border-dh-bsoft bg-dh-surface p-3">
+          <div className="flex items-center justify-between text-xs text-dh-muted">
+            <span>流水线（{draft.steps.length}/{MAX_STEPS} 个角色）</span>
+            <span>拖拽卡片可排序 · 点卡片编辑 · 连接线上的 + 可插入角色</span>
+          </div>
+
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={draft.steps.map((step) => step.key)} strategy={horizontalListSortingStrategy}>
+              <div className="dh-scrollbar-none -mx-1 flex items-stretch overflow-x-auto px-1 pb-1">
+                {draft.steps.map((step, index) => (
+                  <div key={step.key} className="flex items-stretch">
+                    {index > 0 && <Connector onInsert={() => insertStep(index)} disabled={draft.steps.length >= MAX_STEPS} />}
+                    <StepNode step={step} index={index} selected={step.key === selectedKey} onSelect={() => setSelectedKey(step.key)} />
+                  </div>
+                ))}
+                <div className="flex items-stretch">
+                  <Connector onInsert={() => insertStep(draft.steps.length)} disabled={draft.steps.length >= MAX_STEPS} />
+                  <button
+                    type="button"
+                    disabled={draft.steps.length >= MAX_STEPS || engines.length === 0}
+                    onClick={() => insertStep(draft.steps.length)}
+                    className="w-32 shrink-0 rounded-xl border border-dashed border-dh-bsoft text-xs text-dh-muted hover:border-dh-accent hover:text-dh-accent disabled:opacity-30 disabled:hover:border-dh-bsoft disabled:hover:text-dh-muted"
+                  >+ 增加角色</button>
+                </div>
+              </div>
+            </SortableContext>
+          </DndContext>
+
+          {selected && models && (
+            <div className="rounded-lg border border-dh-bsoft bg-dh-surface p-3">
               <div className="flex flex-wrap items-end gap-2">
                 <label className="min-w-40 flex-1">
-                  <span className="mb-1 block text-xs text-dh-muted">角色名称</span>
-                  <input value={step.name} onChange={(event) => patchStep(index, { name: event.target.value })} className="w-full rounded-md border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm" />
+                  <span className="mb-1 block text-xs text-dh-muted">第 {selectedIndex + 1} 步角色名称</span>
+                  <input value={selected.name} onChange={(event) => patchStep(selectedIndex, { name: event.target.value })} className="w-full rounded-md border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm" />
                 </label>
                 <label>
                   <span className="mb-1 block text-xs text-dh-muted">执行 CLI</span>
-                  <select value={step.engine} onChange={(event) => patchStep(index, { engine: event.target.value as CodingEngine, model: "", reasoning_effort: "" })} className="rounded-md border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm">
+                  <select value={selected.engine} onChange={(event) => patchStep(selectedIndex, { engine: event.target.value as CodingEngine, model: "", reasoning_effort: "" })} className="rounded-md border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm">
                     {engines.map((engine) => <option key={engine} value={engine}>{engineName(engine)}</option>)}
                   </select>
                 </label>
-                <div className="flex gap-1">
-                  <button type="button" disabled={index === 0} onClick={() => moveStep(index, -1)} className="rounded border border-dh-bsoft px-2 py-1 disabled:opacity-30">↑</button>
-                  <button type="button" disabled={index === draft.steps.length - 1} onClick={() => moveStep(index, 1)} className="rounded border border-dh-bsoft px-2 py-1 disabled:opacity-30">↓</button>
-                  <button type="button" disabled={draft.steps.length <= 2} onClick={() => setDraft({ ...draft, steps: draft.steps.filter((_, stepIndex) => stepIndex !== index) })} className="rounded border border-rose-500/30 px-2 py-1 text-rose-400 disabled:opacity-30">移除</button>
-                </div>
+                <button
+                  type="button"
+                  disabled={draft.steps.length <= MIN_STEPS}
+                  onClick={() => removeStep(selectedIndex)}
+                  title={draft.steps.length <= MIN_STEPS ? `至少保留 ${MIN_STEPS} 个角色` : "移除该角色"}
+                  className="rounded-md border border-rose-500/30 px-2.5 py-1.5 text-xs text-rose-400 disabled:opacity-30"
+                >移除</button>
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
                 <label>
                   <span className="mb-1 block text-xs text-dh-muted">模型</span>
                   <ModelCombobox
-                    id={`orchestration-step-${step.key}-model`}
-                    value={step.model}
+                    id={`orchestration-step-${selected.key}-model`}
+                    value={selected.model}
                     options={models.options}
                     placeholder={inheritedLabel(models.value)}
-                    onChange={(model) => patchStep(index, { model })}
-                    onCommit={(model) => patchStep(index, { model: model.trim() })}
+                    onChange={(model) => patchStep(selectedIndex, { model })}
+                    onCommit={(model) => patchStep(selectedIndex, { model: model.trim() })}
                   />
                 </label>
                 {reasoning && <label>
-                  <span className="mb-1 block text-xs text-dh-muted">{step.engine === "omp" ? "思考强度" : "推理强度"}</span>
+                  <span className="mb-1 block text-xs text-dh-muted">{selected.engine === "omp" ? "思考强度" : "推理强度"}</span>
                   <select
-                    value={step.reasoning_effort}
-                    onChange={(event) => patchStep(index, { reasoning_effort: event.target.value })}
+                    value={selected.reasoning_effort}
+                    onChange={(event) => patchStep(selectedIndex, { reasoning_effort: event.target.value })}
                     className="w-44 rounded-md border border-dh-bsoft bg-dh-soft px-2.5 py-1.5 text-sm"
                   >
                     {reasoning.options.map((option) => (
@@ -247,20 +379,14 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
               </div>
               <label className="mt-2 block">
                 <span className="mb-1 block text-xs text-dh-muted">角色提示词</span>
-                <textarea value={step.role_prompt} onChange={(event) => patchStep(index, { role_prompt: event.target.value })} className="h-20 w-full rounded-md border border-dh-bsoft bg-dh-soft p-2 text-xs" />
+                <textarea value={selected.role_prompt} onChange={(event) => patchStep(selectedIndex, { role_prompt: event.target.value })} className="h-20 w-full rounded-md border border-dh-bsoft bg-dh-soft p-2 text-xs" />
               </label>
-            </div>;
-          })}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={draft.steps.length >= 5 || engines.length === 0}
-              onClick={() => setDraft({ ...draft, steps: [...draft.steps, emptyStep(engines[0] ?? "claude", "新角色", "根据原始任务和前序产物完成当前角色职责。")] })}
-              className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-40"
-            >+ 增加角色</button>
             <button type="button" onClick={() => setDraft(null)} className="ml-auto rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover">取消</button>
-            <button type="button" disabled={busy || !draft.name.trim() || draft.steps.some((step) => !step.name.trim() || !step.role_prompt.trim())} onClick={() => void save()} className="rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-40">{busy ? "保存中…" : "保存编排"}</button>
+            <button type="button" disabled={busy || !draft.name.trim() || draft.steps.some(stepIncomplete)} onClick={() => void save()} className="rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-40">{busy ? "保存中…" : "保存编排"}</button>
           </div>
         </div>
       )}
