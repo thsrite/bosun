@@ -19,7 +19,7 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-from . import browser_computer, db, engine_settings, events, rate_limit, sessions
+from . import agent_skills, browser_computer, db, engine_settings, events, rate_limit, sessions
 from .config import DATA_DIR, LOG_DIR
 from .engines import build_argv, build_resume_argv, uses_stdin_prompt, with_report_directive
 from .pty_session import PtySession, remove_terminal_log_files
@@ -272,7 +272,7 @@ def _capture_session(
     before: set,
     since: float,
 ) -> None:
-    """运行后轮询捕获引擎真实生成的会话 id(cc/codex/omp 都不支持事前钉 id)。
+    """运行后轮询捕获引擎真实生成的会话 id(claude/codex/omp 都不支持事前钉 id)。
 
     引擎何时把 transcript 落盘并不受我们控制，首轮很慢时可能远超最初的 45s 快轮询窗口。
     所以任务还活着就继续以更低频率轮询，任务结束后再补几次，避免会话永远认领不到——
@@ -297,8 +297,8 @@ def _capture_session(
                     (task_id,),
                 )
             }
-            if engine == "cc":
-                uid = sessions.capture_cc_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
+            if engine == "claude":
+                uid = sessions.capture_claude_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             elif engine == "omp":
                 uid = sessions.capture_omp_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             elif engine == "kimi":
@@ -401,7 +401,7 @@ def _start_task(row) -> None:
             on_permission=_on_permission,
         )
         use_sdk = True
-    # cc 首跑(非resume、无post_input) 默认走 SDK；设置可强制 CLI。
+    # claude 首跑(非resume、无post_input) 默认走 SDK；设置可强制 CLI。
     else:
         use_sdk = engine_settings.should_use_claude_sdk(
             engine,
@@ -450,8 +450,8 @@ def _start_task(row) -> None:
                 model_override=model_override,
                 reasoning_override=reasoning_override,
             )
-            if engine == "cc":
-                before = sessions.snapshot_cc(project["path"])
+            if engine == "claude":
+                before = sessions.snapshot_claude(project["path"])
             elif engine == "omp":
                 before = sessions.snapshot_omp(project["path"])
             elif engine == "kimi":
@@ -460,7 +460,7 @@ def _start_task(row) -> None:
                 before = sessions.snapshot_codex()
             capture = (before, run_started_at)
         # kimi 交互模式不收位置参数 prompt：argv 不带 prompt，改由 PtySession 在
-        # TUI 就绪后粘贴提交。收尾约定 tail 在这里补上(其它引擎由 build_argv 补)。
+        # TUI 就绪后粘贴提交。Bosun 技能不会改写原始 prompt。
         initial_prompt = None
         if uses_stdin_prompt(engine) and (row["prompt"] or "").strip():
             initial_prompt = with_report_directive(
@@ -476,6 +476,9 @@ def _start_task(row) -> None:
             on_exit=_on_exit,
             post_input=row["post_input"],
             initial_prompt=initial_prompt,
+            task_engine=engine,
+            artifact_required=artifact_required,
+            report_nudge=agent_skills.report_nudge(engine, artifact_required),
             on_rate_limit=_on_rate_limit,
         )
     _sessions[row["id"]] = session
@@ -507,9 +510,8 @@ def _start_task(row) -> None:
     events.emit("task.status", {"task_id": row["id"], "status": "running"})
     if capture is not None:
         before, since = capture
-        # 认领 Codex 会话靠「首条用户消息==prompt」精确比对；派发给引擎的 prompt 被
-        # build_argv 追加了收尾约定 tail，rollout 落盘的正是带 tail 的版本。捕获必须
-        # 用同一份带 tail 的 prompt，否则短 prompt(tail 未被 500 截掉)永远认领不到。
+        # 认领 Codex 会话靠「首条用户消息==prompt」精确比对。当前 skills 路径不再
+        # 改写 prompt；仍统一经同一函数，避免以后两条路径再次分叉。
         dispatched_prompt = with_report_directive(
             row["prompt"], engine=engine, artifact_required=artifact_required
         )
@@ -678,7 +680,7 @@ def complete(task_id: int) -> bool:
         raise TaskTransitionError("编排步骤必须提交阶段产物并通过回报完成")
     session = _sessions.get(task_id)
     if session is not None:
-        session.graceful_stop()  # 尽量让 cc/codex 落盘会话，便于日后 resume/分享
+        session.graceful_stop()  # 尽量让 claude/codex 落盘会话，便于日后 resume/分享
         _sessions.pop(task_id, None)
     db.execute(
         "UPDATE task SET status='done', ended_at=?, paused_from_status=NULL "

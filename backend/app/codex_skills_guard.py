@@ -1,9 +1,9 @@
 """Codex 派发时禁用缓存的 Superpowers skills——只走每次调用的 -c 覆盖，不落盘。
 
 旧版本会把禁用块持久化写进用户的 ~/.codex/config.toml（marker 包裹的管理块）。
-按「外部 CLI 零注入」原则已停用：运行时覆盖由 runtime_skills_override() 在每次
-codex 调用的命令行上携带（engine_settings.with_codex_runtime_args），用户配置
-文件不再被 Bosun 修改；strip_persisted_disables() 负责把历史写入的管理块清掉。
+持久化修改 config.toml 的做法已停用：运行时覆盖由 runtime_skills_override() 在每次
+codex 调用的命令行上携带（engine_settings.with_codex_runtime_args）；
+strip_persisted_disables() 只负责清理历史管理块。Bosun 自有 skills 由 agent_skills 管理。
 """
 from __future__ import annotations
 

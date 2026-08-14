@@ -1,4 +1,4 @@
-"""反思循环(自进化)：cc 读 Bosun 运行数据 → 产出改进提案 → 人批准 → 白名单应用。
+"""反思循环(自进化)：claude 读 Bosun 运行数据 → 产出改进提案 → 人批准 → 白名单应用。
 
 安全：提案的 action 只能是有限、可逆的白名单动作；其余为纯建议(不自动应用)。
 """
@@ -9,6 +9,7 @@ import re
 import time
 
 from . import db, sdk_run
+from .engines import normalize_engine_id
 from .services import stats as stats_service
 
 
@@ -73,7 +74,7 @@ _PROMPT = """你是 Bosun（一个编排 Claude Code/Codex 的本地工具）的
 action 只能是以下白名单之一（拿不准就省略 action，表示纯建议）：
 - {{"type":"set_setting","key":"quota_block_pct|mute_threshold|max_concurrent","value":<整数>}}
 - {{"type":"set_policy","policy_id":<id>,"field":"scope|scope_arg|interval_minutes|enabled","value":<值>}}
-- {{"type":"create_task","project_id":<projects 中的 id>,"engine":"cc|codex|omp|kimi","title":"..","prompt":"..","priority":1-10}}
+- {{"type":"create_task","project_id":<projects 中的 id>,"engine":"claude|codex|omp|kimi","title":"..","prompt":"..","priority":1-10}}
 
 需要改代码、修复项目问题或调查某个项目时，优先使用 create_task；采纳后只会创建 draft 任务，不会自动执行。
 只有安全的全局配置调整才使用 set_setting 或 set_policy。
@@ -159,7 +160,7 @@ def reflect(cwd: str, origin: str = "manual") -> int:
 
 _SETTING_KEYS = {"quota_block_pct", "mute_threshold", "max_concurrent"}
 _POLICY_FIELDS = {"scope", "scope_arg", "interval_minutes", "enabled"}
-_TASK_ENGINES = {"cc", "codex", "omp", "kimi"}
+_TASK_ENGINES = {"claude", "codex", "omp", "kimi"}
 
 # 值域护栏: 自进化路径与 UI 侧同一套下限, 防 LLM 提的畸形值绕过护栏设成危险配置。
 _SETTING_BOUNDS = {
@@ -203,7 +204,7 @@ def _create_task(action: dict) -> tuple[bool, str, int | None]:
     if not db.query_one("SELECT id FROM project WHERE id=?", (project_id,)):
         return False, "目标项目不存在，仅作建议", None
 
-    engine = str(action.get("engine") or "codex").strip().lower()
+    engine = normalize_engine_id(str(action.get("engine") or "codex").strip().lower())
     if engine not in _TASK_ENGINES:
         return False, "任务引擎不在白名单，仅作建议", None
 

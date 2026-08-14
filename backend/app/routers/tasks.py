@@ -30,7 +30,7 @@ def derive_title(prompt: str) -> str:
 
 class CreateTask(BaseModel):
     project_id: int
-    engine: str = "cc"
+    engine: str = "claude"
     prompt: str
     title: str | None = None
     priority: int = 5
@@ -80,7 +80,7 @@ def list_tasks(project_id: int | None = None):
 @router.post("")
 def create_task(body: CreateTask):
     reason = None
-    engine = body.engine
+    engine = normalize_engine_id(body.engine)
     if engine == "auto":
         engine, reason = routing.pick_engine()
     if engine not in ENGINES:
@@ -128,11 +128,12 @@ def update_task(task_id: int, body: UpdateTask):
     if body.prompt is not None:
         fields["prompt"] = body.prompt
     if body.engine is not None:
-        if body.engine not in ENGINES:
+        engine = normalize_engine_id(body.engine)
+        if engine not in ENGINES:
             raise HTTPException(400, f"未知引擎: {body.engine}")
         if t["status"] != "draft":
             raise HTTPException(409, "已启动任务不能直接改引擎，请使用接力")
-        fields["engine"] = body.engine
+        fields["engine"] = engine
     next_engine = fields.get("engine", t["engine"])
     next_prompt = fields.get("prompt", t["prompt"])
     if next_engine == "browser":
@@ -215,7 +216,7 @@ _HANDOFF_CONTEXT_CHARS = 16_000
 def _last_user_instruction(task) -> str | None:
     """抠出用户在会话里最后一次输入的指令，供接力置顶为「现在要处理什么」。
 
-    仅 CC SDK 会话的日志是结构化 NDJSON（每次终端输入落成 t=="user"）；
+    仅 Claude SDK 会话的日志是结构化 NDJSON（每次终端输入落成 t=="user"）；
     Codex(PTY) 裸终端日志没有这个 tag，抠不到就返回 None，让接力退回整段日志。
     """
     if not task["log_path"]:
@@ -247,7 +248,7 @@ def _handoff_log_context(task) -> str:
     if raw is None:
         return "（没有可用的执行日志，请先检查当前工作区状态。）"
 
-    # CC SDK 日志是 NDJSON，只保留对接力有意义的文字、工具与错误事件。
+    # Claude SDK 日志是 NDJSON，只保留对接力有意义的文字、工具与错误事件。
     rendered: list[str] = []
     for line in raw.splitlines():
         try:
@@ -278,9 +279,10 @@ def handoff_task(task_id: int, body: HandoffBody):
     t = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
     if t is None:
         raise HTTPException(404, "任务不存在")
-    if body.engine not in CODING_ENGINES:
+    engine = normalize_engine_id(body.engine)
+    if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {body.engine}")
-    if body.engine == t["engine"]:
+    if engine == t["engine"]:
         raise HTTPException(400, "接力引擎必须与当前引擎不同")
 
     context = _handoff_log_context(t)
@@ -319,20 +321,20 @@ def handoff_task(task_id: int, body: HandoffBody):
     if t["status"] in ("queued", "running", "waiting_input"):
         scheduler.cancel(task_id)
     status = "queued" if body.start else "draft"
-    label = {"cc": "CC", "codex": "Codex", "omp": "OMP", "kimi": "Kimi"}.get(body.engine, body.engine.upper())
+    label = {"claude": "Claude", "codex": "Codex", "omp": "OMP", "kimi": "Kimi"}.get(engine, engine.upper())
     base_title = (t["title"] or derive_title(origin)).strip()
     title = f"{base_title} · {label} 接力"[:80]
     new_id = db.execute(
         "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,created_at) "
         "VALUES(?,?,?,?,?,?,'handoff',?,?)",
         (
-            t["project_id"], body.engine, prompt, title, t["priority"],
+            t["project_id"], engine, prompt, title, t["priority"],
             t["auto_approve"], status, time.time(),
         ),
     )
     if body.start:
         scheduler.tick()
-    return {"id": new_id, "engine": body.engine, "from_task_id": task_id}
+    return {"id": new_id, "engine": engine, "from_task_id": task_id}
 
 
 @router.post("/{task_id}/continue")

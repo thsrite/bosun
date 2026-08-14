@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import autopilot, db, quota
-from ..engines import CODING_ENGINES
+from ..engines import CODING_ENGINES, normalize_engine_id
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
 class StartBody(BaseModel):
     project_id: int
     max_iterations: int = 3
-    fix_engine: str = "cc"
+    fix_engine: str = "claude"
     review_engine: str = "codex"
     token_budget: int = 0  # 0=不限；>0 累计到额自动停
     scope: str = "full"    # full | recent | commit
@@ -23,7 +23,9 @@ class StartBody(BaseModel):
 
 @router.post("/start")
 def start(body: StartBody):
-    if body.fix_engine not in CODING_ENGINES or body.review_engine not in CODING_ENGINES:
+    fix_engine = normalize_engine_id(body.fix_engine)
+    review_engine = normalize_engine_id(body.review_engine)
+    if fix_engine not in CODING_ENGINES or review_engine not in CODING_ENGINES:
         raise HTTPException(400, "未知引擎")
     running = db.query_one(
         "SELECT id FROM autopilot_run WHERE project_id=? AND status='running'", (body.project_id,)
@@ -31,7 +33,7 @@ def start(body: StartBody):
     if running:
         raise HTTPException(409, "该项目已有自愈在运行")
     if not body.force:  # 限额预检：修复/复审任一引擎任一用量窗口超阈值则拦截
-        for eng in {body.fix_engine, body.review_engine}:
+        for eng in {fix_engine, review_engine}:
             ok, wk, reason = quota.check_engine(eng)
             if not ok:
                 raise HTTPException(429, reason + "。可勾选强制启动忽略。")
@@ -39,8 +41,8 @@ def start(body: StartBody):
         run = autopilot.start(
             body.project_id,
             max(1, min(body.max_iterations, 10)),
-            body.fix_engine,
-            body.review_engine,
+            fix_engine,
+            review_engine,
             max(0, body.token_budget),
             body.scope,
             body.scope_arg,
@@ -81,7 +83,7 @@ class PolicyBody(BaseModel):
     name: str
     scope: str = "recent"
     scope_arg: str | None = None
-    fix_engine: str = "cc"
+    fix_engine: str = "claude"
     review_engine: str = "codex"
     max_iterations: int = 2
     token_budget: int = 0
@@ -118,7 +120,9 @@ def list_policies(project_id: int | None = None):
 def create_policy(body: PolicyBody):
     import time
 
-    if body.fix_engine not in CODING_ENGINES or body.review_engine not in CODING_ENGINES:
+    fix_engine = normalize_engine_id(body.fix_engine)
+    review_engine = normalize_engine_id(body.review_engine)
+    if fix_engine not in CODING_ENGINES or review_engine not in CODING_ENGINES:
         raise HTTPException(400, "未知引擎")
     now = time.time()
     # last_run_at 置为现在 → 首次自动运行发生在一个完整间隔之后，避免刚建就烧 token
@@ -126,8 +130,8 @@ def create_policy(body: PolicyBody):
         "INSERT INTO policy(project_id,name,scope,scope_arg,fix_engine,review_engine,"
         "max_iterations,token_budget,interval_minutes,enabled,last_run_at,created_at) "
         "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-        (body.project_id, body.name, body.scope, body.scope_arg, body.fix_engine,
-         body.review_engine, max(1, min(body.max_iterations, 10)), max(0, body.token_budget),
+        (body.project_id, body.name, body.scope, body.scope_arg, fix_engine,
+         review_engine, max(1, min(body.max_iterations, 10)), max(0, body.token_budget),
          max(5, body.interval_minutes), int(body.enabled), now, now),
     )
     return dict(db.query_one("SELECT * FROM policy WHERE id=?", (pid,)))

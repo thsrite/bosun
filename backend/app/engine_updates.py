@@ -1,4 +1,4 @@
-"""cc / codex CLI version and online update helpers."""
+"""claude / codex CLI version and online update helpers."""
 from __future__ import annotations
 
 import json
@@ -39,8 +39,8 @@ class NpmPackage:
 
 
 _SPECS: dict[str, ToolSpec] = {
-    "cc": ToolSpec(
-        engine="cc",
+    "claude": ToolSpec(
+        engine="claude",
         label="Claude Code",
         binary=lambda: config.CLAUDE_BIN,
         npm_packages=("@anthropic-ai/claude-code",),

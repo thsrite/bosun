@@ -446,8 +446,11 @@ function EngineVersionChip({ tool }: { tool: EngineToolInfo | undefined }) {
   );
 }
 
+const SKILL_ENGINES = ["claude", "codex", "omp", "kimi"] as const;
+type SkillEngine = typeof SKILL_ENGINES[number];
+
 const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
-  cc: { blurb: "Anthropic 的 Claude Code CLI", install: "npm i -g @anthropic-ai/claude-code" },
+  claude: { blurb: "Anthropic 的 Claude Code CLI", install: "npm i -g @anthropic-ai/claude-code" },
   codex: { blurb: "OpenAI 的 Codex CLI", install: "npm i -g @openai/codex" },
   omp: { blurb: "Oh My Pi，自带 provider 凭据", install: "npm i -g @oh-my-pi/pi-coding-agent" },
   kimi: { blurb: "Moonshot 的 Kimi Code CLI，自带 provider 凭据", install: "npm i -g @moonshot-ai/kimi-code" },
@@ -487,13 +490,13 @@ export function SettingsView({
   onAuthChanged: () => void;
 }) {
   const [refreshingModels, setRefreshingModels] = useState({
-    cc: false,
+    claude: false,
     codex: false,
     kimi: false,
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
   // 没装的引擎不渲染设置表单，降级为灰态占位卡
-  const showClaude = useEngineVisible("cc");
+  const showClaude = useEngineVisible("claude");
   const showCodex = useEngineVisible("codex");
   const showOmp = useEngineVisible("omp");
   const showKimi = useEngineVisible("kimi");
@@ -509,14 +512,14 @@ export function SettingsView({
   }, []);
   // omp 没有可消费的模型目录接口，设置页直接填模型 ID；kimi 的刷新读的是
   // ~/.kimi-code/config.toml 里的模型别名。
-  async function refreshModels(engine: "cc" | "codex" | "kimi") {
+  async function refreshModels(engine: "claude" | "codex" | "kimi") {
     if (refreshingModels[engine]) return;
 
-    const engineLabel = engine === "cc" ? "Claude" : engine === "codex" ? "Codex" : "Kimi";
+    const engineLabel = engine === "claude" ? "Claude" : engine === "codex" ? "Codex" : "Kimi";
     setRefreshingModels((current) => ({ ...current, [engine]: true }));
     try {
       const result = await api.refreshModelOptions(engine);
-      if (engine === "cc") {
+      if (engine === "claude") {
         onSettingsPatch({ claude_model_options: result.model_options });
       } else if (engine === "codex") {
         onSettingsPatch({ codex_model_options: result.model_options });
@@ -550,12 +553,48 @@ export function SettingsView({
     }
   }
 
+  async function toggleSkill(
+    key: "subtask_skill_enabled" | "report_skill_enabled",
+    enabled: boolean,
+  ) {
+    if (enabled) {
+      const paths = SKILL_ENGINES.map((engine) => {
+        const info = settings.agent_skill_paths[engine];
+        return `${engineName(engine)}${info.installed ? "" : "（尚未安装 CLI）"}：${info.path}`;
+      }).join("\n");
+      const confirmed = await confirmDialog(
+        `Bosun 将把自有技能安装到以下目录，并在以后检测到新 CLI 时自动补装：\n\n${paths}\n\n路径不对时，请先在下方修改。确定开启？`,
+      );
+      if (!confirmed) return;
+    }
+    try {
+      await onChange({ [key]: enabled });
+    } catch (err) {
+      toast(`更新技能设置失败：${readDetail(err)}`, "error");
+    }
+  }
+
+  async function commitSkillPath(engine: SkillEngine, value: string) {
+    const next = { ...settings.skill_path_overrides, [engine]: value.trim() };
+    try {
+      await onChange({ skill_path_overrides: next });
+    } catch (err) {
+      toast(`保存技能目录失败：${readDetail(err)}`, "error");
+      onSettingsPatch({
+        skill_path_overrides: {
+          ...settings.skill_path_overrides,
+          [engine]: settings.agent_skill_paths[engine].override,
+        },
+      });
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-7 p-4 lg:p-6">
       <SettingsGroup label="执行引擎">
-      {!showClaude && <UninstalledEngineCard engine="cc" />}
+      {!showClaude && <UninstalledEngineCard engine="claude" />}
       {showClaude && (
-        <Section title="Claude" hint="调用方式、模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.cc} />}>
+        <Section title="Claude" hint="调用方式、模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.claude} />}>
           <Field label="调用方式">
             <select
               className="w-28"
@@ -579,11 +618,11 @@ export function SettingsView({
               <button
                 type="button"
                 aria-label="刷新 Claude 模型列表"
-                disabled={refreshingModels.cc}
-                onClick={() => void refreshModels("cc")}
+                disabled={refreshingModels.claude}
+                onClick={() => void refreshModels("claude")}
                 className="shrink-0 rounded-md border border-dh-bsoft bg-dh-surface px-3 py-1 text-sm text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {refreshingModels.cc ? "刷新中…" : "刷新"}
+                {refreshingModels.claude ? "刷新中…" : "刷新"}
               </button>
             </div>
           </Field>
@@ -760,6 +799,59 @@ export function SettingsView({
               {settings.quota_enabled ? "已开启" : "已关闭"}
             </label>
           </Field>
+          <Field
+            label="受控子任务技能"
+            hint="默认关闭；开启前会确认安装路径，以后首次使用新 CLI 时自动补装。"
+          >
+            <label className="flex items-center gap-2 text-sm text-dh-tsoft">
+              <input
+                type="checkbox"
+                checked={settings.subtask_skill_enabled}
+                onChange={(e) => void toggleSkill("subtask_skill_enabled", e.target.checked)}
+              />
+              {settings.subtask_skill_enabled ? "已开启" : "已关闭"}
+            </label>
+          </Field>
+          <Field
+            label="任务回报技能"
+            hint="开启后同步 bosun-report；不会改写原始任务提示，漏报时才由 Bosun 补催。"
+          >
+            <label className="flex items-center gap-2 text-sm text-dh-tsoft">
+              <input
+                type="checkbox"
+                checked={settings.report_skill_enabled}
+                onChange={(e) => void toggleSkill("report_skill_enabled", e.target.checked)}
+              />
+              {settings.report_skill_enabled ? "已开启" : "已关闭"}
+            </label>
+          </Field>
+          <div className="space-y-2 border-t border-dh-bsoft pt-3">
+            <div>
+              <div className="text-sm text-dh-tsoft">Agent Skills 安装目录</div>
+              <div className="text-[11px] text-slate-400">留空时使用各 CLI 的全局默认目录；修改后只迁移 Bosun 自有技能。</div>
+            </div>
+            {SKILL_ENGINES.map((engine) => {
+              const info = settings.agent_skill_paths[engine];
+              const value = settings.skill_path_overrides[engine] ?? "";
+              return (
+                <label key={engine} className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center">
+                  <span className="text-xs text-dh-tsoft">
+                    {engineName(engine)}{info.installed ? "" : "（未安装）"}
+                  </span>
+                  <input
+                    type="text"
+                    className="min-w-0 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 font-mono text-xs text-dh-text"
+                    value={value}
+                    placeholder={info.path}
+                    onChange={(e) => onSettingsPatch({
+                      skill_path_overrides: { ...settings.skill_path_overrides, [engine]: e.target.value },
+                    })}
+                    onBlur={(e) => void commitSkillPath(engine, e.target.value)}
+                  />
+                </label>
+              );
+            })}
+          </div>
         </Section>
         <Section title="系统" hint="管理由 Bosun.app 托管的后端服务。">
           <Field label="后端服务" hint="只重启后端；状态栏图标和菜单不受影响。">

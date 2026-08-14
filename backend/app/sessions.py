@@ -1,6 +1,6 @@
 """引擎会话文件的定位 / 读写 / 捕获。
 
-cc:    ~/.claude/projects/<cwd 编码(/→-)>/<session-id>.jsonl
+claude:    ~/.claude/projects/<cwd 编码(/→-)>/<session-id>.jsonl
 codex: ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
 omp:   ~/.omp/agent/sessions/abs-<目录名>-<sha256(真实路径)>/<时间戳>_<uuid>.jsonl
 kimi:  ~/.kimi-code/sessions/wd_<slug>_<sha256(真实路径)[:12]>/session_<uuid>/
@@ -77,20 +77,20 @@ _UUID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 
 def encode_cwd(cwd: str) -> str:
-    """cc 的项目目录编码：路径分隔符和下划线都归一为 '-'。"""
+    """claude 的项目目录编码：路径分隔符和下划线都归一为 '-'。"""
     return str(Path(cwd).resolve()).replace("/", "-").replace("_", "-")
 
 
-def cc_project_dir(cwd: str) -> Path:
+def claude_project_dir(cwd: str) -> Path:
     return claude_projects() / encode_cwd(cwd)
 
 
-def cc_session_path(cwd: str, uid: str) -> Path:
-    return cc_project_dir(cwd) / f"{uid}.jsonl"
+def claude_session_path(cwd: str, uid: str) -> Path:
+    return claude_project_dir(cwd) / f"{uid}.jsonl"
 
 
-def snapshot_cc(cwd: str) -> set[str]:
-    return _snapshot_dirs([cc_project_dir(cwd)])
+def snapshot_claude(cwd: str) -> set[str]:
+    return _snapshot_dirs([claude_project_dir(cwd)])
 
 
 def _capture_new_session(
@@ -105,7 +105,7 @@ def _capture_new_session(
 ) -> str | None:
     """在按 cwd 隔离的会话目录里，取本次运行新出现的最新会话 uid。
 
-    cc 和 omp 都是「一个项目一个目录」，跨项目不会串号。但**同一项目并发跑两个任务**
+    claude 和 omp 都是「一个项目一个目录」，跨项目不会串号。但**同一项目并发跑两个任务**
     时，两边都可能在任一文件落盘前完成 snapshot：
     - 排掉已被别的任务认领的 uid(exclude_uids)防重复认领；
     - 只排重还不够——两个任务仍可能各自认领对方的会话(互换)，所以给了 prompt 时
@@ -158,17 +158,17 @@ def _snapshot_dirs(directories: list[Path], pattern: str = "*.jsonl") -> set[str
     }
 
 
-def capture_cc_session(
+def capture_claude_session(
     cwd: str,
     before: set[str],
     since_ts: float,
     exclude_uids: set[str] | None = None,
     prompt: str | None = None,
 ) -> str | None:
-    """返回本次运行新生成的 cc 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
+    """返回本次运行新生成的 claude 会话 uuid(项目目录里新出现的 <uuid>.jsonl)。"""
     return _capture_new_session(
-        [cc_project_dir(cwd)], before, since_ts, lambda p: p.stem, exclude_uids,
-        engine="cc", prompt=prompt,
+        [claude_project_dir(cwd)], before, since_ts, lambda p: p.stem, exclude_uids,
+        engine="claude", prompt=prompt,
     )
 
 
@@ -305,7 +305,7 @@ def capture_kimi_session(
 
 def _ts(value) -> float | None:
     if isinstance(value, (int, float)):
-        # omp 的消息时间戳是毫秒 epoch；cc/codex 是秒。1e11 秒 ≈ 公元 5138 年，
+        # omp 的消息时间戳是毫秒 epoch；claude/codex 是秒。1e11 秒 ≈ 公元 5138 年，
         # 超过就只可能是毫秒。
         return float(value) / 1000.0 if value > 1e11 else float(value)
     if not isinstance(value, str) or not value:
@@ -460,7 +460,7 @@ def _session_meta(path: Path, engine: str, project_path: str | None = None) -> d
     except OSError:
         return None
 
-    uid = path.stem if engine == "cc" else None
+    uid = path.stem if engine == "claude" else None
     if engine == "codex":
         m = _UUID_RE.search(path.name)
         if not m:
@@ -537,8 +537,8 @@ def _session_meta(path: Path, engine: str, project_path: str | None = None) -> d
 def local_session_info(engine: str, cwd: str, uid: str) -> dict | None:
     if not _UUID_RE.fullmatch(uid or ""):
         return None
-    if engine == "cc":
-        path = cc_session_path(cwd, uid)
+    if engine == "claude":
+        path = claude_session_path(cwd, uid)
         if not path.exists():
             return None
         return _session_meta(path, engine, cwd)
@@ -561,15 +561,15 @@ def local_session_info(engine: str, cwd: str, uid: str) -> dict | None:
 
 
 def discover_local_sessions(cwd: str, limit: int = 50) -> list[dict]:
-    """Discover resumable local cc/codex/omp transcript files for a project path."""
+    """Discover resumable local claude/codex/omp transcript files for a project path."""
     limit = max(1, min(int(limit or 50), 200))
     found: list[dict] = []
 
-    cc_dir = cc_project_dir(cwd)
-    if cc_dir.is_dir():
-        cc_files = sorted(cc_dir.glob("*.jsonl"), key=_mtime, reverse=True)
-        for path in cc_files[:limit]:
-            meta = _session_meta(path, "cc", cwd)
+    claude_dir = claude_project_dir(cwd)
+    if claude_dir.is_dir():
+        claude_files = sorted(claude_dir.glob("*.jsonl"), key=_mtime, reverse=True)
+        for path in claude_files[:limit]:
+            meta = _session_meta(path, "claude", cwd)
             if meta:
                 found.append(meta)
 
@@ -651,8 +651,8 @@ def capture_codex_session(
 
 
 def _session_path(engine: str, cwd: str, uid: str) -> Path | None:
-    if engine == "cc":
-        return cc_session_path(cwd, uid)
+    if engine == "claude":
+        return claude_session_path(cwd, uid)
     if engine == "omp":
         return omp_session_path(cwd, uid)
     if engine == "kimi":
@@ -767,7 +767,7 @@ def session_history(
                         elif event.get("type") == "step.end":
                             flush_kimi()
                     continue
-                if engine == "cc":
+                if engine == "claude":
                     if obj.get("type") not in {"user", "assistant"}:
                         continue
                     msg = obj.get("message")
@@ -813,8 +813,8 @@ def session_history(
 
 
 def _usage_tokens(usage: dict) -> int | None:
-    """input+output 口径。cc/codex 的键是 *_tokens，omp 用 input/output，
-    kimi(usage.record) 用 inputOther/output——与 cc 一致不含 cache 读写。
+    """input+output 口径。claude/codex 的键是 *_tokens，omp 用 input/output，
+    kimi(usage.record) 用 inputOther/output——与 claude 一致不含 cache 读写。
 
     kimi 与 omp 共用 output 键，泛化元组会部分匹配漏掉输入侧，
     所以 kimi 按特征键 inputOther 先行判定。
@@ -847,7 +847,7 @@ class LiveTokenCounter:
     """
 
     def __init__(self) -> None:
-        # task_id -> {uid, offset, found, cc_total, codex_before, codex_in}
+        # task_id -> {uid, offset, found, incremental_total, codex_before, codex_in}
         self._state: dict[int, dict] = {}
 
     def retain(self, live_ids: set[int]) -> None:
@@ -869,7 +869,7 @@ class LiveTokenCounter:
         st = self._state.get(task_id)
         # 首次、换了会话文件(resume 新会话)、或文件被截断 → 从头重算
         if st is None or st.get("uid") != uid or size < st["offset"]:
-            st = {"uid": uid, "offset": 0, "found": False, "cc_total": 0,
+            st = {"uid": uid, "offset": 0, "found": False, "incremental_total": 0,
                   "codex_before": 0, "codex_in": None}
             self._state[task_id] = st
         if size > st["offset"]:
@@ -913,7 +913,7 @@ class LiveTokenCounter:
         if isinstance(usage, dict):
             toks = _usage_tokens(usage)
             if toks is not None and in_window:
-                st["cc_total"] += toks
+                st["incremental_total"] += toks
                 st["found"] = True
         # codex TUI: payload.info.total_token_usage 是累计值，取窗口内最后一个
         if engine == "codex" and isinstance(payload, dict) and payload.get("type") == "token_count":
@@ -932,7 +932,7 @@ class LiveTokenCounter:
     def _value(st: dict) -> int | None:
         if st["codex_in"] is not None:
             return max(0, st["codex_in"] - st["codex_before"])
-        return st["cc_total"] if st["found"] else None
+        return st["incremental_total"] if st["found"] else None
 
 
 def count_tokens(
@@ -945,7 +945,7 @@ def count_tokens(
 ) -> int | None:
     """从会话 transcript 汇总 token 用量(input+output)。会话未落盘则返回 None。
 
-    cc / omp 的 usage 是逐条消息的增量，直接累加；codex 的 token_count 是累计值，
+    claude / omp 的 usage 是逐条消息的增量，直接累加；codex 的 token_count 是累计值，
     走下面的窗口差值分支。
     """
     p = _session_path(engine, cwd, uid)
@@ -981,7 +981,7 @@ def count_tokens(
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                # cc: {message:{usage:{input_tokens,output_tokens,...}}}
+                # claude: {message:{usage:{input_tokens,output_tokens,...}}}
                 payload = obj.get("payload")
                 # kimi wire 事件的时间键是 time(毫秒)，其余引擎是 timestamp
                 event_ts = _ts(
@@ -1083,8 +1083,8 @@ def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
     # 安全: uid 必须是合法 UUID，防止路径穿越(如 ../../.zshenv)写任意文件
     if not _UUID_RE.fullmatch(uid or ""):
         raise ValueError(f"非法 session_uid: {uid!r}")
-    if engine == "cc":
-        p = cc_session_path(cwd, uid)
+    if engine == "claude":
+        p = claude_session_path(cwd, uid)
     elif engine == "omp":
         # omp 按 cwd 分目录，文件名 <时间戳>_<uuid> 供 --resume 按 id 前缀检索
         ts = time.strftime("%Y-%m-%dT%H-%M-%S-000Z")

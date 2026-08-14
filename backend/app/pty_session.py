@@ -1,4 +1,4 @@
-"""单个任务的 pty 会话：拉起 cc/codex 交互进程，流式读写 + 日志落盘。
+"""单个任务的 pty 会话：拉起 claude/codex 交互进程，流式读写 + 日志落盘。
 
 - 后台线程读 pty 输出：追加到日志文件 + 推给所有订阅的 asyncio.Queue
 - write() 把用户输入写回 pty
@@ -23,7 +23,6 @@ from typing import Callable, NamedTuple
 
 from . import rate_limit
 from .config import IDLE_SECONDS
-from .directives import REPORT_NUDGE
 from .pty_compat import PtyProcess
 
 # PTY logs contain every TUI repaint. A long Codex/Claude session can therefore
@@ -35,7 +34,7 @@ MAX_TERMINAL_BACKLOG_BYTES = 2 * 1024 * 1024
 # 把噪音压掉，再按 MAX_TERMINAL_BACKLOG_BYTES 截尾，2MB 预算才装得下真正的转录。
 MAX_TERMINAL_SCAN_BYTES = 16 * 1024 * 1024
 
-# cc/codex 的每次 TUI 重绘都包在「同步更新」帧里(DECSET 2026)。不含换行/下滚的帧
+# claude/codex 的每次 TUI 重绘都包在「同步更新」帧里(DECSET 2026)。不含换行/下滚的帧
 # 只是底部状态区(spinner/输入框)的原地重绘，机器速度连发时前一帧立刻被后一帧覆盖，
 # 回放时只需每段连续重绘的最后一帧；含换行的帧才携带滚入历史的转录正文，必须保留。
 _SYNC_FRAME_RE = re.compile(rb"\x1b\[\?2026h.*?\x1b\[\?2026l", re.S)
@@ -80,7 +79,7 @@ def compress_terminal_repaints(data: bytes) -> bytes:
     pieces.append(data[last:])
     return b"".join(pieces)
 
-# 回放 backlog 时必须剥掉「会让终端回话」的查询序列。日志记录的是 CC 发出的原始输出流，
+# 回放 backlog 时必须剥掉「会让终端回话」的查询序列。日志记录的是 Claude 发出的原始输出流，
 # 里面每一条光标位置查询(ESC[?6n)、设备属性查询(ESC[c)在重放时都会被 xterm 当成实时提问
 # 并逐条应答，把成千上万条 `ESC[?41;3R` 沿 WS 回灌进 PTY(实测一次重连 1 秒内 3114 条)。
 # 这些序列不画任何东西，剥掉不影响回放画面。仅剥查询，不碰同字母的设置类序列
@@ -157,7 +156,7 @@ _RATE_LIMIT_GRACE_SECONDS = 2.0
 # example ``getByText('请选择云盘实例')``).  Only treat them as prompts when they
 # begin a terminal/output line, optionally after a normal list/prompt marker.
 _PROMPT_LINE_PREFIX = r"(?:^|\n)[ \t]*(?:[❯›?•*+-][ \t]*)?"
-# cc/codex 等待用户决策(权限/选择/确认)的输出特征
+# claude/codex 等待用户决策(权限/选择/确认)的输出特征
 _CHOICE_PROMPT_RES = [
     re.compile(_PROMPT_LINE_PREFIX + r"do you want to proceed", re.I),
     re.compile(_PROMPT_LINE_PREFIX + r"(?:.+?\s+)?requires approval", re.I),
@@ -196,18 +195,18 @@ _BUSY_RES = [
     re.compile(r"[•·●]\s*(?:working|thinking)", re.I),
     re.compile(r"\b(?:working|thinking)\s*\(", re.I),
     re.compile(r"\b(working|thinking)\b.{0,120}\b(esc|interrupt)\b", re.I | re.S),
-    # `esc to interrupt` 是 cc/codex 活跃转圈的确定锚点：出现即正在生成，真等待用户
+    # `esc to interrupt` 是 claude/codex 活跃转圈的确定锚点：出现即正在生成，真等待用户
     # 决策时不会显示它。用它把“忙碌”判定与俏皮结束词（worked/baked/…）彻底解耦。
     re.compile(r"esc\s+to\s+interrupt", re.I),
 ]
-# cc/codex 回合已结束但后台仍有 shell 在跑：真结果还在产出，不该催用户核对。
+# claude/codex 回合已结束但后台仍有 shell 在跑：真结果还在产出，不该催用户核对。
 # 两种形态：结束摘要行 `N shell still running`、底栏 `· N shell ·`。刻意不匹配随处
 # 可见的 `Ran N shell command`（那是已完成的单次命令，非存活的后台进程）。
 _BG_SHELL_RES = [
     re.compile(r"\d+\s+shell[s]?\s+still\s+running", re.I),
     re.compile(r"[·•]\s*\d+\s+shell[s]?\s*(?:[·•]|$)", re.I | re.M),
 ]
-# 会话被 `/clear` 冲掉（手机端合成 Cmd+K 暴走，或用户自己敲）的结构信号：CC 把提交的
+# 会话被 `/clear` 冲掉（手机端合成 Cmd+K 暴走，或用户自己敲）的结构信号：Claude 把提交的
 # 命令回显在输入行上，`❯ /clear` 之后是补白到行尾的空格。刻意不匹配正文里出现的
 # `/clear` 字面量（聊天内容/文档/底栏提示 `new task? /clear to save …` 都会命中它），
 # 只认输入行这一种渲染，避免把「聊到 /clear」误判成「会话被清」。
@@ -392,6 +391,9 @@ class PtySession:
         on_exit: Callable[[int, int], None],
         post_input: str | None = None,
         initial_prompt: str | None = None,
+        task_engine: str | None = None,
+        artifact_required: bool = False,
+        report_nudge: str = "",
         on_rate_limit: Callable[[int, "rate_limit.RateLimitHit"], None] | None = None,
     ):
         self.task_id = task_id
@@ -401,6 +403,9 @@ class PtySession:
         self.loop = loop
         self.post_input = post_input
         self.initial_prompt = initial_prompt
+        self.task_engine = task_engine
+        self.artifact_required = artifact_required
+        self.report_nudge = report_nudge
         self.on_status = on_status  # (task_id, status)
         self.on_exit = on_exit      # (task_id, exit_code)
         self.on_rate_limit = on_rate_limit  # (task_id, RateLimitHit)
@@ -436,7 +441,7 @@ class PtySession:
         self._log_fh = open(self.log_path, "ab", buffering=0)
         from .env import task_env
 
-        env = task_env(self.task_id)
+        env = task_env(self.task_id, self.task_engine, self.artifact_required)
         spawn_argv = self.argv
         script_log_path = script_log_path_for(self.log_path)
         script_argv = _build_script_argv(self.argv, script_log_path)
@@ -576,7 +581,7 @@ class PtySession:
     def _next_status_for_output(self, tail: str) -> str:
         """收到一段输出后应处的状态。
 
-        以“活着的结构信号”为准，而非枚举 cc/codex 的俏皮结束词（worked/baked/cooked/
+        以“活着的结构信号”为准，而非枚举 claude/codex 的俏皮结束词（worked/baked/cooked/
         churned/…，还会再加）。按优先级：
         1. `esc to interrupt` 转圈 → 正在生成 → running，并解开任何被误命中粘住的旧提示
            （治 #214：diff 里的“请选择”把状态粘成待选择、转圈也翻不回来）；
@@ -636,6 +641,8 @@ class PtySession:
         """
         if not report_nudge_enabled():
             return False
+        if not self.report_nudge:
+            return False
         if self._reported or self._nudge_sent:
             return False
         if self.proc is None or not self.proc.isalive():
@@ -654,7 +661,7 @@ class PtySession:
         try:
             # 括号粘贴防 TUI 把提醒文本当逐键输入处理；提交回车稍候，避免被并进粘贴
             self.proc.write(
-                _BRACKETED_PASTE_START.encode() + REPORT_NUDGE.encode()
+                _BRACKETED_PASTE_START.encode() + self.report_nudge.encode()
                 + _BRACKETED_PASTE_END.encode()
             )
             time.sleep(0.5)
@@ -808,7 +815,7 @@ class PtySession:
         self.resize(rows, cols)
 
     def graceful_stop(self) -> None:
-        """先发退出键(Ctrl-C 两次)让 cc/codex 落盘会话，再强杀。阻塞最多 ~3.5s。"""
+        """先发退出键(Ctrl-C 两次)让 claude/codex 落盘会话，再强杀。阻塞最多 ~3.5s。"""
         if self.proc is not None and self.proc.isalive():
             try:
                 self.proc.write(b"\x03")

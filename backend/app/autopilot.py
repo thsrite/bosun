@@ -42,7 +42,7 @@ def _parse_tokens(engine: str, stdout: str) -> int:
     """从 headless 结构化输出解析 token 用量(input+output，不含 cache，全局口径一致)。"""
     import json
 
-    if engine == "cc":
+    if engine == "claude":
         try:
             u = (json.loads(stdout) or {}).get("usage") or {}
         except (json.JSONDecodeError, TypeError):
@@ -97,7 +97,7 @@ def _parse_tokens(engine: str, stdout: str) -> int:
 def _headless(run_id: int, engine: str, prompt: str, cwd: str, timeout: int) -> tuple[int, str, int]:
     """跑一次 headless，累加 token 用量到 run。返回 (code, out, tokens)。
 
-    cc 走 Agent SDK(精确 token/成败，无需刮屏)；codex 无 SDK，仍用 subprocess 解析。
+    claude 走 Agent SDK(精确 token/成败，无需刮屏)；codex 无 SDK，仍用 subprocess 解析。
     """
     if engine_settings.should_use_claude_sdk(engine, resume=False, post_input=None):
         from . import sdk_run
@@ -204,7 +204,7 @@ def assistant_text(engine: str, stdout: str) -> str:
     """
     import json
 
-    if engine == "cc":
+    if engine == "claude":
         try:
             parsed = json.loads(stdout)
         except (json.JSONDecodeError, TypeError):

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db, events, harness_adapter, harness_mining, reflection, reflection_scheduler
+from ..engines import normalize_engine_id
 from ..services import stats as stats_service
 
 router = APIRouter(prefix="/api/proposals", tags=["reflection"])
@@ -27,7 +28,7 @@ class DismissBody(BaseModel):
 
 @router.post("/reflect")
 def run_reflect():
-    # 用第一个项目目录作为 cc 的 cwd(反思读的是全局数据, cwd 仅供 SDK 运行)
+    # 用第一个项目目录作为 claude 的 cwd(反思读的是全局数据, cwd 仅供 SDK 运行)
     proj = db.query_one("SELECT path FROM project LIMIT 1")
     if proj is None:
         raise HTTPException(400, "还没有项目")
@@ -117,6 +118,7 @@ def list_harness_clusters():
 @router.post("/harness/rollback/{engine}")
 def rollback_harness(engine: str):
     """回滚该引擎 harness 到上一版本。"""
+    engine = normalize_engine_id(engine)
     try:
         version = harness_adapter.get_registry().rollback(engine)
     except Exception as e:

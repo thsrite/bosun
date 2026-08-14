@@ -5,7 +5,7 @@
 - git：未提交改动
 - todo：代码里的 TODO / FIXME
 - deps：pip-audit / npm audit（best-effort）
-- audit：cc/codex 通读代码返回结构化 findings（headless）
+- audit：claude/codex 通读代码返回结构化 findings（headless）
 """
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ def _repo_sig(path: str) -> str | None:
     return hashlib.md5((head + run("git status --porcelain")).encode()).hexdigest()
 
 
-def _audit(project_id: int, path: str, engine: str = "cc", scope: str = "full", scope_arg=None) -> None:
+def _audit(project_id: int, path: str, engine: str = "claude", scope: str = "full", scope_arg=None) -> None:
     sig = None
     if scope != "full":
         diff = _scope_diff(path, scope, scope_arg)
@@ -199,7 +199,7 @@ def _audit(project_id: int, path: str, engine: str = "cc", scope: str = "full", 
             return
         db.set_setting(f"audit_skipped:{project_id}", "0")
         prompt = AUDIT_PROMPT
-    if engine == "cc":
+    if engine == "claude":
         from .. import sdk_run
 
         res = sdk_run.run_sync(prompt, path, auto_approve=True, timeout=TIMEOUT * 3)

@@ -141,7 +141,7 @@ export function FindingsInbox({
                   <button
                     className="rounded-lg bg-violet-500 px-2 py-0.5 text-xs text-white hover:bg-violet-600 disabled:opacity-50"
                     disabled={acting != null}
-                    onClick={() => act(f.id, () => api.findingToTask(f.id, "cc", autoApprove))}
+                    onClick={() => act(f.id, () => api.findingToTask(f.id, "claude", autoApprove))}
                   >
                     → 修复任务
                   </button>

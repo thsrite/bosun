@@ -113,7 +113,7 @@ def tick_once(now: float | None = None) -> str:
         _mark(now, "pending_proposals")
         events.emit("proposals.updated", {"skipped": "pending_proposals"})
         return "pending_proposals"
-    ok = quota.check_engine("cc")[0]
+    ok = quota.check_engine("claude")[0]
     if not ok:
         _mark(now, "quota")
         events.emit("proposals.updated", {"skipped": "quota"})

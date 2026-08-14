@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authHeaders, WS_UNAUTHORIZED, setToken, wsProtocols } from "../auth";
 
-/** SDK(结构化 cc)会话的对话面板：解析后端 NDJSON 事件流，替代 xterm。
+/** SDK(结构化 claude)会话的对话面板：解析后端 NDJSON 事件流，替代 xterm。
  *  实时流 + 断线重连 + 结束后回放 backlog，逻辑对齐 TerminalView。 */
 
 type ChatEvent =

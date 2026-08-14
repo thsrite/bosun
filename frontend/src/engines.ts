@@ -1,8 +1,8 @@
 import type { Engine } from "./types";
 
-/** 引擎展示元数据。新增引擎只改这里，避免各处散落 `cc ? A : B` 的二值兜底。 */
+/** 引擎展示元数据。新增引擎只改这里，避免各处散落 `claude ? A : B` 的二值兜底。 */
 const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }> = {
-  cc: { name: "Claude Code", short: "Claude", badge: "bg-violet-500/15 text-violet-300" },
+  claude: { name: "Claude Code", short: "Claude", badge: "bg-violet-500/15 text-violet-300" },
   codex: { name: "Codex", short: "Codex", badge: "bg-emerald-500/10 text-emerald-300" },
   omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-500/10 text-sky-300" },
   kimi: { name: "Kimi Code", short: "Kimi", badge: "bg-amber-500/10 text-amber-300" },
@@ -10,12 +10,12 @@ const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }
 };
 
 /** 编码工作流里的引擎顺序；Browser 不参与自动路由、接力或 Autopilot。 */
-export const ENGINE_ORDER: Engine[] = ["cc", "codex", "omp", "kimi"];
+export const ENGINE_ORDER: Engine[] = ["claude", "codex", "omp", "kimi"];
 export const TASK_ENGINE_ORDER: Engine[] = [...ENGINE_ORDER, "browser"];
 
 /** 各引擎的全权限运行参数，用于提示语。 */
 export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
-  cc: "--dangerously-skip-permissions",
+  claude: "--dangerously-skip-permissions",
   codex: "--dangerously-bypass-approvals-and-sandbox",
   omp: "--auto-approve",
   kimi: "--yolo",

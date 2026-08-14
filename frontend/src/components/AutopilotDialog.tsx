@@ -20,7 +20,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
   // 交叉复审习惯上优先 codex，选项顺序也把它排前面
   const reviewEngineOrder = [...availableEngines].sort((a, b) => (a === "codex" ? -1 : b === "codex" ? 1 : 0));
   const [maxIter, setMaxIter] = useState(3);
-  const [fixEngine, setFixEngine] = useState("cc");
+  const [fixEngine, setFixEngine] = useState("claude");
   const [reviewEngine, setReviewEngine] = useState("codex");
   const [budgetK, setBudgetK] = useState(200); // 千 token；0=不限
   const [scope, setScope] = useState("recent");
@@ -42,7 +42,7 @@ export function AutopilotDialog({ project, onClose }: { project: Project; onClos
     refresh();
   }, [refresh]);
 
-  // 默认的 cc / codex 可能没装，落到可选引擎上
+  // 默认的 claude / codex 可能没装，落到可选引擎上
   const reviewOrderKey = reviewEngineOrder.join(",");
   useEffect(() => {
     const engines = reviewOrderKey ? reviewOrderKey.split(",") : [];

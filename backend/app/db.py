@@ -1,6 +1,7 @@
 """SQLite 访问层。无 ORM，薄封装 + 全局连接（WAL + 线程安全锁）。"""
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from typing import Any
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS task (
     waiting_since REAL,                  -- 当前 waiting_input 轮次起点
     auto_approve INTEGER NOT NULL DEFAULT 0,
     kind TEXT NOT NULL DEFAULT 'task',   -- task | analysis | repair | continue | shared | orchestration
-    session_uid TEXT,                    -- 引擎会话 id(cc 钉住 / codex 捕获)
+    session_uid TEXT,                    -- 引擎会话 id(claude 钉住 / codex 捕获)
     resume INTEGER NOT NULL DEFAULT 0,   -- 1=以 --resume 方式恢复已有会话
     post_input TEXT,                     -- 启动后自动发给 pty 的输入(如 /compact)
     log_path TEXT,
@@ -74,7 +75,7 @@ CREATE TABLE IF NOT EXISTS autopilot_run (
     branch TEXT,
     iteration INTEGER NOT NULL DEFAULT 0,
     max_iterations INTEGER NOT NULL DEFAULT 3,
-    fix_engine TEXT NOT NULL DEFAULT 'cc',
+    fix_engine TEXT NOT NULL DEFAULT 'claude',
     review_engine TEXT NOT NULL DEFAULT 'codex',
     token_budget INTEGER NOT NULL DEFAULT 0,
     tokens_used INTEGER NOT NULL DEFAULT 0,
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS policy (
     name TEXT NOT NULL,
     scope TEXT NOT NULL DEFAULT 'recent',
     scope_arg TEXT,
-    fix_engine TEXT NOT NULL DEFAULT 'cc',
+    fix_engine TEXT NOT NULL DEFAULT 'claude',
     review_engine TEXT NOT NULL DEFAULT 'codex',
     max_iterations INTEGER NOT NULL DEFAULT 2,
     token_budget INTEGER NOT NULL DEFAULT 0,
@@ -294,12 +295,68 @@ def _clear_placeholder_prompts(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone() is not None
+
+
+def _rewrite_legacy_engine(value: Any) -> bool:
+    """原地递归改写 JSON 中名为 engine 的旧值，返回是否发生变化。"""
+    changed = False
+    if isinstance(value, dict):
+        if value.get("engine") == "cc":
+            value["engine"] = "claude"
+            changed = True
+        for child in value.values():
+            changed = _rewrite_legacy_engine(child) or changed
+    elif isinstance(value, list):
+        for child in value:
+            changed = _rewrite_legacy_engine(child) or changed
+    return changed
+
+
+def _migrate_engine_ids(conn: sqlite3.Connection) -> None:
+    """把历史内部标识 cc 迁成 claude；重复执行安全。"""
+    columns = {
+        "task": ("engine",),
+        "autopilot_run": ("fix_engine", "review_engine"),
+        "policy": ("fix_engine", "review_engine"),
+        "orchestration_step": ("engine",),
+        "orchestration_step_run": ("engine",),
+        "harness_cluster": ("engine",),
+        "he_version": ("engine",),
+    }
+    for table, names in columns.items():
+        if not _table_exists(conn, table):
+            continue
+        for name in names:
+            conn.execute(f"UPDATE {table} SET {name}='claude' WHERE {name}='cc'")
+
+    if _table_exists(conn, "orchestration_run"):
+        rows = conn.execute(
+            "SELECT id, definition_snapshot FROM orchestration_run WHERE definition_snapshot LIKE '%\"cc\"%'"
+        ).fetchall()
+        for row in rows:
+            try:
+                snapshot = json.loads(row["definition_snapshot"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if _rewrite_legacy_engine(snapshot):
+                conn.execute(
+                    "UPDATE orchestration_run SET definition_snapshot=? WHERE id=?",
+                    (json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")), row["id"]),
+                )
+    conn.commit()
+
+
 def init_db() -> None:
     with _lock:
         conn = get_conn()
         conn.executescript(SCHEMA)
         conn.commit()
         _ensure_columns()
+        _migrate_engine_ids(conn)
         _clear_placeholder_prompts(conn)
         # 默认设置
         cur = conn.execute("SELECT value FROM setting WHERE key='max_concurrent'")

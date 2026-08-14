@@ -39,7 +39,7 @@ class SubtaskCommunicationTest(unittest.TestCase):
     def _task(self, status, parent_id=None):
         return db.execute(
             "INSERT INTO task(project_id,engine,prompt,status,parent_task_id,created_at) "
-            "VALUES(1,'cc','任务',?,?,?)",
+            "VALUES(1,'claude','任务',?,?,?)",
             (status, parent_id, time.time()),
         )
 

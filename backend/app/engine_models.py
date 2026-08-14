@@ -30,7 +30,7 @@ _PICKER_RETYPE_AFTER_SECONDS = 2.5
 _CLAUDE_CONTEXT_SUFFIX_RE = re.compile(r"\(\s*(\d+)\s*M\s+context\s*\)\s*$", re.IGNORECASE)
 _MAX_PICKER_BYTES = 256_000
 _SETTING_KEYS = {
-    "cc": "claude_model_options",
+    "claude": "claude_model_options",
     "codex": "codex_model_options",
     "kimi": "kimi_model_options",
 }
@@ -321,7 +321,7 @@ def discover_kimi_model_options() -> list[dict[str, str]]:
 
 
 def refresh_model_options(engine: str, binary: str) -> list[dict[str, str]]:
-    if engine == "cc":
+    if engine == "claude":
         options = discover_claude_model_options(binary)
     elif engine == "codex":
         options = discover_codex_model_options(binary)

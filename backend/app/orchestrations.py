@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from . import db, engine_settings, events, scheduler
-from .engines import CODING_ENGINES
+from .engines import CODING_ENGINES, normalize_engine_id
 
 MIN_STEPS = 2
 MAX_STEPS = 5
@@ -28,7 +28,7 @@ class OrchestrationError(ValueError):
 
 def _normalize_runtime(engine: str, model: object, reasoning_effort: object) -> tuple[str, str]:
     raw_reasoning = str(reasoning_effort or "").strip()
-    if engine == "cc":
+    if engine == "claude":
         normalized_model = engine_settings.normalize_claude_model(model)
         normalized_reasoning = engine_settings.normalize_claude_effort(raw_reasoning)
     elif engine == "codex":
@@ -51,7 +51,7 @@ def _normalize_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized = []
     for position, raw in enumerate(steps, 1):
         name = str(raw.get("name") or "").strip()
-        engine = str(raw.get("engine") or "").strip()
+        engine = normalize_engine_id(str(raw.get("engine") or "").strip())
         role_prompt = str(raw.get("role_prompt") or "").strip()
         if not name:
             raise OrchestrationError(f"第 {position} 步角色名称不能为空")

@@ -284,6 +284,6 @@ def should_use_claude_sdk(
     mode = (invocation or claude_invocation()).strip().lower()
     if mode not in CLAUDE_INVOCATIONS:
         mode = "auto"
-    if engine != "cc" or resume or post_input:
+    if engine != "claude" or resume or post_input:
         return False
     return mode in {"auto", "sdk"}

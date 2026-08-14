@@ -57,7 +57,7 @@ _TRANSCRIPT_CHARS = 6_000
 
 
 class _SdkLLM:
-    """core.LLMClient 的 Bosun 实现：cc 无头、禁工具、单轮（同 reflection 的做法）。"""
+    """core.LLMClient 的 Bosun 实现：claude 无头、禁工具、单轮（同 reflection 的做法）。"""
 
     def __init__(self, cwd: str, account_key: str):
         self.cwd = cwd
@@ -116,7 +116,7 @@ def mine(cwd: str, days: int = 14, limit: int = 100) -> int:
     for row in _failed_rows(days, limit):
         summary = row["report_summary"] or (
             "(任务结束但未按收尾约定回报)" if row["report_result"] is None else "")
-        episode = Episode(id=str(row["id"]), engine=row["engine"] or "cc", succeeded=False,
+        episode = Episode(id=str(row["id"]), engine=row["engine"] or "claude", succeeded=False,
                           summary=summary)
         sig = extract_signature(llm, episode, _transcript_tail(row["log_path"]))
         if sig:

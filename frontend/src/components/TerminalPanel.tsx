@@ -99,7 +99,7 @@ const PANEL_SAFE_AREA_STYLE = {
 } satisfies CSSProperties;
 const AUDIO_RECORDING_TIMEOUT_MS = 60000;
 const MAX_DEFERRED_TERMINAL_BYTES = 4 * 1024 * 1024;
-// 触摸滚动过历史后「回到最新」时，向 TUI 补发的滚轮步数与每帧步数。CC 一侧把滚轮当
+// 触摸滚动过历史后「回到最新」时，向 TUI 补发的滚轮步数与每帧步数。Claude 一侧把滚轮当
 // 菜单/列表选择处理，同步灌一大批会误触命令，所以总量克制、按帧摊开。
 const APPLICATION_SCROLL_STEPS = 48;
 const APPLICATION_SCROLL_STEPS_PER_FRAME = 8;
@@ -502,8 +502,8 @@ function TerminalView({
     let applicationScrollActive = false;
     let pasteUploadsInFlight = 0;
     let selectionResumeTimer: number | null = null;
-    // 合成滚轮补滚的闸门与节流：CC 开着鼠标跟踪时，合成 WheelEvent 会被 xterm 编码成 SGR
-    // 鼠标序列直发 PTY。一次性同步灌几百条会被 CC 当成菜单里的连续选择（实测打出过两次
+    // 合成滚轮补滚的闸门与节流：Claude 开着鼠标跟踪时，合成 WheelEvent 会被 xterm 编码成 SGR
+    // 鼠标序列直发 PTY。一次性同步灌几百条会被 Claude 当成菜单里的连续选择（实测打出过两次
     // /clear 清空会话），所以总量降到 APPLICATION_SCROLL_STEPS 并按帧摊开，且加冷却。
     let applicationScrollFrame: number | null = null;
     let applicationScrollCooldownUntil = 0;
@@ -769,7 +769,7 @@ function TerminalView({
         view: window,
       };
       // Claude 的 TUI 自己持有历史深度，前端拿不到精确底部，只能有限批量下滚。按帧摊开
-      // 而不是同步灌完：机器速度的连发会被 CC 读成菜单里的连续选择。
+      // 而不是同步灌完：机器速度的连发会被 Claude 读成菜单里的连续选择。
       stopApplicationScroll();
       let remaining = APPLICATION_SCROLL_STEPS;
       const step = () => {
@@ -1837,8 +1837,8 @@ export function TerminalPanel({
               : [detail.engine, ...availableEngines]
             ).map((item) => (
               <option key={item} value={item}>
-                {/* 顶栏空间紧张：cc 用短称 Claude，其余仍用官方全名 */}
-                {item === "cc" ? "Claude" : engineName(item)}
+                {/* 顶栏空间紧张：claude 用短称 Claude，其余仍用官方全名 */}
+                {item === "claude" ? "Claude" : engineName(item)}
               </option>
             ))}
           </select>

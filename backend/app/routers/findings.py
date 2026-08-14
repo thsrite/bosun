@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db, scheduler
+from ..engines import CODING_ENGINES, normalize_engine_id
 from ..services import discovery
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
@@ -18,7 +19,7 @@ class AnalyzeBody(BaseModel):
 
 
 class ToTaskBody(BaseModel):
-    engine: str = "cc"
+    engine: str = "claude"
     priority: int = 7
     auto_approve: bool = False
 
@@ -89,10 +90,13 @@ def to_task(finding_id: int, body: ToTaskBody):
     # 外部单字段源 title 与 detail 是同一段文字，相同时不重复拼「详情」
     if detail and detail != (f["title"] or "").strip():
         prompt += f"\n\n详情:\n{detail}"
+    engine = normalize_engine_id(body.engine)
+    if engine not in CODING_ENGINES:
+        raise HTTPException(400, f"未知引擎: {body.engine}")
     tid = db.execute(
         "INSERT INTO task(project_id,engine,prompt,priority,auto_approve,kind,created_at) "
         "VALUES(?,?,?,?,?, 'repair', ?)",
-        (f["project_id"], body.engine, prompt, body.priority, int(body.auto_approve), time.time()),
+        (f["project_id"], engine, prompt, body.priority, int(body.auto_approve), time.time()),
     )
     db.execute("UPDATE finding SET status='task_created', task_id=? WHERE id=?", (tid, finding_id))
     scheduler.tick()

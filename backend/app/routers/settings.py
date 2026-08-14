@@ -5,10 +5,11 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from .. import browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler
+from .. import agent_skills, browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler
 from ..pty_session import script_log_path_for
+from ..engines import normalize_engine_id
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -16,6 +17,9 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class Settings(BaseModel):
     max_concurrent: int
     quota_enabled: bool = True
+    subtask_skill_enabled: bool = False
+    report_skill_enabled: bool = False
+    skill_path_overrides: dict[str, str] = Field(default_factory=dict)
     claude_invocation: str = "auto"
     claude_model: str = ""
     claude_effort: str = ""
@@ -31,6 +35,10 @@ def get_settings():
     return {
         "max_concurrent": int(db.get_setting("max_concurrent", 3)),
         "quota_enabled": quota.is_enabled(),
+        "subtask_skill_enabled": agent_skills.feature_enabled("subtask"),
+        "report_skill_enabled": agent_skills.feature_enabled("report"),
+        "skill_path_overrides": agent_skills.path_overrides(),
+        "agent_skill_paths": agent_skills.path_info(),
         "claude_invocation": engine_settings.claude_invocation(),
         "claude_model": engine_settings.claude_model(),
         "claude_model_options": engine_settings.claude_model_options(),
@@ -128,8 +136,9 @@ def compress_storage():
 
 @router.post("/models/{engine}/refresh")
 def refresh_model_options(engine: str):
+    engine = normalize_engine_id(engine)
     binaries = {
-        "cc": config.CLAUDE_BIN,
+        "claude": config.CLAUDE_BIN,
         "codex": config.CODEX_BIN,
         "omp": config.OMP_BIN,
         "kimi": config.KIMI_BIN,
@@ -156,8 +165,20 @@ def restart_backend(background_tasks: BackgroundTasks):
 
 @router.put("")
 def update_settings(body: Settings):
+    normalized_paths: dict[str, str] = {}
+    unknown_engines = set(body.skill_path_overrides) - set(agent_skills.ENGINES)
+    if unknown_engines:
+        raise HTTPException(400, f"不支持的技能路径引擎: {', '.join(sorted(unknown_engines))}")
+    for engine in agent_skills.ENGINES:
+        normalized_paths[engine] = normalize_skill_path(body.skill_path_overrides.get(engine, ""))
+    old_roots = {engine: agent_skills.skills_dir(engine) for engine in agent_skills.ENGINES}
+
     db.set_setting("max_concurrent", max(1, body.max_concurrent))
     db.set_setting("quota_enabled", "1" if body.quota_enabled else "0")
+    db.set_setting("subtask_skill_enabled", "1" if body.subtask_skill_enabled else "0")
+    db.set_setting("report_skill_enabled", "1" if body.report_skill_enabled else "0")
+    for engine, path in normalized_paths.items():
+        db.set_setting(f"agent_skill_path:{engine}", path)
     invocation = body.claude_invocation.strip().lower()
     if invocation not in engine_settings.CLAUDE_INVOCATIONS:
         invocation = "auto"
@@ -169,5 +190,22 @@ def update_settings(body: Settings):
     db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
     db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
     db.set_setting("kimi_model", engine_settings.normalize_kimi_model(body.kimi_model))
+    for engine, old_root in old_roots.items():
+        agent_skills.migrate_managed_skills(engine, old_root, agent_skills.skills_dir(engine))
+    agent_skills.sync_installed_engines()
     scheduler.tick()  # 提高上限时立即拉起排队任务
     return get_settings()
+
+
+def normalize_skill_path(raw: str) -> str:
+    """校验用户指定的 skills 根目录；空值表示恢复 CLI 默认路径。"""
+    value = raw.strip()
+    if not value:
+        return ""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise HTTPException(400, "技能目录必须是绝对路径")
+    path = path.resolve(strict=False)
+    if path == Path(path.anchor) or path == Path.home().resolve():
+        raise HTTPException(400, "技能目录不能是磁盘根目录或用户主目录")
+    return str(path)

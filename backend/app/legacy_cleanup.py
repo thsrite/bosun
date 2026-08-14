@@ -1,8 +1,7 @@
 """清理历史版本注入到本机的收尾回报残留。
 
-收尾回报现为 agent 直接 HTTP 回调（见 directives.REPORT_DIRECTIVE），不装 skill、
-不落脚本。历史版本留下过两类文件：更早的 skill 副本（~/.claude/skills 等引擎家
-目录）和短暂存在过的 DATA_DIR/libexec 脚本，启动时一并清掉。
+新版 skill 带所有权文件并由 agent_skills 管理。本模块只清理已明确识别的旧品牌 skill
+与短暂存在过的 DATA_DIR/libexec 脚本；同名但无所有权标记的用户目录不能删除。
 """
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ def cleanup_legacy_installs() -> None:
     ]
     for root in roots:
         skills = root / "skills"
-        for name in ("bosun-report", "deckhand-report"):
+        for name in ("deckhand-report",):
             target = skills / name
             try:
                 if target.is_dir():

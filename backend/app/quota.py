@@ -1,4 +1,4 @@
-"""cc / codex 订阅限额查询(参考 cc-switch / usage4claude 逆向的非官方端点)。
+"""claude / codex 订阅限额查询(参考 claude-switch / usage4claude 逆向的非官方端点)。
 
 ⚠️ 非官方接口，可能随官方变更失效；只读用量，不消耗 LLM 配额。
 - Claude: GET api.anthropic.com/api/oauth/usage  (token 取自 macOS keychain)
@@ -28,7 +28,7 @@ CODEX_MIN_INTERVAL = 60
 
 _cache: dict[str, dict] = {}   # provider -> {"at": ts, "data": {...}}
 _claude_ver: str | None = None
-_ENGINE_PROVIDER = {"cc": "claude", "codex": "codex"}
+_ENGINE_PROVIDER = {"claude": "claude", "codex": "codex"}
 _SEVEN_DAY_SECONDS = 7 * 24 * 60 * 60
 
 

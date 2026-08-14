@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, JSONResponse, Response
 
 from . import auth as auth_service
-from . import codex_skills_guard, config, db, events, orchestrations, policies, reflection_scheduler, scheduler, self_update
+from . import agent_skills, codex_skills_guard, config, db, events, orchestrations, policies, reflection_scheduler, scheduler, self_update
 from .routers import (
     auth,
     autopilot,
@@ -135,9 +135,10 @@ async def _startup() -> None:
     autopilot.reconcile_on_startup()  # 重启后把残留 running 的自愈 run 落终态, 防项目自愈永久卡死
     orchestrations.reconcile_on_startup()
     from . import legacy_cleanup
-    # 清理旧版本的注入残留（引擎家目录 skill 副本、libexec 脚本、codex config.toml 管理块）
+    # 清理旧品牌 skill / libexec 残留与 codex config.toml 旧管理块，再同步新版 skills。
     legacy_cleanup.cleanup_legacy_installs()
     codex_skills_guard.strip_persisted_disables()
+    agent_skills.sync_installed_engines()
     loop = asyncio.get_running_loop()
     events.set_loop(loop)
     scheduler.start(loop)

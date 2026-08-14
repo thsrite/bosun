@@ -1,7 +1,7 @@
 """子进程环境清理。
 
 bosun 后端若从 Claude Code 会话内启动，会继承 CLAUDECODE / CLAUDE_CODE_SESSION_ID /
-CLAUDE_CODE_CHILD_SESSION 等标记。这些若泄漏给被 spawn 的 cc/codex，子进程会以为自己是
+CLAUDE_CODE_CHILD_SESSION 等标记。这些若泄漏给被 spawn 的 claude/codex，子进程会以为自己是
 "嵌套/子会话" → 不独立持久化会话 transcript → --resume 找不到会话。故一律剥离。
 
 同理，后端若本身跑在某个 Bosun 任务里，会继承那个任务的 BOSUN_TASK_ID / BOSUN_API，
@@ -43,7 +43,7 @@ def child_env(extra: dict | None = None) -> dict:
     return e
 
 
-def task_env(task_id: int) -> dict:
+def task_env(task_id: int, engine: str | None = None, artifact_required: bool = False) -> dict:
     """派发给 agent 的环境：任务 id、回调地址与本轮回调凭证。
 
     BOSUN_TASK_ID 会被 agent 自己拉起的子 agent 继承，这类冒名回报由后端在
@@ -52,12 +52,22 @@ def task_env(task_id: int) -> dict:
     BOSUN_TASK_TOKEN 让 agent 在开了访问口令时也能回报：它只对本任务的
     /report 端点有效(见 auth.issue_task_token)，拿不到别的接口。
     """
-    from . import auth
+    from . import auth, engine_updates
+
+    cli_names = {"claude": "claude", "codex": "codex", "omp": "omp", "kimi": "kimi"}
+    installed = engine_updates.installed_engines()
+    available = [
+        cli_names[name]
+        for name in ("claude", "codex", "omp", "kimi")
+        if name != engine and installed.get(name)
+    ]
 
     return child_env({
         "BOSUN_TASK_ID": str(task_id),
         "BOSUN_API": api_base(),
         "BOSUN_TASK_TOKEN": auth.issue_task_token(task_id),
+        "BOSUN_AVAILABLE_ENGINES": ",".join(available),
+        "BOSUN_ARTIFACT_REQUIRED": "1" if artifact_required else "0",
     })
 
 

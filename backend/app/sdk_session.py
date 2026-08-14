@@ -1,4 +1,4 @@
-"""交互式 cc 会话：走 Claude Agent SDK(结构化)，接口对齐 PtySession。
+"""交互式 claude 会话：走 Claude Agent SDK(结构化)，接口对齐 PtySession。
 
 优于 pty 刮屏：
 - 权限决策经 can_use_tool 回调 → 弹到前端点"允许/拒绝"，不用在终端敲 1/2/3
@@ -29,8 +29,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from . import engine_settings, sessions
-from .directives import REPORT_NUDGE
+from . import agent_skills, engine_settings, sessions
 from .pty_session import TerminalBacklog, report_nudge_enabled
 from .engines import with_report_directive
 from .env import task_env
@@ -109,9 +108,16 @@ class SdkSession:
         opts_kwargs = {
             "cwd": self.cwd,
             # 没装 claude CLI 的机器上，捆绑 CLI 家目录重定向进 DATA_DIR（见 sessions.claude_home）
-            "env": {**task_env(self.task_id), **sessions.claude_env_overrides()},
+            "env": {
+                **task_env(self.task_id, "claude", getattr(self, "artifact_required", False)),
+                **sessions.claude_env_overrides(),
+            },
             "permission_mode": "bypassPermissions" if self.auto_approve else "default",
             "can_use_tool": None if self.auto_approve else self._can_use_tool,
+            # Bosun skills 装在用户级目录；SDK 显式保留全部原生设置源与用户技能，
+            # 不能为了两个 Bosun skill 屏蔽用户自己的 skills。
+            "setting_sources": ["user", "project", "local"],
+            "skills": "all",
         }
         model_override = getattr(self, "model_override", None)
         model = engine_settings.normalize_claude_model(model_override) if model_override else engine_settings.claude_model()
@@ -129,13 +135,16 @@ class SdkSession:
     async def _amain(self) -> None:
         self._sdk_loop = asyncio.get_event_loop()
         self._input_q = asyncio.Queue()
+        # 必须在 SDK 子进程启动前落盘；首次创建顶层 skills 目录后，已启动的
+        # Claude 进程未必会补建 watcher。
+        agent_skills.ensure_for_dispatch("claude")
         opts = self._build_options()
         try:
             async with ClaudeSDKClient(options=opts) as client:
                 self._client = client
                 pending = with_report_directive(
                     self.prompt,
-                    engine="cc",
+                    engine="claude",
                     artifact_required=getattr(self, "artifact_required", False),
                 )
                 nudged = False
@@ -152,7 +161,9 @@ class SdkSession:
                     # /report 回调 → 补投一条催报（每轮一次），SDK 路径 100% 不漏检
                     if not self._reported and not nudged and report_nudge_enabled():
                         nudged = True
-                        pending = REPORT_NUDGE
+                        pending = agent_skills.report_nudge(
+                            "claude", getattr(self, "artifact_required", False)
+                        )
                         continue
                     # 一轮结束, 等你下一条输入
                     self._set_status("waiting_input")

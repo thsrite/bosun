@@ -34,6 +34,15 @@ const DEFAULT_AUTH: AuthStatus = {
 const DEFAULT_SETTINGS: AppSettings = {
   max_concurrent: 3,
   quota_enabled: true,
+  subtask_skill_enabled: false,
+  report_skill_enabled: false,
+  skill_path_overrides: {},
+  agent_skill_paths: {
+    claude: { path: "", override: "", installed: false },
+    codex: { path: "", override: "", installed: false },
+    omp: { path: "", override: "", installed: false },
+    kimi: { path: "", override: "", installed: false },
+  },
   claude_invocation: "auto",
   claude_model: "",
   claude_model_options: [{ value: "", label: "默认" }],
@@ -76,7 +85,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [installedEngines, setInstalledEngines] = useState<InstalledEngines>(null);
   // null = 还没探测出结果；未装 claude CLI 时不展示 Claude 管理入口
-  const claudeInstalled = installedEngines ? installedEngines.cc === true : null;
+  const claudeInstalled = installedEngines ? installedEngines.claude === true : null;
   const [pullDistance, setPullDistance] = useState(0);
   const { busy: startingAll, run: runStartAll } = useSingleFlight();
   const mainRef = useRef<HTMLElement | null>(null);
@@ -301,11 +310,11 @@ export default function App() {
   }
 
   const updateModelOptions = useCallback((
-    engine: "cc" | "codex",
+    engine: "claude" | "codex",
     options: AppSettings["claude_model_options"],
   ) => {
     setSettings((current) => (
-      engine === "cc"
+      engine === "claude"
         ? { ...current, claude_model_options: options }
         : { ...current, codex_model_options: options }
     ));

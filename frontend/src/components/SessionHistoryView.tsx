@@ -38,7 +38,7 @@ function parseExportedHistory(bundle: { engine?: string; jsonl?: string }) {
       continue;
     }
     const timestamp = item.timestamp;
-    if (bundle.engine === "cc") {
+    if (bundle.engine === "claude") {
       if (item.type !== "user" && item.type !== "assistant") continue;
       const message = item.message as Record<string, unknown> | undefined;
       if (message) append(message.role ?? item.type, contentText(message.content), timestamp);

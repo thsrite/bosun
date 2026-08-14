@@ -1,4 +1,4 @@
-"""智能引擎路由：按配额余量 + 历史成功率 自动选 cc / codex。
+"""智能引擎路由：按配额余量 + 历史成功率 自动选 claude / codex。
 
 规则透明、无 ML：
 - 配额余量 = 100 - max(5 小时用量%, 周用量%)（越高越优先）；拿不到用量记 50(中性)
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from . import db, engine_updates, quota
 
-_PROVIDER = {"cc": "claude", "codex": "codex"}
+_PROVIDER = {"claude": "claude", "codex": "codex"}
 
 
 def _headroom(usage: dict, engine: str) -> float:
@@ -52,7 +52,7 @@ def _success_rate(engine: str) -> float:
 def pick_engine() -> tuple[str, str]:
     """返回 (engine, reason)。"""
     # 没装的引擎不参与自动分配；一个都没装时保持原样，交给启动守卫报错
-    cands = [e for e in ("cc", "codex") if engine_updates.is_installed(e)] or ["cc", "codex"]
+    cands = [e for e in ("claude", "codex") if engine_updates.is_installed(e)] or ["claude", "codex"]
     if len(cands) == 1:
         return cands[0], f"只安装了 {cands[0]}，直接选它"
     usage = quota.get_usage()
@@ -65,7 +65,7 @@ def pick_engine() -> tuple[str, str]:
     for e in ok:
         scores[e] = _headroom(usage, e) + _success_rate(e) * 40
     best = max(ok, key=lambda e: scores[e])
-    other = "codex" if best == "cc" else "cc"
+    other = "codex" if best == "claude" else "claude"
     blocked = _blocked_window(usage, other, limit)
     if blocked and len(ok) == 1:
         window, pct = blocked

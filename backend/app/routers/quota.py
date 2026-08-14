@@ -1,4 +1,4 @@
-"""cc / codex 限额展示。"""
+"""claude / codex 限额展示。"""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -6,6 +6,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, HTTPException
 
 from .. import engine_updates, quota
+from ..engines import normalize_engine_id
 
 router = APIRouter(prefix="/api/quota", tags=["quota"])
 
@@ -19,7 +20,7 @@ def _engine_call(fn: Callable[[str], dict], engine: str) -> dict:
 
 @router.get("")
 def get_quota(engine: str | None = None, refresh: bool = False):
-    return quota.get_usage(engine, refresh)
+    return quota.get_usage(normalize_engine_id(engine) if engine else None, refresh)
 
 
 @router.get("/engines")
@@ -35,14 +36,14 @@ def get_tools():
 
 @router.get("/tools/{engine}")
 def get_tool(engine: str):
-    return _engine_call(engine_updates.version_info, engine)
+    return _engine_call(engine_updates.version_info, normalize_engine_id(engine))
 
 
 @router.post("/tools/{engine}/check-update")
 def check_tool_update(engine: str):
-    return _engine_call(engine_updates.check_update, engine)
+    return _engine_call(engine_updates.check_update, normalize_engine_id(engine))
 
 
 @router.post("/tools/{engine}/update")
 def update_tool(engine: str):
-    return _engine_call(engine_updates.update_tool, engine)
+    return _engine_call(engine_updates.update_tool, normalize_engine_id(engine))

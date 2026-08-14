@@ -32,7 +32,7 @@ class OrchestrationTest(unittest.TestCase):
         return [
             {
                 "name": "方案",
-                "engine": "cc",
+                "engine": "claude",
                 "model": "sonnet",
                 "reasoning_effort": "high",
                 "role_prompt": "输出方案",
@@ -161,7 +161,7 @@ class OrchestrationTest(unittest.TestCase):
             scheduler.engine_settings, "should_use_claude_sdk", return_value=False
         ), patch.object(scheduler, "build_argv", return_value=["claude"]), patch.object(
             scheduler, "PtySession", FailingSession
-        ), patch.object(scheduler.sessions, "snapshot_cc", return_value=set()), patch.object(
+        ), patch.object(scheduler.sessions, "snapshot_claude", return_value=set()), patch.object(
             scheduler.events, "emit"
         ), patch.object(scheduler.threading, "Thread"):
             scheduler._start_task(row)

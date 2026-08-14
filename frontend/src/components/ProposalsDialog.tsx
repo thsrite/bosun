@@ -136,13 +136,13 @@ export function ProposalsDialog({ onClose }: { onClose: () => void }) {
             {reflectionRunning ? "反思运行中…" : "跑一次反思"}
           </button>
           <span className="text-xs text-slate-400">
-            让 cc 读 Bosun 运行数据 → 产出改进提案，你采纳才生效（白名单动作可自动应用）
+            让 claude 读 Bosun 运行数据 → 产出改进提案，你采纳才生效（白名单动作可自动应用）
           </span>
         </div>
 
         {reflectionRunning && (
           <div className="shrink-0 rounded-lg border border-slate-400/30 bg-slate-400/10 px-3 py-2 text-xs text-dh-tsoft">
-            正在调用 cc 读取运行数据并生成提案，通常需要几十秒；完成后列表会自动刷新。
+            正在调用 claude 读取运行数据并生成提案，通常需要几十秒；完成后列表会自动刷新。
           </div>
         )}
 

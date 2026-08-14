@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db, sessions
-from ..engines import CODING_ENGINES
+from ..engines import CODING_ENGINES, normalize_engine_id
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -65,18 +65,19 @@ def _create_resume_task(project_id: int, engine: str, session_uid: str, title: s
 @router.post("/import")
 def import_session(body: ImportBody):
     b = body.bundle
-    if b.engine not in CODING_ENGINES:
+    engine = normalize_engine_id(b.engine)
+    if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {b.engine}")
     project = db.query_one("SELECT * FROM project WHERE id=?", (body.project_id,))
     if project is None:
         raise HTTPException(404, "目标项目不存在")
     # 落盘到本机引擎会话目录
-    sessions.write_session(b.engine, project["path"], b.session_uid, b.jsonl)
+    sessions.write_session(engine, project["path"], b.session_uid, b.jsonl)
     # 建一个 draft 的可恢复任务
     title = f"分享: {b.prompt or b.project_name or b.session_uid[:8]}"[:60]
     result = _create_resume_task(
         body.project_id,
-        b.engine,
+        engine,
         b.session_uid,
         title,
         f"(导入分享会话) {b.prompt}",
@@ -100,17 +101,18 @@ def discover_sessions(project_id: int, limit: int = 50):
 
 @router.post("/attach")
 def attach_local_session(body: AttachBody):
-    if body.engine not in CODING_ENGINES:
+    engine = normalize_engine_id(body.engine)
+    if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {body.engine}")
     project = db.query_one("SELECT * FROM project WHERE id=?", (body.project_id,))
     if project is None:
         raise HTTPException(404, "目标项目不存在")
-    meta = sessions.local_session_info(body.engine, project["path"], body.session_uid)
+    meta = sessions.local_session_info(engine, project["path"], body.session_uid)
     if meta is None:
         raise HTTPException(404, "未找到属于该项目的本地会话")
     result = _create_resume_task(
         body.project_id,
-        body.engine,
+        engine,
         body.session_uid,
         f"本地会话: {meta['title']}",
         f"(本地会话) {meta.get('prompt') or meta['session_uid']}",

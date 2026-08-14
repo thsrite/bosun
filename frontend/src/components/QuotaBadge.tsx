@@ -47,7 +47,7 @@ const PROVIDERS: {
   note: string;
   usageKey?: keyof Pick<QuotaUsage, "claude" | "codex">;
 }[] = [
-  { engine: "cc", label: "Claude Code", chip: "Claude", note: "Claude CLI", usageKey: "claude" },
+  { engine: "claude", label: "Claude Code", chip: "Claude", note: "Claude CLI", usageKey: "claude" },
   { engine: "codex", label: "Codex", chip: "Codex", note: "Codex CLI", usageKey: "codex" },
   { engine: "omp", label: "omp", chip: "omp", note: "Oh My Pi" },
   { engine: "kimi", label: "Kimi Code", chip: "Kimi", note: "Kimi Code CLI" },
@@ -472,7 +472,7 @@ export function QuotaBadge({
   onModelOptionsUpdated,
 }: {
   onModelOptionsUpdated?: (
-    engine: "cc" | "codex",
+    engine: "claude" | "codex",
     options: AppSettings["claude_model_options"],
   ) => void;
 }) {
@@ -518,14 +518,14 @@ export function QuotaBadge({
   }, [setToolState]);
 
   const loadTools = useCallback(async () => {
-    for (const engine of ["cc", "codex", "omp", "kimi"]) setToolState(engine, { loading: true, error: null, result: null });
+    for (const engine of ["claude", "codex", "omp", "kimi"]) setToolState(engine, { loading: true, error: null, result: null });
     try {
       const info = await api.engineTools.list();
       setTools(info);
-      for (const engine of ["cc", "codex", "omp", "kimi"]) setToolState(engine, { loading: false });
+      for (const engine of ["claude", "codex", "omp", "kimi"]) setToolState(engine, { loading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      for (const engine of ["cc", "codex", "omp", "kimi"]) setToolState(engine, { loading: false, error: message });
+      for (const engine of ["claude", "codex", "omp", "kimi"]) setToolState(engine, { loading: false, error: message });
     }
   }, [setToolState]);
 
@@ -549,7 +549,7 @@ export function QuotaBadge({
       if (
         result.ok
         && result.model_options?.length
-        && (engine === "cc" || engine === "codex")
+        && (engine === "claude" || engine === "codex")
       ) {
         onModelOptionsUpdated?.(engine, result.model_options);
       }

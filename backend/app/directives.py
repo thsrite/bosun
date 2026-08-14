@@ -1,9 +1,8 @@
 """派发指令常量（零依赖底层，engines 与 harness_adapter 共同引用，避免互相 import）。"""
 
-# 收尾回报约定：agent 直接 HTTP 回调后端（BOSUN_API / BOSUN_TASK_ID / BOSUN_TASK_TOKEN
-# 均已注入任务环境变量），不装 skill、不落脚本——外部 CLI 的全局环境与本机文件系统
-# 零注入。reporter_pid 传当前 shell 的 pid（$$），供后端按进程链识别嵌套子 agent 的
-# 冒名回报（见 nesting.py，判定在后端，agent 无须自证）。
+# 收尾回报约定的降级文本：正常路径由 bosun-report skill 提供，只有 skill 安装失败或
+# 同名冲突时，回合结束后的催报才把本段投给 agent。reporter_pid 传当前 shell 的 pid
+#（$$），供后端按进程链识别嵌套子 agent 的冒名回报。
 # Authorization 头要求逐字照抄：曾写成「token 为空可省」，agent 据此改写成
 # `${BOSUN_TASK_TOKEN:+-H "Authorization: Bearer $BOSUN_TASK_TOKEN"}`，而 zsh 对未加引号
 # 的参数展开不分词，整段塌成单个参数 `-H Authorization: Bearer <tok>`，curl 发出的请求头
@@ -52,49 +51,4 @@ ORCHESTRATION_REPORT_ADDENDUM = (
     "artifact 不是摘要，必须足以让下一个角色脱离本终端日志继续工作；"
     "done 缺少 artifact 会被后端拒绝。Windows 可用 curl.exe 配合 UTF-8 临时文件"
     "和 `--data-binary @文件路径` 提交。"
-)
-
-# 引擎清单提示：告诉 agent 同机还装了哪些别的编码 CLI，可自行调用。
-# 刻意只列引擎、不列技能——cc 等 CLI 自带 skill 发现（实测本机 230 个），再注入
-# 一份是纯冗余。措辞刻意保守：默认不调，只在确有第二意见/交叉复审价值时才调，
-# 免得 agent 把简单任务也甩给子进程，白烧另一份额度。
-# 子 agent 会继承 BOSUN_TASK_ID 并可能冒名回报，后端有 nesting.py 按进程链拦截，
-# 这里再明确提醒一句「别让它回报」，双保险。
-ENGINE_ROSTER_TEMPLATE = (
-    "\n\n---\n"
-    "[Bosun 环境] 本机还装了这些编码 CLI，可在终端直接调用：{engines}。\n"
-    "默认不用；仅当确有价值时才调（例如要另一个模型出第二意见、交叉复审你自己的改动）。"
-    "调用它们属于你这一轮工作的一部分，**收尾回报仍由你自己发**，"
-    "不要让子 agent 代为回报（它会冒用本任务身份）。"
-)
-
-# 子任务派生提示：开启受控子任务后取代 ENGINE_ROSTER_TEMPLATE 的后半段。
-# 刻意做成「一条 curl 拿回结论」的同步形态——agent 现在一条 `codex exec` 就能同步
-# 拿到复审结论，换成异步+轮询比直接跑 CLI 更麻烦，它会绕开不用。写法与收尾回报
-# 约定保持一致（机械照抄、不要分析），压缩组装命令时的推理停顿。
-SUBTASK_TEMPLATE = (
-    "\n\n---\n"
-    "[Bosun 环境] 需要另一个模型出第二意见/交叉复审时，**优先用下面这条派生子任务**，"
-    "不要自己在终端里直接起别的 CLI——直接起的那个 Bosun 看不见、管不了、也不计额度。"
-    "可用引擎：{engines}。命令会阻塞到子任务本轮回报并把内容打印出来：\n"
-    "curl -sS -X POST -H 'Content-Type: application/json' "
-    '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
-    '-d "{{\\"engine\\":\\"<引擎>\\",\\"prompt\\":\\"<要它做什么>\\"}}" '
-    '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/spawn"\n'
-    "若返回 `needs_reply:true`，读取其中的 `id` 和 `summary`，决定后用父任务同一凭证回复：\n"
-    "curl -sS -X POST -H 'Content-Type: application/json' "
-    '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
-    '-d "{{\\"message\\":\\"<回复内容>\\"}}" '
-    '"$BOSUN_API/api/tasks/<子任务id>/reply"\n'
-    "可重复回复，直到返回最终结论。"
-    "（默认最多 3 个子任务、单个最长 15 分钟；子任务不能再派生子任务。"
-    "**本轮的收尾回报仍由你自己发**，子任务的回报只属于它自己。）"
-)
-
-# 催报提醒：回合已结束但后端仍没收到 /report 回调时，作为一条用户消息补投给 agent。
-# 必须单行——PTY 路径按整行注入终端输入框，多行会被 TUI 逐行提交。
-REPORT_NUDGE = (
-    "[Bosun 提醒] 本轮尚未收到收尾回报：请立即按收尾约定向 "
-    "$BOSUN_API/api/tasks/$BOSUN_TASK_ID/report 补发 curl 回报"
-    "（summary ≤50字回执；正文若已打印不要重复，回报后即可停下）。"
 )

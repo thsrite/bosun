@@ -14,6 +14,14 @@ import type {
 export type AppSettings = {
   max_concurrent: number;
   quota_enabled: boolean;
+  subtask_skill_enabled: boolean;
+  report_skill_enabled: boolean;
+  skill_path_overrides: Partial<Record<Exclude<Engine, "browser">, string>>;
+  agent_skill_paths: Record<Exclude<Engine, "browser">, {
+    path: string;
+    override: string;
+    installed: boolean;
+  }>;
   claude_invocation: "auto" | "sdk" | "cli";
   claude_model: string;
   claude_model_options: { value: string; label: string }[];
@@ -511,9 +519,9 @@ export const api = {
   getSettings: () => fetch("/api/settings").then((r) => j<AppSettings>(r)),
   setSettings: (settings: AppSettings) =>
     write<AppSettings>("PUT", "/api/settings", settings),
-  refreshModelOptions: (engine: "cc" | "codex" | "kimi") =>
+  refreshModelOptions: (engine: "claude" | "codex" | "kimi") =>
     write<{
-      engine: "cc" | "codex";
+      engine: "claude" | "codex" | "kimi";
       model_options: Array<{ value: string; label: string }>;
     }>("POST", `/api/settings/models/${engine}/refresh`),
   restartBackend: () =>

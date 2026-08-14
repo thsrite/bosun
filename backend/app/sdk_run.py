@@ -1,7 +1,7 @@
-"""用 Claude Agent SDK 一次性跑 cc(headless)。
+"""用 Claude Agent SDK 一次性跑 claude(headless)。
 
 替代刮屏解析：token 用量、成败、会话 id 都是结构化的，不再靠正则/事后解析 transcript。
-仅用于 cc；codex 无对应 SDK，仍走 subprocess。
+仅用于 claude；codex 无对应 SDK，仍走 subprocess。
 """
 from __future__ import annotations
 

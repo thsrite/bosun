@@ -37,7 +37,7 @@ function emptyStep(engine: CodingEngine, name: string, rolePrompt: string): Draf
 }
 
 function emptyDraft(engines: CodingEngine[]): Draft {
-  const first = engines[0] ?? "cc";
+  const first = engines[0] ?? "claude";
   const second = engines[1] ?? first;
   return {
     id: null,
@@ -67,14 +67,14 @@ function toDraft(template: OrchestrationTemplate): Draft {
 }
 
 function modelConfig(settings: AppSettings, engine: CodingEngine): { value: string; options: ModelOption[] } {
-  if (engine === "cc") return { value: settings.claude_model, options: settings.claude_model_options };
+  if (engine === "claude") return { value: settings.claude_model, options: settings.claude_model_options };
   if (engine === "codex") return { value: settings.codex_model, options: settings.codex_model_options };
   if (engine === "omp") return { value: settings.omp_model, options: settings.omp_model_options };
   return { value: settings.kimi_model, options: settings.kimi_model_options };
 }
 
 function reasoningConfig(settings: AppSettings, engine: CodingEngine) {
-  if (engine === "cc") return { value: settings.claude_effort, options: settings.claude_effort_options };
+  if (engine === "claude") return { value: settings.claude_effort, options: settings.claude_effort_options };
   if (engine === "codex") return { value: settings.codex_effort, options: settings.codex_effort_options };
   if (engine === "omp") return { value: settings.omp_thinking, options: settings.omp_thinking_options };
   return null;
@@ -256,7 +256,7 @@ export function OrchestrationSettings({ settings }: { settings: AppSettings }) {
             <button
               type="button"
               disabled={draft.steps.length >= 5 || engines.length === 0}
-              onClick={() => setDraft({ ...draft, steps: [...draft.steps, emptyStep(engines[0] ?? "cc", "新角色", "根据原始任务和前序产物完成当前角色职责。")] })}
+              onClick={() => setDraft({ ...draft, steps: [...draft.steps, emptyStep(engines[0] ?? "claude", "新角色", "根据原始任务和前序产物完成当前角色职责。")] })}
               className="rounded-lg border border-dh-bsoft px-3 py-1.5 text-xs text-dh-tsoft hover:bg-dh-hover disabled:opacity-40"
             >+ 增加角色</button>
             <button type="button" onClick={() => setDraft(null)} className="ml-auto rounded-lg border border-dh-bsoft px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover">取消</button>

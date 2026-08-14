@@ -154,7 +154,7 @@ export function HomeView({
   const [q, setQ] = useState<any>(null);
   const [host, setHost] = useState<HostMetrics | null>(null);
   // 没装的引擎不展示配额卡片
-  const showClaude = useEngineVisible("cc");
+  const showClaude = useEngineVisible("claude");
   const showCodex = useEngineVisible("codex");
 
   useEffect(() => {
