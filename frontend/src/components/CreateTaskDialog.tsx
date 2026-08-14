@@ -352,41 +352,31 @@ export function CreateTaskDialog({
               {engineName(item)}
             </label>
           ))}
-          {orchestrations.length > 0 && (
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={executionMode === "orchestration"}
-                onChange={() => setExecutionMode("orchestration")}
-              />
-              🔗 {selectedOrchestration?.name ?? "编排"}
-            </label>
-          )}
+          {orchestrations.map((item) => {
+            const missing = item.steps.filter((step) => installedEngines?.[step.engine] === false);
+            return (
+              <label
+                key={item.id}
+                className={`flex items-center gap-1.5 ${missing.length > 0 ? "opacity-50" : ""}`}
+                title={missing.length > 0 ? `缺少 ${missing.map((step) => engineName(step.engine)).join("、")}` : item.steps.map((step) => step.name).join(" → ")}
+              >
+                <input
+                  type="radio"
+                  disabled={missing.length > 0}
+                  checked={executionMode === "orchestration" && orchestrationId === item.id}
+                  onChange={() => { setExecutionMode("orchestration"); setOrchestrationId(item.id); }}
+                />
+                🔗 {item.name}
+              </label>
+            );
+          })}
         </div>
-        {executionMode === "orchestration" && orchestrations.length > 0 && (
-          <label className="block rounded-lg border border-dh-bsoft bg-dh-soft p-3">
-            <span className="mb-1.5 block text-xs font-medium text-dh-tsoft">选择编排</span>
-            <select
-              value={orchestrationId}
-              onChange={(event) => setOrchestrationId(Number(event.target.value))}
-              className="w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-text"
-            >
-              {orchestrations.map((item) => {
-                const missing = item.steps.filter((step) => installedEngines?.[step.engine] === false);
-                return <option key={item.id} value={item.id} disabled={missing.length > 0}>
-                  {item.name} · {item.steps.map((step) => step.name).join(" → ")}
-                  {missing.length > 0 ? `（缺少 ${missing.map((step) => engineName(step.engine)).join("、")}）` : ""}
-                </option>;
-              })}
-            </select>
-            {selectedOrchestration && (
-              <span className="mt-1.5 block text-[11px] text-slate-400">
-                {selectedOrchestration.steps.map((step) => (
-                  `${engineName(step.engine)} · ${step.name}${step.model ? ` · ${step.model}` : ""}${step.reasoning_effort ? ` · ${step.reasoning_effort}` : ""}`
-                )).join(" → ")}
-              </span>
-            )}
-          </label>
+        {executionMode === "orchestration" && selectedOrchestration && (
+          <span className="block text-[11px] text-slate-400">
+            {selectedOrchestration.steps.map((step) => (
+              `${engineName(step.engine)} · ${step.name}${step.model ? ` · ${step.model}` : ""}${step.reasoning_effort ? ` · ${step.reasoning_effort}` : ""}`
+            )).join(" → ")}
+          </span>
         )}
         <textarea
           className="h-32 w-full rounded-lg border border-dh-bsoft bg-dh-soft p-2.5 font-mono text-xs text-dh-text focus:border-dh-m2 focus:outline-none"
