@@ -13,18 +13,10 @@ import { SettingsView } from "./components/SettingsView";
 import { InstalledEnginesContext, type InstalledEngines } from "./installedEngines";
 import { OverlayHost, confirmDialog, toast } from "./overlay";
 import { guardQuota } from "./quota";
+import { NAV, type Tab } from "./tabs";
 import type { Engine, Project } from "./types";
 import { useSingleFlight } from "./useSingleFlight";
 
-type Tab = "projects" | "tasks" | "claude" | "stats" | "delivery" | "settings";
-const NAV: { key: Tab; label: string }[] = [
-  { key: "projects", label: "项目" },
-  { key: "tasks", label: "运行任务" },
-  { key: "claude", label: "Claude 管理" },
-  { key: "stats", label: "统计图表" },
-  { key: "delivery", label: "交付监控" },
-  { key: "settings", label: "设置" },
-];
 const DEFAULT_AUTH: AuthStatus = {
   enabled: false,
   source: "none",
@@ -33,6 +25,7 @@ const DEFAULT_AUTH: AuthStatus = {
 };
 const DEFAULT_SETTINGS: AppSettings = {
   max_concurrent: 3,
+  default_tab: "projects",
   quota_enabled: true,
   status_badge_enabled: true,
   subtask_skill_enabled: false,
@@ -176,7 +169,14 @@ export default function App() {
     applyHash();
     window.addEventListener("hashchange", applyHash);
     api.getSettings().then((s) => {
-      setSettings({ ...DEFAULT_SETTINGS, ...s }); // 兜底: 后端漏返回的字段用默认, 防 .map 崩
+      const merged = { ...DEFAULT_SETTINGS, ...s }; // 兜底: 后端漏返回的字段用默认, 防 .map 崩
+      setSettings(merged);
+      // 只在没有 hash（首次打开）时套用默认页面；带 hash 说明是刷新或直达链接，不能覆盖
+      if (!location.hash && merged.default_tab !== "projects") {
+        setTab(merged.default_tab);
+        setView("home");
+        location.replace("#" + merged.default_tab); // replace: 不给「后退」留一条多余历史
+      }
     });
     // 事件 WS：只提示有新事件，不主动刷新列表；刷新由下拉/按钮/业务操作触发。
     const proto = location.protocol === "https:" ? "wss" : "ws";

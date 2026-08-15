@@ -5,6 +5,7 @@ import { api, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfU
 import { setToken } from "../auth";
 import { engineName } from "../engines";
 import { useEngineVisible } from "../installedEngines";
+import { NAV, type Tab } from "../tabs";
 import type { Engine } from "../types";
 import { confirmDialog, toast } from "../overlay";
 import { OrchestrationSettings } from "./OrchestrationSettings";
@@ -893,6 +894,22 @@ export function SettingsView({
               />
               {settings.status_badge_enabled ? "已开启" : "已关闭"}
             </label>
+          </Field>
+          <Field
+            label="默认打开页面"
+            hint="打开工作台时进入的页面；从带 #xxx 的链接进入或刷新时仍按链接走。"
+          >
+            <select
+              className="w-28"
+              value={settings.default_tab}
+              onChange={(e) => void onChange({ default_tab: e.target.value as Tab })}
+            >
+              {NAV.filter((n) => n.key !== "claude" || showClaude).map((n) => (
+                <option key={n.key} value={n.key}>
+                  {n.label}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field
             label="受控子任务技能"

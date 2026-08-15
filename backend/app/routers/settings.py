@@ -14,8 +14,14 @@ from ..engines import normalize_engine_id
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+DEFAULT_TAB = "projects"
+# 前端顶栏一级导航，见 frontend/src/tabs.ts
+TABS = ("projects", "tasks", "claude", "stats", "delivery", "settings")
+
+
 class Settings(BaseModel):
     max_concurrent: int
+    default_tab: str = DEFAULT_TAB
     quota_enabled: bool = True
     status_badge_enabled: bool = True
     subtask_skill_enabled: bool = False
@@ -39,10 +45,17 @@ def status_badge_enabled() -> bool:
     return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
 
+def default_tab() -> str:
+    """打开工作台（URL 无 hash）时进入的页面；只影响前端首屏。"""
+    value = str(db.get_setting("default_tab", DEFAULT_TAB)).strip()
+    return value if value in TABS else DEFAULT_TAB
+
+
 @router.get("")
 def get_settings():
     return {
         "max_concurrent": int(db.get_setting("max_concurrent", 3)),
+        "default_tab": default_tab(),
         "quota_enabled": quota.is_enabled(),
         "status_badge_enabled": status_badge_enabled(),
         "subtask_skill_enabled": agent_skills.feature_enabled("subtask"),
@@ -184,6 +197,8 @@ def update_settings(body: Settings):
     old_roots = {engine: agent_skills.skills_dir(engine) for engine in agent_skills.ENGINES}
 
     db.set_setting("max_concurrent", max(1, body.max_concurrent))
+    tab = body.default_tab.strip()
+    db.set_setting("default_tab", tab if tab in TABS else DEFAULT_TAB)
     db.set_setting("quota_enabled", "1" if body.quota_enabled else "0")
     db.set_setting("status_badge_enabled", "1" if body.status_badge_enabled else "0")
     db.set_setting("subtask_skill_enabled", "1" if body.subtask_skill_enabled else "0")

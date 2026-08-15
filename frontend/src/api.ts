@@ -1,4 +1,5 @@
 import { authHeaders, setToken } from "./auth";
+import type { Tab } from "./tabs";
 import type {
   Engine,
   Finding,
@@ -14,6 +15,8 @@ import type {
 
 export type AppSettings = {
   max_concurrent: number;
+  /** 打开工作台（URL 无 hash）时进入的页面 */
+  default_tab: Tab;
   quota_enabled: boolean;
   status_badge_enabled: boolean;
   subtask_skill_enabled: boolean;
