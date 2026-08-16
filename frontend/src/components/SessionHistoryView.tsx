@@ -79,7 +79,6 @@ function parseExportedHistory(bundle: { engine?: string; jsonl?: string }) {
 
 export function SessionHistoryView({ taskId }: { taskId: number }) {
   const [messages, setMessages] = useState<SessionHistoryMessage[]>([]);
-  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -93,7 +92,6 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
       .then((result) => {
         if (cancelled) return;
         setMessages(result.messages);
-        setTruncated(result.truncated);
       })
       .catch((reason: Error) => {
         if (!cancelled) setError(reason.message || "历史读取失败");
@@ -108,11 +106,6 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
 
   return (
     <div className="h-full overflow-y-auto bg-[#131316] px-3 py-3 sm:px-5">
-      {truncated && (
-        <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          会话较长，当前展示最近的历史消息；完整记录仍可通过“分享导出”获取。
-        </div>
-      )}
       {loading && <div className="pt-8 text-center text-xs text-dh-muted">正在读取会话历史…</div>}
       {!loading && error && (
         <div className="pt-8 text-center text-xs text-rose-300">历史读取失败：{error}</div>
