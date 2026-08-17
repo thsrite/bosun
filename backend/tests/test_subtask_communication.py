@@ -130,6 +130,10 @@ class SubtaskCommunicationTest(unittest.TestCase):
     def test_reply_endpoint_uses_task_credentials(self):
         self.assertTrue(_TASK_CREDENTIAL_PATH.fullmatch("/api/tasks/42/reply"))
 
+    def test_crew_message_endpoints_use_task_credentials(self):
+        self.assertTrue(_TASK_CREDENTIAL_PATH.fullmatch("/api/tasks/42/message"))
+        self.assertTrue(_TASK_CREDENTIAL_PATH.fullmatch("/api/tasks/42/messages/7/ack"))
+
     def test_completed_parent_cannot_keep_driving_child(self):
         child_id = self._waiting_child()
         db.execute("UPDATE task SET status='done' WHERE id=?", (self.parent_id,))

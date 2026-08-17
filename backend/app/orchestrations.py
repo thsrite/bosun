@@ -32,6 +32,12 @@ MAX_MESSAGES_PER_RUN = 200  # 单个 run 的消息总条数
 MAX_MESSAGE_CHARS = 4000    # 单条消息长度
 MAX_PINGPONG = 6            # 同一对角色连续往返次数（乒乓熔断）
 MESSAGE_KINDS = {"handoff", "rework", "ask", "answer", "system"}
+RELIABLE_MESSAGE_KINDS = {"handoff", "rework", "ask", "answer"}
+MESSAGE_ACK_TIMEOUT = 60.0
+MAX_DELIVERY_ATTEMPTS = 3   # 首投、原会话重投、恢复会话后补投
+MAX_MESSAGE_RECOVERIES = 1
+MAX_ROLE_NUDGES = 1
+MAX_ROLE_RECOVERIES = 1
 
 
 class OrchestrationError(ValueError):
@@ -338,6 +344,11 @@ def _create_all_roles(conn, run, snapshot: dict, now: float) -> list[int]:
         if position in existing:
             continue
         task_ids.append(_insert_step(conn, run, snapshot, position, now))
+    conn.execute(
+        "UPDATE orchestration_step_run SET status='running',started_at=COALESCE(started_at,?),"
+        "updated_at=? WHERE run_id=? AND position=? AND status='queued'",
+        (now, now, run["id"], run["current_position"]),
+    )
     return task_ids
 
 
@@ -487,11 +498,32 @@ def validate_task_report(task_id: int, result: str, artifact: str | None) -> boo
 def _queue_message(conn, run_id: int, from_position: int | None, to_position: int,
                    kind: str, body: str, now: float) -> int:
     """把消息落库（投递是另一步）。落库先于投递：目标掉线时它就是待补投的凭据。"""
-    return conn.execute(
+    message_id = conn.execute(
         "INSERT INTO orchestration_message(run_id,from_position,to_position,kind,body,created_at) "
         "VALUES(?,?,?,?,?,?)",
         (run_id, from_position, to_position, kind, body[:MAX_MESSAGE_CHARS], now),
     ).lastrowid
+    if kind in RELIABLE_MESSAGE_KINDS:
+        ack = (
+            f"\n\n【可靠投递】这是消息 #{message_id}。处理正文前先确认收件：\n"
+            "curl -sS -X POST -H 'Content-Type: application/json' "
+            "-H \"Authorization: Bearer $BOSUN_TASK_TOKEN\" "
+            '-d "{\\"reporter_pid\\":$$}" '
+            f"\"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/messages/{message_id}/ack\"\n"
+            "非 2xx 必须说明；ACK 只确认收到，不代表本环完成。"
+        )
+        prefix = f"【Bosun 消息 #{message_id}】\n"
+        available = MAX_MESSAGE_CHARS - len(prefix) - len(ack)
+        stored = prefix + body[:max(0, available)] + ack
+        conn.execute(
+            "UPDATE orchestration_message SET body=? WHERE id=?", (stored, message_id)
+        )
+    return message_id
+
+
+def _message_body(conn, message_id: int) -> str:
+    row = conn.execute("SELECT body FROM orchestration_message WHERE id=?", (message_id,)).fetchone()
+    return row["body"] if row else ""
 
 
 def _archive_artifact(conn, step, now: float) -> None:
@@ -522,10 +554,10 @@ def _handoff_body(step, snapshot: dict, output: str | None) -> str:
     )
 
 
-def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, str | None]:
+def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, int | None, str | None]:
     """交棒：不再新建下一步（全员早已在线），只移动接力棒并把产物投给下一位。
 
-    返回 (下一位的 task_id, 待投递消息)；已经是最后一位则收口 run 并返回 (None, None)。
+    返回 (下一位 task_id, 消息 id, 待投递消息)；最后一位返回三个 None。
     """
     snapshot = json.loads(run["definition_snapshot"])
     next_position = int(step["position"]) + 1
@@ -535,7 +567,7 @@ def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, str | 
             "WHERE id=? AND status NOT IN ('done','failed','cancelled','interrupted')",
             (step["position"], now, now, run["id"]),
         )
-        return None, None
+        return None, None, None
     nxt = conn.execute(
         "SELECT * FROM orchestration_step_run WHERE run_id=? AND position=?",
         (run["id"], next_position),
@@ -546,8 +578,11 @@ def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, str | 
             "SELECT * FROM orchestration_step_run WHERE run_id=? AND position=?",
             (run["id"], next_position),
         ).fetchone()
-    body = _handoff_body(step, snapshot, step["output_artifact"])
-    _queue_message(conn, run["id"], step["position"], next_position, "handoff", body, now)
+    message_id = _queue_message(
+        conn, run["id"], step["position"], next_position, "handoff",
+        _handoff_body(step, snapshot, step["output_artifact"]), now,
+    )
+    body = _message_body(conn, message_id)
     if nxt["status"] in TERMINAL_STEP_STATUSES:
         # 下一位已经被取消/失败：不能把它就地复活，也不能跳过它继续往下走
         # （跳过等于悄悄砍掉编排里的一环）。交棒消息滞留，交用户裁决。
@@ -555,21 +590,21 @@ def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, str | 
             "UPDATE orchestration_run SET status='waiting_input',updated_at=? WHERE id=?",
             (now, run["id"]),
         )
-        return None, None
+        return None, None, None
     _set_baton(conn, run["id"], next_position, now)
     conn.execute(
-        "UPDATE orchestration_step_run SET status='running',updated_at=?,started_at=COALESCE(started_at,?) "
+        "UPDATE orchestration_step_run SET status='queued',updated_at=? "
         "WHERE id=?",
-        (now, now, nxt["id"]),
+        (now, nxt["id"]),
     )
-    return nxt["task_id"], body
+    return nxt["task_id"], message_id, body
 
 
 def _apply_rework(conn, run, step, target_position: int, note: str, now: float
-                  ) -> tuple[int | None, str | None, bool]:
+                  ) -> tuple[int | None, int | None, str | None, bool]:
     """打回返工：接力棒回退到目标位置，目标角色带着意见重跑。
 
-    返回 (目标 task_id, 待投递消息, 是否触发限次熔断)。旧产物归档而不是丢弃。
+    返回 (目标 task_id, 消息 id, 待投递消息, 是否触发限次熔断)。旧产物归档而不丢弃。
     """
     snapshot = json.loads(run["definition_snapshot"])
     if not 1 <= target_position <= len(snapshot["steps"]):
@@ -586,7 +621,7 @@ def _apply_rework(conn, run, step, target_position: int, note: str, now: float
             conn, run["id"], step["position"], target_position, "system",
             f"【Bosun】返工次数已达上限（{MAX_REWORK_TOTAL} 次），编排暂停等待用户裁决。", now,
         )
-        return None, None, True
+        return None, None, None, True
     target = conn.execute(
         "SELECT * FROM orchestration_step_run WHERE run_id=? AND position=?",
         (run["id"], target_position),
@@ -599,24 +634,37 @@ def _apply_rework(conn, run, step, target_position: int, note: str, now: float
         f"请按以下意见重做，完成后重新提交阶段产物并回报 done。\n"
         f"返工意见：\n---\n{note or '（未填写意见）'}\n---"
     )
-    _queue_message(conn, run["id"], step["position"], target_position, "rework", body, now)
+    message_id = _queue_message(
+        conn, run["id"], step["position"], target_position, "rework", body, now,
+    )
+    body = _message_body(conn, message_id)
     conn.execute(
-        "UPDATE orchestration_step_run SET status='running',result=NULL,output_artifact=NULL,summary=NULL,"
-        "attempt=attempt+1,rework_count=rework_count+1,updated_at=?,ended_at=NULL WHERE id=?",
+        "UPDATE orchestration_step_run SET status='queued',result=NULL,output_artifact=NULL,summary=NULL,"
+        "attempt=attempt+1,rework_count=rework_count+1,nudge_count=0,recovery_count=0,"
+        "last_nudged_at=NULL,updated_at=?,ended_at=NULL WHERE id=?",
         (now, target["id"]),
     )
     # 打回点之后的角色（含发起者）回到待执行：它们的结论建立在被推翻的产物上
     conn.execute(
-        "UPDATE orchestration_step_run SET status='queued',result=NULL,updated_at=? "
+        "UPDATE orchestration_step_run SET status='queued',result=NULL,nudge_count=0,recovery_count=0,"
+        "last_nudged_at=NULL,updated_at=? "
         "WHERE run_id=? AND position>? AND status NOT IN ('cancelled')",
         (now, run["id"], target_position),
+    )
+    # 这些常驻 task 上一轮的 done/rework 回报属于已被推翻的执行；不清会让监督器误判
+    # “已有权威结论”而跳过催办，也会污染前端当前轮状态。
+    conn.execute(
+        "UPDATE task SET report_result=NULL,report_summary=NULL WHERE id IN ("
+        "SELECT task_id FROM orchestration_step_run WHERE run_id=? AND position>=?"
+        ")",
+        (run["id"], target_position),
     )
     conn.execute(
         "UPDATE orchestration_run SET rework_total=rework_total+1,updated_at=? WHERE id=?",
         (now, run["id"]),
     )
     _set_baton(conn, run["id"], target_position, now)
-    return target["task_id"], body, False
+    return target["task_id"], message_id, body, False
 
 
 def handle_task_report(task_id: int, result: str, summary: str, artifact: str | None,
@@ -624,7 +672,7 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
     validate_task_report(task_id, result, artifact)
     now = time.time()
     run_id = None
-    pending: tuple[int, str] | None = None  # (目标 task_id, 待投递消息)
+    pending: tuple[int, int, str] | None = None  # (目标 task_id, 消息 id, 待投递消息)
     with db._lock:
         conn = db.get_conn()
         with conn:
@@ -643,6 +691,12 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                     f"当前持棒者是第 {run['current_position']} 位，你（第 {step['position']} 位）"
                     "现在处于待命，请等 Bosun 把接力棒交给你", 409,
                 )
+            # 权威回报本身足以证明当前角色已经消费交棒；兼容尚未更新 ACK 约定的会话。
+            conn.execute(
+                "UPDATE orchestration_message SET acknowledged_at=COALESCE(acknowledged_at,?) "
+                "WHERE run_id=? AND to_position=? AND kind IN ('handoff','rework')",
+                (now, run_id, step["position"]),
+            )
             output = artifact if artifact is not None else step["output_artifact"]
             if result == "done":
                 conn.execute(
@@ -651,15 +705,15 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                     ((summary or "")[:2000], output, now, now, step["id"]),
                 )
                 step = conn.execute("SELECT * FROM orchestration_step_run WHERE id=?", (step["id"],)).fetchone()
-                next_task_id, body = _advance_after_done(conn, run, step, now)
-                if next_task_id and body:
-                    pending = (next_task_id, body)
+                next_task_id, message_id, body = _advance_after_done(conn, run, step, now)
+                if next_task_id and message_id and body:
+                    pending = (next_task_id, message_id, body)
             elif result == "rework":
-                target_task_id, body, _tripped = _apply_rework(
+                target_task_id, message_id, body, _tripped = _apply_rework(
                     conn, run, step, int(target_position or 0), summary or "", now,
                 )
-                if target_task_id and body:
-                    pending = (target_task_id, body)
+                if target_task_id and message_id and body:
+                    pending = (target_task_id, message_id, body)
             elif result == "needs_input":
                 conn.execute(
                     "UPDATE orchestration_step_run SET status='waiting_input',result=?,summary=?,output_artifact=?,"
@@ -689,7 +743,9 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
     return get_run(run_id)
 
 
-def _hand_over(run_id: int, from_task_id: int, to_task_id: int, body: str) -> None:
+def _hand_over(
+    run_id: int, from_task_id: int, to_task_id: int, message_id: int, body: str
+) -> None:
     """交棒/返工的落地动作：切换双方待命身份，把消息投进目标会话。
 
     投递失败（目标掉线）不是致命错：消息已落库，`deliver_pending` 会在它回来后补投。
@@ -697,18 +753,78 @@ def _hand_over(run_id: int, from_task_id: int, to_task_id: int, body: str) -> No
     scheduler.set_standby(from_task_id, True)
     scheduler.set_standby(to_task_id, False)
     if scheduler.deliver_message(to_task_id, body):
-        _mark_delivered(run_id, to_task_id)
+        _record_delivery(message_id)
     else:
         _revive_role(run_id, to_task_id)
 
 
-def _mark_delivered(run_id: int, to_task_id: int) -> None:
-    now = time.time()
+def _record_delivery(message_id: int, now: float | None = None) -> None:
+    delivered_at = time.time() if now is None else now
     db.execute(
-        "UPDATE orchestration_message SET delivered_at=? WHERE run_id=? AND delivered_at IS NULL "
-        "AND to_position=(SELECT position FROM orchestration_step_run WHERE task_id=?)",
-        (now, run_id, to_task_id),
+        "UPDATE orchestration_message SET delivered_at=COALESCE(delivered_at,?),"
+        "last_delivered_at=?,delivery_attempts=delivery_attempts+1 WHERE id=?",
+        (delivered_at, delivered_at, message_id),
     )
+
+
+def _record_failed_delivery(message_id: int, now: float) -> None:
+    db.execute(
+        "UPDATE orchestration_message SET last_delivered_at=?,"
+        "delivery_attempts=delivery_attempts+1 WHERE id=?",
+        (now, message_id),
+    )
+
+
+def acknowledge_message(task_id: int, message_id: int) -> dict:
+    """目标角色确认消息已进入自己的推理回合；重复 ACK 幂等。"""
+    now = time.time()
+    with db._lock:
+        conn = db.get_conn()
+        with conn:
+            step = conn.execute(
+                "SELECT * FROM orchestration_step_run WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if step is None:
+                raise OrchestrationError("当前任务不是编排角色", 409)
+            message = conn.execute(
+                "SELECT * FROM orchestration_message WHERE id=?", (message_id,)
+            ).fetchone()
+            if message is None or message["run_id"] != step["run_id"]:
+                raise OrchestrationError("消息不存在", 404)
+            if message["to_position"] != step["position"]:
+                raise OrchestrationError("只能确认发给自己的消息", 403)
+            run = conn.execute(
+                "SELECT * FROM orchestration_run WHERE id=?", (step["run_id"],)
+            ).fetchone()
+            if run is None or run["status"] in TERMINAL_RUN_STATUSES:
+                raise OrchestrationError("编排已结束，不能确认消息", 409)
+            changed = conn.execute(
+                "UPDATE orchestration_message SET acknowledged_at=COALESCE(acknowledged_at,?) "
+                "WHERE id=? AND acknowledged_at IS NULL",
+                (now, message_id),
+            ).rowcount
+            if (
+                changed and message["kind"] in {"handoff", "rework"}
+                and run["current_position"] == step["position"]
+            ):
+                conn.execute(
+                    "UPDATE orchestration_step_run SET status='running',updated_at=?,"
+                    "started_at=COALESCE(started_at,?) WHERE id=? AND status IN ('queued','waiting_input')",
+                    (now, now, step["id"]),
+                )
+                conn.execute(
+                    "UPDATE orchestration_run SET status='running',updated_at=? WHERE id=? "
+                    "AND status NOT IN ('done','failed','cancelled','interrupted')",
+                    (now, step["run_id"]),
+                )
+    events.emit("orchestration.message", {
+        "run_id": step["run_id"], "message_id": message_id,
+        "acknowledged": True, "newly_acknowledged": bool(changed),
+    })
+    return {
+        "ok": True, "message_id": message_id, "acknowledged": True,
+        "newly_acknowledged": bool(changed),
+    }
 
 
 def _revive_role(run_id: int, task_id: int) -> None:
@@ -717,20 +833,20 @@ def _revive_role(run_id: int, task_id: int) -> None:
     if row is None:
         return
     step = db.query_one("SELECT status FROM orchestration_step_run WHERE task_id=?", (task_id,))
-    if step is not None and step["status"] in TERMINAL_STEP_STATUSES:
-        # 用户主动取消/已终结的角色不自动复活——消息滞留，等用户显式 resume。
-        # 悄悄重开一个被人为叫停的 CLI 是无视用户意图，也是白烧 token。
+    if step is not None and step["status"] in {"failed", "cancelled", "interrupted"}:
+        # 人为叫停或失败的角色不自动复活；已完成角色仍可被点名回答后续问题。
         return
-    if row["status"] not in {"running", "waiting_input", "queued"}:
+    if not scheduler.role_online(task_id):
         db.execute(
-            "UPDATE task SET status='queued', ended_at=NULL, exit_code=NULL, resume=1 WHERE id=?",
+            "UPDATE task SET status='queued',ended_at=NULL,exit_code=NULL,resume=CASE "
+            "WHEN session_uid IS NULL THEN 0 ELSE 1 END WHERE id=?",
             (task_id,),
         )
-        db.execute(
-            "UPDATE orchestration_step_run SET status='queued',updated_at=? "
-            "WHERE task_id=? AND status='offline'",
-            (time.time(), task_id),
-        )
+        if step is not None and step["status"] == "offline":
+            db.execute(
+                "UPDATE orchestration_step_run SET status='queued',updated_at=? WHERE task_id=?",
+                (time.time(), task_id),
+            )
     if db.query_one("SELECT status FROM task WHERE id=?", (task_id,))["status"] == "queued":
         scheduler.start_orchestration_role(task_id)
     deliver_pending(run_id)
@@ -741,7 +857,8 @@ def deliver_pending(run_id: int) -> int:
     rows = db.query(
         "SELECT m.id, m.to_position, m.body, s.task_id FROM orchestration_message m "
         "JOIN orchestration_step_run s ON s.run_id=m.run_id AND s.position=m.to_position "
-        "WHERE m.run_id=? AND m.delivered_at IS NULL ORDER BY m.id",
+        "WHERE m.run_id=? AND (m.delivered_at IS NULL OR "
+        "(m.acknowledged_at IS NULL AND m.delivery_attempts=0)) ORDER BY m.id",
         (run_id,),
     )
     delivered = 0
@@ -750,9 +867,7 @@ def deliver_pending(run_id: int) -> int:
         if row["task_id"] is None or not scheduler.role_online(row["task_id"]):
             continue
         if scheduler.deliver_message(row["task_id"], row["body"]):
-            db.execute(
-                "UPDATE orchestration_message SET delivered_at=? WHERE id=?", (now, row["id"])
-            )
+            _record_delivery(row["id"], now)
             delivered += 1
     return delivered
 
@@ -814,23 +929,22 @@ def send_message(task_id: int, to_position: int, body: str, kind: str = "ask") -
             f"你与第 {to_position} 位已连续往返 {MAX_PINGPONG} 次，编排已暂停等用户裁决", 429,
         )
     now = time.time()
-    envelope = (
-        f"【Bosun 消息】来自第 {step['position']} 位 · {step['name']}：\n{text}\n"
+    content = (
+        f"来自第 {step['position']} 位 · {step['name']}：\n{text}\n"
         f"（如需回复，用发消息功能回给第 {step['position']} 位；不要替对方做决定）"
     )
     with db._lock:
         conn = db.get_conn()
         with conn:
             message_id = _queue_message(
-                conn, step["run_id"], step["position"], to_position, kind, envelope, now,
+                conn, step["run_id"], step["position"], to_position, kind, content, now,
             )
+            envelope = _message_body(conn, message_id)
     delivered = False
     if target["task_id"] is not None:
         delivered = scheduler.deliver_message(target["task_id"], envelope)
         if delivered:
-            db.execute(
-                "UPDATE orchestration_message SET delivered_at=? WHERE id=?", (now, message_id)
-            )
+            _record_delivery(message_id, now)
         else:
             _revive_role(step["run_id"], target["task_id"])
     events.emit("orchestration.message", {
@@ -916,9 +1030,13 @@ def handle_task_cancelled(task_id: int) -> None:
 
 
 def handle_task_exit(task_id: int, exit_code: int) -> None:
-    """步骤进程退出但没有权威回报时让 run 明确失败，不能永久挂 running。"""
+    """步骤进程退出但没有权威回报时自动恢复一次，耗尽后转人工。"""
     step = _step_for_task(task_id)
     if step is None or step["status"] in TERMINAL_STEP_STATUSES:
+        return
+    task = db.query_one("SELECT report_result FROM task WHERE id=?", (task_id,))
+    if task is not None and task["report_result"] == "needs_input":
+        # 角色已经明确把问题交给用户；会话退出不能把人工等待误当成漏回报并自动重启。
         return
     run = db.query_one("SELECT * FROM orchestration_run WHERE id=?", (step["run_id"],))
     if run is None or run["status"] in TERMINAL_RUN_STATUSES:
@@ -932,8 +1050,31 @@ def handle_task_exit(task_id: int, exit_code: int) -> None:
         )
         events.emit("orchestration.run", {"run_id": step["run_id"], "status": run["status"]})
         return
+    if run["status"] == "waiting_input":
+        return
     now = time.time()
-    summary = "CLI 已退出但未提交阶段产物" if exit_code == 0 else f"CLI 异常退出（exit {exit_code}），未提交阶段产物"
+    if exit_code == 0:
+        if int(step["recovery_count"] or 0) < MAX_ROLE_RECOVERIES:
+            db.execute(
+                "UPDATE orchestration_step_run SET status='running',recovery_count=recovery_count+1,"
+                "nudge_count=0,last_nudged_at=NULL,updated_at=? WHERE id=?",
+                (now, step["id"]),
+            )
+            if scheduler.restart_orchestration_role(task_id):
+                scheduler.deliver_message(
+                    task_id,
+                    "【Bosun 自动恢复】上一会话退出但没有提交权威回报。"
+                    "请继续当前环节，完成后提交阶段产物并回报；需要用户决定时回报 needs_input。",
+                )
+                events.emit("orchestration.run", {
+                    "run_id": step["run_id"], "status": "running", "recovered": True,
+                })
+                return
+        _pause_for_attention(
+            step["run_id"], step["id"], "当前角色退出且自动恢复失败，请人工检查", now,
+        )
+        return
+    summary = f"CLI 异常退出（exit {exit_code}），未提交阶段产物"
     with db._lock:
         conn = db.get_conn()
         with conn:
@@ -947,6 +1088,323 @@ def handle_task_exit(task_id: int, exit_code: int) -> None:
             )
     events.emit("orchestration.run", {"run_id": step["run_id"], "status": "failed"})
     release_run_sessions(step["run_id"])  # 持棒者没了，剩下的待命角色不能继续挂着
+
+
+def _pause_for_attention(run_id: int, step_id: int, summary: str, now: float) -> None:
+    with db._lock:
+        conn = db.get_conn()
+        with conn:
+            conn.execute(
+                "UPDATE orchestration_run SET status='waiting_input',updated_at=? "
+                "WHERE id=? AND status NOT IN ('done','failed','cancelled','interrupted')",
+                (now, run_id),
+            )
+            conn.execute(
+                "UPDATE orchestration_step_run SET status='waiting_input',summary=?,updated_at=? "
+                "WHERE id=? AND status NOT IN ('done','failed','cancelled','interrupted')",
+                (summary[:2000], now, step_id),
+            )
+    events.emit("orchestration.run", {
+        "run_id": run_id, "status": "waiting_input", "summary": summary,
+    })
+
+
+def _message_is_still_pending(message) -> bool:
+    row = db.query_one(
+        "SELECT m.acknowledged_at,m.delivery_attempts,m.recovery_count,r.status AS run_status "
+        "FROM orchestration_message m JOIN orchestration_run r ON r.id=m.run_id WHERE m.id=?",
+        (message["id"],),
+    )
+    return bool(
+        row and row["acknowledged_at"] is None
+        and row["run_status"] in {"running", "queued"}
+        and int(row["delivery_attempts"] or 0) == int(message["delivery_attempts"] or 0)
+        and int(row["recovery_count"] or 0) == int(message["recovery_count"] or 0)
+    )
+
+
+def _restart_for_unacknowledged_message(message) -> bool | None:
+    """原子认领一次消息恢复；None 表示快照已过期，不应再动目标会话。"""
+    with db._lock:
+        conn = db.get_conn()
+        current = conn.execute(
+            "SELECT m.acknowledged_at,m.delivery_attempts,m.recovery_count,r.status AS run_status,"
+            "s.status AS step_status FROM orchestration_message m "
+            "JOIN orchestration_run r ON r.id=m.run_id "
+            "JOIN orchestration_step_run s ON s.run_id=m.run_id AND s.position=m.to_position "
+            "WHERE m.id=?",
+            (message["id"],),
+        ).fetchone()
+        if (
+            current is None or current["acknowledged_at"] is not None
+            or current["run_status"] not in {"running", "queued"}
+            or current["step_status"] in TERMINAL_STEP_STATUSES
+            or int(current["delivery_attempts"] or 0) != int(message["delivery_attempts"] or 0)
+            or int(current["recovery_count"] or 0) != int(message["recovery_count"] or 0)
+        ):
+            return None
+        conn.execute(
+            "UPDATE orchestration_message SET recovery_count=recovery_count+1 WHERE id=?",
+            (message["id"],),
+        )
+        conn.commit()
+        # ACK 与回报会在同一把 DB 锁后等待；恢复动作先完成，避免检查后被迟到 ACK 穿透。
+        return scheduler.restart_orchestration_role(message["task_id"])
+
+
+def _pause_for_unacknowledged_message(message, summary: str, now: float) -> bool:
+    with db._lock:
+        conn = db.get_conn()
+        with conn:
+            current = conn.execute(
+                "SELECT m.acknowledged_at,m.delivery_attempts,m.recovery_count,r.status AS run_status "
+                "FROM orchestration_message m JOIN orchestration_run r ON r.id=m.run_id WHERE m.id=?",
+                (message["id"],),
+            ).fetchone()
+            if (
+                current is None or current["acknowledged_at"] is not None
+                or current["run_status"] not in {"running", "queued"}
+                or int(current["delivery_attempts"] or 0) != int(message["delivery_attempts"] or 0)
+                or int(current["recovery_count"] or 0) != int(message["recovery_count"] or 0)
+            ):
+                return False
+            conn.execute(
+                "UPDATE orchestration_run SET status='waiting_input',updated_at=? WHERE id=?",
+                (now, message["run_id"]),
+            )
+            conn.execute(
+                "UPDATE orchestration_step_run SET status='waiting_input',summary=?,updated_at=? "
+                "WHERE id=? AND status NOT IN ('done','failed','cancelled','interrupted')",
+                (summary[:2000], now, message["step_id"]),
+            )
+    events.emit("orchestration.run", {
+        "run_id": message["run_id"], "status": "waiting_input", "summary": summary,
+    })
+    return True
+
+
+def _retry_unacknowledged_messages(now: float) -> int:
+    rows = db.query(
+        "SELECT m.*,s.id AS step_id,s.task_id FROM orchestration_message m "
+        "JOIN orchestration_run r ON r.id=m.run_id "
+        "JOIN orchestration_step_run s ON s.run_id=m.run_id AND s.position=m.to_position "
+        "WHERE m.kind IN ('handoff','rework','ask','answer') AND m.acknowledged_at IS NULL "
+        "AND r.status IN ('running','queued') ORDER BY m.id"
+    )
+    changed = 0
+    for message in rows:
+        if not _message_is_still_pending(message):
+            continue
+        last = message["last_delivered_at"]
+        if last is not None and now - float(last) <= MESSAGE_ACK_TIMEOUT:
+            continue
+        task_id = message["task_id"]
+        if task_id is None:
+            _pause_for_attention(
+                message["run_id"], message["step_id"], "消息目标任务不存在，自动交接已暂停", now,
+            )
+            changed += 1
+            continue
+        attempts = int(message["delivery_attempts"] or 0)
+        recoveries = int(message["recovery_count"] or 0)
+        if attempts < MAX_DELIVERY_ATTEMPTS - 1:
+            if scheduler.deliver_message(task_id, message["body"]):
+                _record_delivery(message["id"], now)
+            else:
+                _record_failed_delivery(message["id"], now)
+                _revive_role(message["run_id"], task_id)
+            changed += 1
+            continue
+        if recoveries < MAX_MESSAGE_RECOVERIES:
+            restarted = _restart_for_unacknowledged_message(message)
+            if restarted is None:
+                continue
+            if restarted and scheduler.deliver_message(task_id, message["body"]):
+                _record_delivery(message["id"], now)
+            changed += 1
+            continue
+        if _pause_for_unacknowledged_message(
+            message, f"消息 #{message['id']} 多次投递仍未确认，请人工检查目标角色", now,
+        ):
+            changed += 1
+    return changed
+
+
+def _current_role_is_still_unreported(step) -> bool:
+    row = db.query_one(
+        "SELECT r.status AS run_status,r.current_position,s.status,t.status AS task_status,"
+        "t.report_result,s.nudge_count,s.recovery_count,s.last_nudged_at "
+        "FROM orchestration_step_run s JOIN orchestration_run r ON r.id=s.run_id "
+        "JOIN task t ON t.id=s.task_id WHERE s.id=?",
+        (step["id"],),
+    )
+    return bool(
+        row and row["run_status"] == "running"
+        and row["current_position"] == step["position"]
+        and row["status"] in {"queued", "running", "waiting_input"}
+        and row["task_status"] in {"waiting_input", "interrupted"}
+        and not row["report_result"]
+        and int(row["nudge_count"] or 0) == int(step["nudge_count"] or 0)
+        and int(row["recovery_count"] or 0) == int(step["recovery_count"] or 0)
+        and row["last_nudged_at"] == step["last_nudged_at"]
+    )
+
+
+def _restart_current_role_if_unreported(step, now: float) -> bool | None:
+    """原子认领当前角色恢复；None 表示回报或接力棒已经改变。"""
+    with db._lock:
+        conn = db.get_conn()
+        current = conn.execute(
+            "SELECT r.status AS run_status,r.current_position,s.status,t.status AS task_status,"
+            "t.report_result,s.recovery_count FROM orchestration_step_run s "
+            "JOIN orchestration_run r ON r.id=s.run_id JOIN task t ON t.id=s.task_id WHERE s.id=?",
+            (step["id"],),
+        ).fetchone()
+        if (
+            current is None or current["run_status"] != "running"
+            or current["current_position"] != step["position"]
+            or current["status"] not in {"queued", "running", "waiting_input"}
+            or current["task_status"] not in {"waiting_input", "interrupted"}
+            or current["report_result"]
+            or int(current["recovery_count"] or 0) != int(step["recovery_count"] or 0)
+        ):
+            return None
+        conn.execute(
+            "UPDATE orchestration_step_run SET recovery_count=recovery_count+1,nudge_count=0,"
+            "last_nudged_at=NULL,status='running',updated_at=? WHERE id=?",
+            (now, step["id"]),
+        )
+        conn.commit()
+        return scheduler.restart_orchestration_role(step["task_id"])
+
+
+def _record_current_role_nudge(step, now: float) -> bool:
+    changed = db.execute_rowcount(
+        "UPDATE orchestration_step_run SET nudge_count=nudge_count+1,last_nudged_at=?,"
+        "status='running',updated_at=? WHERE id=? AND nudge_count=? AND recovery_count=? "
+        "AND EXISTS (SELECT 1 FROM orchestration_run r WHERE r.id=orchestration_step_run.run_id "
+        "AND r.status='running' AND r.current_position=orchestration_step_run.position) "
+        "AND EXISTS (SELECT 1 FROM task t WHERE t.id=orchestration_step_run.task_id "
+        "AND t.status IN ('waiting_input','interrupted') AND t.report_result IS NULL)",
+        (
+            now, now, step["id"], int(step["nudge_count"] or 0),
+            int(step["recovery_count"] or 0),
+        ),
+    )
+    return changed == 1
+
+
+def _pause_current_role_if_unreported(step, summary: str, now: float) -> bool:
+    with db._lock:
+        conn = db.get_conn()
+        with conn:
+            current = conn.execute(
+                "SELECT r.status AS run_status,r.current_position,s.status,t.status AS task_status,"
+                "t.report_result FROM orchestration_step_run s "
+                "JOIN orchestration_run r ON r.id=s.run_id JOIN task t ON t.id=s.task_id "
+                "WHERE s.id=?",
+                (step["id"],),
+            ).fetchone()
+            if (
+                current is None or current["run_status"] != "running"
+                or current["current_position"] != step["position"]
+                or current["status"] not in {"queued", "running", "waiting_input"}
+                or current["task_status"] not in {"waiting_input", "interrupted"}
+                or current["report_result"]
+            ):
+                return False
+            conn.execute(
+                "UPDATE orchestration_run SET status='waiting_input',updated_at=? WHERE id=?",
+                (now, step["run_id"]),
+            )
+            conn.execute(
+                "UPDATE orchestration_step_run SET status='waiting_input',summary=?,updated_at=? "
+                "WHERE id=?",
+                (summary[:2000], now, step["id"]),
+            )
+    events.emit("orchestration.run", {
+        "run_id": step["run_id"], "status": "waiting_input", "summary": summary,
+    })
+    return True
+
+
+def _supervise_current_roles(now: float) -> int:
+    rows = db.query(
+        "SELECT r.id AS run_id,s.*,t.status AS task_status,t.report_result "
+        "FROM orchestration_run r "
+        "JOIN orchestration_step_run s ON s.run_id=r.id AND s.position=r.current_position "
+        "JOIN task t ON t.id=s.task_id "
+        "WHERE r.status='running' AND s.status IN ('queued','running','waiting_input')"
+    )
+    changed = 0
+    for step in rows:
+        if step["report_result"] or not _current_role_is_still_unreported(step):
+            continue
+        task_status = step["task_status"]
+        if task_status not in {"waiting_input", "interrupted"}:
+            continue
+        waiting_kind = scheduler.get_waiting_kind(step["task_id"])
+        if task_status == "waiting_input" and waiting_kind in {"choice", "input", "permission"}:
+            if _pause_current_role_if_unreported(
+                step, "当前角色需要用户输入或安全确认", now,
+            ):
+                changed += 1
+            continue
+        last_nudged = step["last_nudged_at"]
+        if int(step["nudge_count"] or 0) < MAX_ROLE_NUDGES:
+            message = (
+                "【Bosun 催办】你当前持有接力棒，但本轮尚未收到权威回报。"
+                "请继续完成当前工作；完成后提交阶段产物并回报 done。"
+                "若确实缺少用户信息则回报 needs_input，不要静默停住。"
+            )
+            if scheduler.deliver_message(step["task_id"], message):
+                if _record_current_role_nudge(step, now):
+                    changed += 1
+            elif int(step["recovery_count"] or 0) < MAX_ROLE_RECOVERIES:
+                restarted = _restart_current_role_if_unreported(step, now)
+                if restarted is None:
+                    continue
+                if restarted:
+                    scheduler.deliver_message(
+                        step["task_id"],
+                        "【Bosun 自动恢复】上一会话无法接收催办。请继续本环工作并按协议回报。",
+                    )
+                else:
+                    _pause_for_attention(
+                        step["run_id"], step["id"], "当前角色掉线且自动恢复失败，请人工检查", now,
+                    )
+                changed += 1
+            else:
+                if _pause_current_role_if_unreported(
+                    step, "当前角色无法接收催办，请人工检查", now,
+                ):
+                    changed += 1
+            continue
+        if last_nudged is not None and now - float(last_nudged) <= MESSAGE_ACK_TIMEOUT:
+            continue
+        if int(step["recovery_count"] or 0) < MAX_ROLE_RECOVERIES:
+            restarted = _restart_current_role_if_unreported(step, now)
+            if restarted is None:
+                continue
+            if restarted:
+                scheduler.deliver_message(
+                    step["task_id"],
+                    "【Bosun 自动恢复】上一会话停滞且未回报。请从当前上下文继续本环工作，"
+                    "完成后提交阶段产物并回报；需要用户决定时回报 needs_input。",
+                )
+            changed += 1
+            continue
+        if _pause_current_role_if_unreported(
+            step, "当前角色催办并自动恢复后仍未回报，请人工检查", now,
+        ):
+            changed += 1
+    return changed
+
+
+def sweep_reliable_communications(now: float | None = None) -> int:
+    """监督可靠消息与当前接力棒；每项动作都有硬上限，耗尽后转人工。"""
+    current = time.time() if now is None else now
+    return _retry_unacknowledged_messages(current) + _supervise_current_roles(current)
 
 
 def sweep_timeouts() -> int:
@@ -992,29 +1450,80 @@ def resume_run(run_id: int) -> dict:
     if run["status"] in TERMINAL_RUN_STATUSES:
         raise OrchestrationError("编排已结束，不能恢复", 409)
     now = time.time()
-    task_ids: list[int] = []
-    for step in db.query(
+    steps = db.query(
         "SELECT * FROM orchestration_step_run WHERE run_id=? ORDER BY position", (run_id,)
-    ):
-        if step["status"] in TERMINAL_STEP_STATUSES or step["task_id"] is None:
-            continue
-        if scheduler.role_online(step["task_id"]):
-            continue
-        db.execute(
-            "UPDATE task SET status='queued', ended_at=NULL, exit_code=NULL, resume=1 WHERE id=?",
-            (step["task_id"],),
-        )
-        db.execute(
-            "UPDATE orchestration_step_run SET status=?,updated_at=? WHERE id=?",
-            ("running" if step["position"] == run["current_position"] else "queued", now, step["id"]),
-        )
-        task_ids.append(step["task_id"])
-    db.execute(
-        "UPDATE orchestration_run SET status='running',updated_at=? WHERE id=?", (now, run_id)
     )
+    online = {
+        step["task_id"]: scheduler.role_online(step["task_id"])
+        for step in steps if step["task_id"] is not None
+    }
+    task_ids: list[int] = []
+    current_task_id: int | None = None
+    current_needs_input = False
+    with db._lock:
+        conn = db.get_conn()
+        with conn:
+            run = conn.execute(
+                "SELECT * FROM orchestration_run WHERE id=?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise OrchestrationError("编排运行不存在", 404)
+            if run["status"] in TERMINAL_RUN_STATUSES:
+                raise OrchestrationError("编排已结束，不能恢复", 409)
+            steps = conn.execute(
+                "SELECT * FROM orchestration_step_run WHERE run_id=? ORDER BY position", (run_id,)
+            ).fetchall()
+            for step in steps:
+                if step["status"] in TERMINAL_STEP_STATUSES or step["task_id"] is None:
+                    continue
+                is_current = step["position"] == run["current_position"]
+                if is_current:
+                    current_task_id = step["task_id"]
+                    current_needs_input = step["result"] == "needs_input"
+                if not online.get(step["task_id"], False):
+                    conn.execute(
+                        "UPDATE task SET status='queued',ended_at=NULL,exit_code=NULL,resume=CASE "
+                        "WHEN session_uid IS NULL THEN 0 ELSE 1 END WHERE id=?",
+                        (step["task_id"],),
+                    )
+                    task_ids.append(step["task_id"])
+                elif is_current and not current_needs_input:
+                    conn.execute(
+                        "UPDATE task SET status='running',waiting_since=NULL WHERE id=? "
+                        "AND report_result IS NULL",
+                        (step["task_id"],),
+                    )
+                conn.execute(
+                    "UPDATE orchestration_step_run SET status=?,nudge_count=0,recovery_count=0,"
+                    "last_nudged_at=NULL,updated_at=? WHERE id=?",
+                    (
+                        "waiting_input" if is_current and current_needs_input
+                        else "running" if is_current else "queued",
+                        now, step["id"],
+                    ),
+                )
+            # 人工恢复是新的投递轮次：耗尽的旧计数必须重新武装，且未确认消息要真正重投。
+            conn.execute(
+                "UPDATE orchestration_message SET last_delivered_at=NULL,"
+                "delivery_attempts=0,recovery_count=0 WHERE run_id=? AND acknowledged_at IS NULL "
+                "AND kind IN ('handoff','rework','ask','answer')",
+                (run_id,),
+            )
+            resumed_status = "waiting_input" if current_needs_input else "running"
+            conn.execute(
+                "UPDATE orchestration_run SET status=?,updated_at=? WHERE id=? "
+                "AND status NOT IN ('done','failed','cancelled','interrupted')",
+                (resumed_status, now, run_id),
+            )
     _dispatch_roles(task_ids)
-    deliver_pending(run_id)  # 掉线期间滞留的交棒/返工/提问，一回来就补投
-    events.emit("orchestration.run", {"run_id": run_id, "status": "running"})
+    deliver_pending(run_id)  # 掉线或熔断期间滞留的交棒/返工/提问，一回来就补投
+    if current_task_id is not None and not current_needs_input:
+        scheduler.deliver_message(
+            current_task_id,
+            "【Bosun 人工恢复】恢复计数已经重新武装。请继续当前环节并按协议回报；"
+            "需要用户决定时回报 needs_input。",
+        )
+    events.emit("orchestration.run", {"run_id": run_id, "status": resumed_status})
     return get_run(run_id)
 
 

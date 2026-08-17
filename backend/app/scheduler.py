@@ -530,6 +530,35 @@ def start_orchestration_role(task_id: int) -> bool:
     return task_id in _sessions
 
 
+def restart_orchestration_role(task_id: int) -> bool:
+    """受控重启一个未确认交接或漏回报的编排角色。
+
+    这是协议恢复，不是用户取消：先从注册表摘除并终止旧 PTY，避免退出回调把当前棒
+    误判为失败；随后用已捕获的 session_uid 续跑。调用方负责重投交棒/催办消息。
+    """
+    row = db.query_one(
+        "SELECT t.* FROM task t "
+        "JOIN orchestration_step_run s ON s.task_id=t.id "
+        "JOIN orchestration_run r ON r.id=s.run_id "
+        "WHERE t.id=? AND t.deleted=0 AND t.kind='orchestration' "
+        "AND r.status IN ('running','queued') "
+        "AND s.status NOT IN ('failed','cancelled','interrupted')",
+        (task_id,),
+    )
+    if row is None:
+        return False
+    session = _sessions.pop(task_id, None)
+    if session is not None:
+        session.terminate()
+    db.execute(
+        "UPDATE task SET status='queued',ended_at=NULL,exit_code=NULL,resume=CASE "
+        "WHEN session_uid IS NULL THEN 0 ELSE 1 END,report_result=NULL,report_summary=NULL,"
+        "waiting_since=NULL WHERE id=?",
+        (task_id,),
+    )
+    return start_orchestration_role(task_id)
+
+
 def set_standby(task_id: int, standby: bool) -> None:
     """切换角色的待命身份（接棒时解除，交棒后恢复）。会话已退出时静默忽略。"""
     session = _sessions.get(task_id)
@@ -914,6 +943,7 @@ async def _run_loop() -> None:
                 _reconcile()
                 tick()
                 from . import orchestrations
+                orchestrations.sweep_reliable_communications()
                 orchestrations.sweep_timeouts()  # 常驻班组的整轮超时闸
         except Exception:
             pass

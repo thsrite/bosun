@@ -580,6 +580,10 @@ class CrewMessageBody(BaseModel):
     reporter_pid: int | None = None
 
 
+class CrewMessageAckBody(BaseModel):
+    reporter_pid: int | None = None
+
+
 @router.post("/{task_id}/message")
 def send_crew_message(task_id: int, body: CrewMessageBody, request: Request = None):
     """班组编排里点名给另一位角色发消息（agent 直接 HTTP POST）。"""
@@ -589,6 +593,21 @@ def send_crew_message(task_id: int, body: CrewMessageBody, request: Request = No
         raise HTTPException(status_code=409, detail="嵌套 agent 不能代替本任务发消息")
     try:
         return orchestrations.send_message(task_id, body.to_position, body.body, body.kind)
+    except orchestrations.OrchestrationError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@router.post("/{task_id}/messages/{message_id}/ack")
+def acknowledge_crew_message(
+    task_id: int, message_id: int, body: CrewMessageAckBody, request: Request = None,
+):
+    """目标角色确认可靠消息已进入自己的推理回合。"""
+    if not _report_authorized(task_id, request):
+        raise HTTPException(status_code=401, detail="回报凭证无效")
+    if nesting.is_nested_report(body.reporter_pid):
+        raise HTTPException(status_code=409, detail="嵌套 agent 不能代替本任务确认消息")
+    try:
+        return orchestrations.acknowledge_message(task_id, message_id)
     except orchestrations.OrchestrationError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
 

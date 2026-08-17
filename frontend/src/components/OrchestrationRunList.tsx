@@ -128,6 +128,9 @@ export function OrchestrationRunList({ runs, onChanged }: { runs: OrchestrationR
       {runs.map((item) => {
         const current = item.steps.find((step) => step.position === item.current_position);
         const offline = item.steps.filter((step) => step.status === "offline").length;
+        const canResume = offline > 0 || (
+          item.status === "waiting_input" && current?.result !== "needs_input"
+        );
         const total = (() => {
           try { return (JSON.parse(item.definition_snapshot) as { steps?: unknown[] }).steps?.length ?? item.steps.length; }
           catch { return item.steps.length; }
@@ -144,7 +147,7 @@ export function OrchestrationRunList({ runs, onChanged }: { runs: OrchestrationR
               {offline > 0 && <span className="rounded bg-rose-500/15 px-2 py-0.5 text-[11px] text-rose-400">{offline} 位掉线</span>}
               <span className="ml-auto text-xs text-dh-muted">{item.status}</span>
               {item.status === "draft" && <button type="button" disabled={busy} onClick={(event) => { event.preventDefault(); void start(item); }} className="rounded-md bg-dh-accent px-2.5 py-1 text-xs text-dh-accfg disabled:opacity-50">执行</button>}
-              {ACTIVE.has(item.status) && offline > 0 && <button type="button" disabled={busy} onClick={(event) => { event.preventDefault(); void resume(item); }} className="rounded-md border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft disabled:opacity-50">恢复班组</button>}
+              {ACTIVE.has(item.status) && canResume && <button type="button" disabled={busy} onClick={(event) => { event.preventDefault(); void resume(item); }} className="rounded-md border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft disabled:opacity-50">恢复班组</button>}
               {ACTIVE.has(item.status) && <button type="button" disabled={busy} onClick={(event) => { event.preventDefault(); void cancel(item); }} className="rounded-md border border-rose-500/30 px-2.5 py-1 text-xs text-rose-400 disabled:opacity-50">取消编排</button>}
             </summary>
             <div className="mt-3 space-y-2 border-t border-dh-bsoft pt-3">

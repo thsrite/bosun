@@ -213,7 +213,11 @@ CREATE TABLE IF NOT EXISTS orchestration_message (
     kind TEXT NOT NULL,             -- handoff | rework | ask | answer | system
     body TEXT NOT NULL,
     created_at REAL NOT NULL,
-    delivered_at REAL
+    delivered_at REAL,
+    last_delivered_at REAL,
+    delivery_attempts INTEGER NOT NULL DEFAULT 0,
+    acknowledged_at REAL,
+    recovery_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_orchestration_message_run
     ON orchestration_message(run_id, id);
@@ -240,11 +244,14 @@ def get_conn() -> sqlite3.Connection:
     return _conn
 
 
-def _ensure_table_columns(conn, table: str, adds: dict) -> None:
+def _ensure_table_columns(conn, table: str, adds: dict) -> set[str]:
     have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    added: set[str] = set()
     for col, decl in adds.items():
         if col not in have:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            added.add(col)
+    return added
 
 
 def _ensure_columns() -> None:
@@ -296,10 +303,27 @@ def _ensure_columns() -> None:
         "role_kind": "TEXT NOT NULL DEFAULT 'step'",   # step | report(收口汇报角色)
         "rework_count": "INTEGER NOT NULL DEFAULT 0",  # 本步骤被打回重跑的次数
         "attempt": "INTEGER NOT NULL DEFAULT 1",       # 当前是第几次执行(返工递增)
+        "nudge_count": "INTEGER NOT NULL DEFAULT 0",   # 持棒角色漏回报后的催办次数
+        "recovery_count": "INTEGER NOT NULL DEFAULT 0",  # 持棒角色自动恢复次数
+        "last_nudged_at": "REAL",                      # 最近一次催办，用于重试窗口
     })
     _ensure_table_columns(conn, "orchestration_run", {
         "rework_total": "INTEGER NOT NULL DEFAULT 0",  # 整个 run 的返工次数(限次熔断)
     })
+    message_columns_added = _ensure_table_columns(conn, "orchestration_message", {
+        "last_delivered_at": "REAL",                 # 最近一次写入目标会话
+        "delivery_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "acknowledged_at": "REAL",                   # 目标角色明确确认已消费
+        "recovery_count": "INTEGER NOT NULL DEFAULT 0",
+    })
+    if "acknowledged_at" in message_columns_added:
+        # 旧版本只有 delivered_at，无法区分“写入 PTY”与“角色已消费”。升级时信任已经
+        # 投递过的历史消息，避免把正在执行中的旧交棒全部重放；新消息从此必须显式 ACK。
+        conn.execute(
+            "UPDATE orchestration_message SET last_delivered_at=delivered_at,"
+            "delivery_attempts=CASE WHEN delivered_at IS NULL THEN 0 ELSE 1 END,"
+            "acknowledged_at=delivered_at WHERE delivered_at IS NOT NULL"
+        )
     conn.commit()
 
 
