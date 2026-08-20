@@ -12,10 +12,8 @@ import { QuotaBadge } from "./components/QuotaBadge";
 import { SettingsView } from "./components/SettingsView";
 import { InstalledEnginesContext, type InstalledEngines } from "./installedEngines";
 import { OverlayHost, confirmDialog, toast } from "./overlay";
-import { guardQuota } from "./quota";
 import { NAV, type Tab } from "./tabs";
 import type { Engine, Project } from "./types";
-import { useSingleFlight } from "./useSingleFlight";
 
 const DEFAULT_AUTH: AuthStatus = {
   enabled: false,
@@ -87,7 +85,6 @@ export default function App() {
   // null = 还没探测出结果；未装 claude CLI 时不展示 Claude 管理入口
   const claudeInstalled = installedEngines ? installedEngines.claude === true : null;
   const [pullDistance, setPullDistance] = useState(0);
-  const { busy: startingAll, run: runStartAll } = useSingleFlight();
   const mainRef = useRef<HTMLElement | null>(null);
   const pullRef = useRef<PullGesture | null>(null);
   const refreshPromiseRef = useRef<Promise<void> | null>(null);
@@ -302,7 +299,6 @@ export default function App() {
   const running = projects.reduce((a, p) => a + p.running, 0);
   const maxConcurrent = settings.max_concurrent;
   const activeTotal = projects.reduce((a, p) => a + p.running + (p.by_status?.queued ?? 0), 0);
-  const totalDrafts = projects.reduce((a, p) => a + (p.by_status?.draft ?? 0), 0);
   const totalWaiting = projects.reduce((a, p) => a + (p.by_status?.waiting_input ?? 0), 0);
   const current = typeof view === "number" ? projects.find((p) => p.id === view) : null;
   const inProject = view !== "home" && !!current;
@@ -430,23 +426,6 @@ export default function App() {
                 </button>
               )}
               {settings.status_badge_enabled && <QuotaBadge onModelOptionsUpdated={updateModelOptions} />}
-              {totalDrafts > 0 && (
-                <button
-                  className="rounded-lg border border-slate-400/30 bg-slate-400/10 px-2.5 py-1.5 text-sm font-medium text-dh-tsoft hover:bg-slate-400/15 disabled:opacity-50 lg:px-3"
-                  disabled={startingAll}
-                  onClick={() =>
-                    runStartAll(async () => {
-                      if (!(await guardQuota())) return;
-                      if (await confirmDialog(`把全部 ${totalDrafts} 个待办任务排入执行？`)) {
-                        await api.startAll();
-                        await refreshAll();
-                      }
-                    })
-                  }
-                >
-                  ▶ <span className="hidden sm:inline">全部执行 </span>({totalDrafts})
-                </button>
-              )}
             </div>
           </div>
         </header>
