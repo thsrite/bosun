@@ -13,6 +13,9 @@ import type {
   Task,
 } from "./types";
 
+export type TaskFileKind = "image" | "pdf" | "text" | "binary";
+export type TaskFilePayload = { kind: TaskFileKind; blob: Blob };
+
 export type AppSettings = {
   max_concurrent: number;
   /** 打开工作台（URL 无 hash）时进入的页面 */
@@ -283,6 +286,18 @@ function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> 
   });
 }
 
+/** FastAPI 的错误体是 {"detail": "..."}；取出人话，取不到就退回状态文本。 */
+async function detail(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    // 不是 JSON，按原文用
+  }
+  return text || res.statusText;
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
   return res.json();
@@ -327,6 +342,15 @@ export const api = {
   tasks: (projectId?: number) =>
     fetch(projectId == null ? "/api/tasks" : `/api/tasks?project_id=${projectId}`).then((r) => j<Task[]>(r)),
   getTask: (id: number) => fetch(`/api/tasks/${id}`).then((r) => j<Task>(r)),
+  /** 终端里双击到的文件。后端按任务工作目录校验后代读，所以手机远程访问也能预览。 */
+  taskFile: async (id: number, path: string): Promise<TaskFilePayload> => {
+    const res = await fetch(`/api/tasks/${id}/file?path=${encodeURIComponent(path)}`);
+    if (!res.ok) throw new Error(await detail(res));
+    return {
+      kind: (res.headers.get("X-Preview-Kind") ?? "binary") as TaskFileKind,
+      blob: await res.blob(),
+    };
+  },
   updateTask: (id: number, body: { title?: string; prompt?: string; engine?: Engine }) =>
     write<Task>("PUT", `/api/tasks/${id}`, body),
   getLog: (id: number, source: "auto" | "terminal" | "script" = "auto") =>

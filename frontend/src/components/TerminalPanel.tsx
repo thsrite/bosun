@@ -22,8 +22,10 @@ import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
+import { extractPathAt } from "../terminalFilePaths";
 import type { TerminalBox, TerminalCellSize, TerminalGrid } from "../terminalViewport";
 import { fitFontSize, naturalGrid, parseSizeMeta } from "../terminalViewport";
+import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Engine, Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
@@ -376,6 +378,8 @@ function TerminalView({
   const [disconnected, setDisconnected] = useState(false);
   const [connected, setConnected] = useState(false);
   const [pastingImages, setPastingImages] = useState(false);
+  // 终端里双击到的文件路径（双击/双指轻点两下），非空即弹预览
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
   // 后端回放前发 \x00meta:backlog_truncated：日志超出回放预算，只回放了最近输出
   // 移动端长按选区已就绪：浮出「复制」按钮。WebKit 对 touchend 手势的剪贴板授权不可靠
   // （实测 execCommand/writeText 均可能失败），click 手势才稳，所以松手不自动复制。
@@ -1104,12 +1108,9 @@ function TerminalView({
       typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
         ? new Intl.Segmenter(undefined, { granularity: "word" })
         : null;
-    const startWordSelection = () => {
-      tLongPressTimer = null;
-      if (!tActive || tScrollStarted) return;
-      const { col, row } = cellFromTouch(tLastX, tLastY);
-      // 逐 cell 收集字符簇并记录列号：中文等宽字符占两列，translateToString 的字符串
-      // 下标≠列号，直接拿列号当下标会选错位置。
+    // 逐 cell 收集字符簇并记录列号：中文等宽字符占两列，translateToString 的字符串
+    // 下标≠列号，直接拿列号当下标会定位错。双击取路径与长按选词都靠它。
+    const readLineClusters = (row: number) => {
       const line = term.buffer.active.getLine(row);
       const clusters: { chars: string; col: number; width: number }[] = [];
       for (let x = 0; line && x < term.cols; ) {
@@ -1119,6 +1120,14 @@ function TerminalView({
         clusters.push({ chars: cell.getChars() || " ", col: x, width });
         x += width;
       }
+      return clusters;
+    };
+
+    const startWordSelection = () => {
+      tLongPressTimer = null;
+      if (!tActive || tScrollStarted) return;
+      const { col, row } = cellFromTouch(tLastX, tLastY);
+      const clusters = readLineClusters(row);
       const offsets: number[] = [];
       let acc = 0;
       for (const cluster of clusters) {
@@ -1159,6 +1168,50 @@ function TerminalView({
       const from = Math.min(idx, tSelectAnchorIdx);
       term.select(from % term.cols, Math.floor(from / term.cols), Math.abs(idx - tSelectAnchorIdx) + 1);
     };
+    // 路径可能被软换行拆到下一行，最多向后拼这么多行再找
+    const MAX_WRAPPED_PATH_ROWS = 6;
+    /** 取出某个 cell 上的文件路径；点在空白处或那段文本不像路径时返回 null。 */
+    const pathAtCell = (row: number, col: number): string | null => {
+      const buffer = term.buffer.active;
+      let startRow = row;
+      // 点在续行上时先回到这条逻辑行的开头，否则路径的前半截会丢
+      for (let n = 0; n < MAX_WRAPPED_PATH_ROWS && startRow > 0; n += 1) {
+        if (!buffer.getLine(startRow)?.isWrapped) break;
+        startRow -= 1;
+      }
+      const rows = [startRow];
+      while (rows.length < MAX_WRAPPED_PATH_ROWS && buffer.getLine(rows[rows.length - 1] + 1)?.isWrapped) {
+        rows.push(rows[rows.length - 1] + 1);
+      }
+      let text = "";
+      let clickIndex = -1;
+      for (const r of rows) {
+        const clusters = readLineClusters(r);
+        if (r === row) {
+          const ci = clusters.findIndex((c) => col >= c.col && col < c.col + c.width);
+          if (ci < 0) return null;
+          clickIndex = text.length + clusters.slice(0, ci).reduce((acc, c) => acc + c.chars.length, 0);
+        }
+        text += clusters.map((c) => c.chars).join("");
+      }
+      if (clickIndex < 0) return null;
+      return extractPathAt(text, clickIndex);
+    };
+    const openPathAt = (clientX: number, clientY: number): boolean => {
+      const { col, row } = cellFromTouch(clientX, clientY);
+      const path = pathAtCell(row, col);
+      if (path) setPreviewPath(path);
+      return path !== null;
+    };
+    const onDoubleClick = (e: MouseEvent) => {
+      // 命中路径才拦：没命中就把双击留给 xterm 的选词
+      if (openPathAt(e.clientX, e.clientY)) e.preventDefault();
+    };
+    // 双击轻点：iOS 上合成 dblclick 不可靠（mousedown 已被拦），自己按间隔+位移判定
+    let lastTapAt = 0;
+    let lastTapX = 0;
+    let lastTapY = 0;
+
     const onTouchStart = (e: globalThis.TouchEvent) => {
       if (e.touches.length !== 1) {
         cancelLongPress();
@@ -1251,6 +1304,21 @@ function TerminalView({
         // 有选区时轻点＝取消选区（对应原生选区点击空白收起的习惯）
         term.clearSelection();
       }
+      if (tapLike) {
+        const tappedAt = performance.now();
+        const isDoubleTap =
+          tappedAt - lastTapAt < 320 &&
+          Math.abs(tLastX - lastTapX) < 24 &&
+          Math.abs(tLastY - lastTapY) < 24;
+        if (isDoubleTap) {
+          lastTapAt = 0; // 三连点不再触发第二次
+          openPathAt(tLastX, tLastY);
+        } else {
+          lastTapAt = tappedAt;
+          lastTapX = tLastX;
+          lastTapY = tLastY;
+        }
+      }
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
       selectionResumeTimer = window.setTimeout(() => {
         selectionResumeTimer = null;
@@ -1260,6 +1328,7 @@ function TerminalView({
     const touchCaptureOptions = { capture: true, passive: false } as AddEventListenerOptions;
     const touchEndCaptureOptions = { capture: true, passive: true } as AddEventListenerOptions;
     terminalHost.addEventListener("pointerdown", focusTerminal);
+    terminalHost.addEventListener("dblclick", onDoubleClick);
     // xterm 会先在内部 viewport 处理滚轮/翻页键并同步触发 onScroll。如果等事件冒泡到
     // terminalHost 才标记，onScroll 看不到“用户滚动”，下一帧的新输出仍会把视图拉回底部。
     // 捕获阶段先记录意图，实际离开底部后 onScroll 就会关闭自动跟随。
@@ -1302,6 +1371,7 @@ function TerminalView({
       copySelectionRef.current = null;
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
+      terminalHost.removeEventListener("dblclick", onDoubleClick);
       terminalHost.removeEventListener("copy", onTerminalCopy);
       terminalHost.removeEventListener("paste", onTerminalPaste, true);
       terminalHost.removeEventListener("wheel", markUserScroll, userScrollCaptureOptions);
@@ -1371,6 +1441,13 @@ function TerminalView({
         )}
         <div ref={elRef} className="dh-terminal-pannable dh-terminal-selectable h-full w-full bg-[#131316]" />
       </div>
+      {previewPath !== null && (
+        <FilePreviewOverlay
+          taskId={taskId}
+          path={previewPath}
+          onClose={() => setPreviewPath(null)}
+        />
+      )}
       {live && (
         <TerminalMobileComposer
           taskId={taskId}
