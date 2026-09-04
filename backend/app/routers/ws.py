@@ -15,6 +15,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from .. import auth, events, scheduler
 from ..config import LOG_DIR
 from ..pty_session import read_terminal_backlog
+from ..terminal_viewport import ViewportRegistry
 
 router = APIRouter()
 
@@ -25,6 +26,28 @@ WS_UNAUTHORIZED = 4401
 BACKLOG_TRUNCATED_META = "\x00meta:backlog_truncated"
 # 跨源页面直连被拒（同源部署下浏览器里只有恶意网页会跨源连 WS）
 WS_FORBIDDEN_ORIGIN = 4403
+# 尺寸仲裁结果广播帧：多端同看时 PTY 只有一份 winsize，客户端据此按同一网格渲染
+# （小屏端整体缩放查看），而不是各自 fit 后互相把对方的画面压窄。
+SIZE_META_PREFIX = "\x00meta:size:"
+
+# 每个连接上报自己期望的尺寸，PTY 取所有活跃连接的最大值，详见 terminal_viewport
+_viewports = ViewportRegistry()
+# task_id → 该任务所有连接的出站队列，用于广播仲裁结果。用队列本身做连接标识：
+# 每个连接 subscribe 到一个独立队列，天然唯一。
+_task_clients: dict[int, set[asyncio.Queue]] = {}
+
+
+def _broadcast_size(task_id: int, size: tuple[int, int]) -> None:
+    """把仲裁后的尺寸推给该任务的所有连接。
+
+    走各连接自己的出站队列而不是直接 send：每个连接只有 pump_out 一个发送方，
+    避免与正在发送的终端字节流并发写同一个 WebSocket 而交错帧。
+    """
+    rows, cols = size
+    frame = f"{SIZE_META_PREFIX}{rows},{cols}"
+    for q in tuple(_task_clients.get(task_id, ())):
+        with suppress(Exception):
+            q.put_nowait(frame)
 
 
 def _same_origin(ws: WebSocket) -> bool:
@@ -120,14 +143,35 @@ async def session_ws(ws: WebSocket, task_id: int):
     if backlog.data:
         await ws.send_bytes(backlog.data)
     q = session.subscribe()
+    _task_clients.setdefault(task_id, set()).add(q)
+    # 本连接是否已上报过尺寸：第一帧无论仲裁结果是否变化都要强制整屏补画，
+    # 否则新连上的客户端在别人已经占着最大尺寸时收不到 TUI 的完整画面。
+    viewport_attached = False
 
     async def pump_out():
         try:
             while True:
                 data = await q.get()
-                await ws.send_bytes(data)
+                if isinstance(data, str):
+                    await ws.send_text(data)
+                else:
+                    await ws.send_bytes(data)
         except Exception:
             pass
+
+    def apply_viewport(rows: int, cols: int, *, force_redraw: bool) -> None:
+        """记录本连接的期望尺寸并按仲裁结果调整 PTY。尺寸非法时抛 ValueError。"""
+        nonlocal viewport_attached
+        previous = _viewports.effective(task_id)
+        effective = _viewports.set(task_id, q, rows, cols)
+        first_frame = not viewport_attached
+        viewport_attached = True
+        if force_redraw or first_frame:
+            session.redraw(*effective)
+        elif effective != previous:
+            session.resize(*effective)
+        if first_frame or effective != previous:
+            _broadcast_size(task_id, effective)
 
     out_task = asyncio.create_task(pump_out())
     try:
@@ -137,18 +181,13 @@ async def session_ws(ws: WebSocket, task_id: int):
                 break
             if "text" in msg and msg["text"] is not None:
                 text = msg["text"]
-                if text.startswith("\x00redraw:"):
+                if text.startswith("\x00redraw:") or text.startswith("\x00resize:"):
                     try:
                         _, rc = text.split(":", 1)
                         rows, cols = rc.split(",")
-                        session.redraw(int(rows), int(cols))
-                    except ValueError:
-                        pass
-                elif text.startswith("\x00resize:"):
-                    try:
-                        _, rc = text.split(":", 1)
-                        rows, cols = rc.split(",")
-                        session.resize(int(rows), int(cols))
+                        apply_viewport(
+                            int(rows), int(cols), force_redraw=text.startswith("\x00redraw:")
+                        )
                     except ValueError:
                         pass
                 else:
@@ -165,6 +204,17 @@ async def session_ws(ws: WebSocket, task_id: int):
         with suppress(asyncio.CancelledError):
             await out_task
         session.unsubscribe(q)
+        clients = _task_clients.get(task_id)
+        if clients is not None:
+            clients.discard(q)
+            if not clients:
+                _task_clients.pop(task_id, None)
+        # 本连接退出后重新仲裁：最宽的客户端走了，PTY 该缩回剩下那些人的尺寸
+        previous = _viewports.effective(task_id)
+        remaining = _viewports.drop(task_id, q)
+        if remaining is not None and remaining != previous:
+            session.resize(*remaining)
+            _broadcast_size(task_id, remaining)
 
 
 @router.websocket("/ws/events")
