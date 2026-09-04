@@ -88,6 +88,18 @@ body {
   padding-bottom: max(0.5rem, var(--dh-panel-safe-bottom, env(safe-area-inset-bottom)));
 }
 
+/* 多端同看时 PTY 只有一份网格（见 terminalViewport）：小屏端按仲裁网格渲染并缩小字号，
+   缩到下限仍装不下就横向平移查看，而不是把右边裁掉。纵向仍由 xterm 自己的 viewport 管。
+   滚动条隐藏：它一出现就会改 clientHeight，和「按容器算网格」互相触发反复重排。 */
+.dh-terminal-pannable {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.dh-terminal-pannable::-webkit-scrollbar {
+  display: none;
+}
+
 @media (pointer: coarse) {
   .dh-terminal-selectable .xterm-viewport {
     overflow-y: hidden !important;
