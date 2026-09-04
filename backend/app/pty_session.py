@@ -415,6 +415,10 @@ class PtySession:
         self.script_log_path: str | None = None
 
         self.proc: PtyProcess | None = None
+        # PTY 当前的 winsize，与 start() 里 spawn 的 dimensions 保持同步。
+        # resize 据此对同值请求短路：多端各自「认领」PTY 时会反复上报自己的网格，
+        # 无条件 setwinsize 会给 TUI 打出一串多余 SIGWINCH，每次都是一屏重绘。
+        self._winsize: tuple[int, int] | None = None
         self.subscribers: set[asyncio.Queue] = set()
         self.last_output = time.time()
         self._busy_until = 0.0
@@ -461,6 +465,7 @@ class PtySession:
         self.proc = PtyProcess.spawn(
             spawn_argv, cwd=self.cwd, env=env, dimensions=(30, 100)
         )
+        self._winsize = (30, 100)
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
         # 空闲巡检始终在跑：状态启发式(默认关)与催报兜底(默认开)各自内部把关
@@ -800,11 +805,14 @@ class PtySession:
         self.write(f"\x1b[200~{message}\x1b[201~\r")
 
     def resize(self, rows: int, cols: int) -> None:
+        if (rows, cols) == self._winsize:
+            return  # 尺寸没变就不碰 ioctl，避免无谓的 SIGWINCH 让 TUI 整屏重绘
         if self.proc is not None and self.proc.isalive():
             try:
                 self.proc.setwinsize(rows, cols)
             except Exception:
-                pass
+                return  # 没设成功就不记账，下次同值请求仍会重试
+            self._winsize = (rows, cols)
 
     def redraw(self, rows: int, cols: int) -> None:
         """Force a TUI repaint after replaying a bounded, partial terminal log."""

@@ -22,6 +22,8 @@ import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
+import type { ClaimState } from "../terminalClaim";
+import { shouldClaimViewport } from "../terminalClaim";
 import { extractPathAt } from "../terminalFilePaths";
 import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
@@ -856,7 +858,26 @@ function TerminalView({
     };
     connect();
 
-    term.onData((d) => wsRef.current?.readyState === WebSocket.OPEN && wsRef.current.send(d));
+    // 「谁在操作，PTY 就归谁」：本端被操作时把自己的网格重新写进 PTY。
+    // 多端共用一份 winsize，谁最后上报谁说了算；只在容器尺寸变化时上报的话，
+    // 手机端一连上就把 PTY 压窄，电脑端窗口没变、ResizeObserver 不触发，就再也抢
+    // 不回来，全屏 TUI 一直挤在左边窄条里。PTY 侧对同值 resize 做了短路，重复认领
+    // 不会打出多余的 SIGWINCH。
+    let lastClaim: ClaimState | null = null;
+    const claimViewport = () => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      const grid = { rows: term.rows, cols: term.cols };
+      const now = Date.now();
+      if (!shouldClaimViewport(lastClaim, grid, now)) return;
+      lastClaim = { grid, at: now };
+      wsRef.current.send(`\x00resize:${grid.rows},${grid.cols}`);
+    };
+
+    term.onData((d) => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      claimViewport(); // 本端正在被敲，PTY 就该按本端的宽度排版
+      wsRef.current.send(d);
+    });
     const scrollDisposable = term.onScroll((viewportY) => {
       if (disposed) return;
       if (applicationScrollActive) {
@@ -1254,7 +1275,10 @@ function TerminalView({
     document.addEventListener("selectionchange", maybeResumeDeferredWrites);
     // iOS PWA 锁屏/切后台会冻结页面：回来时的那次 flush 不该替几分钟前的手势补滚。
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") return;
+      if (document.visibilityState === "visible") {
+        claimViewport(); // 回到前台 = 用户把注意力挪回本端，按本端宽度排版
+        return;
+      }
       applicationScrollActive = false;
       stopApplicationScroll();
     };
@@ -1266,16 +1290,18 @@ function TerminalView({
       fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(`\x00resize:${term.rows},${term.cols}`);
-      }
+      claimViewport();
     };
     window.addEventListener("resize", onResize);
     // 容器高度变化（如折叠/展开上方详情面板）时也要 refit
     const ro = new ResizeObserver(onResize);
     ro.observe(elRef.current);
+    // 窗口获得焦点 = 用户把注意力挪到本端（页面回到前台走 onVisibilityChange）。
+    // 两端都静止时谁也不发，不会互相抢。
+    window.addEventListener("focus", claimViewport);
     return () => {
       disposed = true;
+      window.removeEventListener("focus", claimViewport);
       stopFling();
       cancelLongPress();
       stopApplicationScroll();
