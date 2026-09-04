@@ -23,8 +23,6 @@ import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { extractPathAt } from "../terminalFilePaths";
-import type { TerminalBox, TerminalCellSize, TerminalGrid } from "../terminalViewport";
-import { fitFontSize, naturalGrid, parseSizeMeta } from "../terminalViewport";
 import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Engine, Task } from "../types";
@@ -103,9 +101,6 @@ const PANEL_SAFE_AREA_STYLE = {
 } satisfies CSSProperties;
 const AUDIO_RECORDING_TIMEOUT_MS = 60000;
 const MAX_DEFERRED_TERMINAL_BYTES = 4 * 1024 * 1024;
-// 终端基准字号。多端同看时后端会仲裁出一个统一网格（见 terminalViewport），本端容器装不下
-// 时按比例缩小字号把整幅画面塞进来——绝不能改 cols/rows，那会和 PTY 的排版错位。
-const BASE_FONT_SIZE = 12;
 // 触摸滚动过历史后「回到最新」时，向 TUI 补发的滚轮步数与每帧步数。Claude 一侧把滚轮当
 // 菜单/列表选择处理，同步灌一大批会误触命令，所以总量克制、按帧摊开。
 const APPLICATION_SCROLL_STEPS = 48;
@@ -436,7 +431,7 @@ function TerminalView({
     stickRef.current = true;
     setAtBottom(true);
     const term = new Terminal({
-      fontSize: BASE_FONT_SIZE,
+      fontSize: 12,
       fontFamily: "ui-monospace, Menlo, monospace",
       theme: TERMINAL_THEME,
       cursorBlink: true,
@@ -475,69 +470,7 @@ function TerminalView({
     termRef.current = term;
     const disposeAltBufferWorkaround = installAltBufferScrollbackWorkaround(term);
     const disposeImeFix = isTouchDevice() ? installMobileImeInsertTextFix(term) : () => {};
-
-    // 后端仲裁出的统一网格；未收到广播（旧后端/刚连上）时按本端自然尺寸走。
-    let effectiveGrid: TerminalGrid | null = null;
-    // 基准字号下的字元像素尺寸。上报「期望尺寸」必须始终按它换算，不能用缩放后的字号，
-    // 否则「字变小 → 塞得下更多列 → 上报更大 → 仲裁更大 → 字更小」会自激。
-    let baseCell: TerminalCellSize | null = null;
-
-    type TerminalInternals = {
-      _core?: {
-        _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } };
-        viewport?: { scrollBarWidth?: number };
-      };
-    };
-    const internals = () => term as unknown as TerminalInternals;
-
-    const captureBaseCell = () => {
-      if (baseCell || term.options.fontSize !== BASE_FONT_SIZE) return;
-      const cell = internals()._core?._renderService?.dimensions?.css?.cell;
-      if (cell && cell.width > 0 && cell.height > 0) {
-        baseCell = { width: cell.width, height: cell.height };
-      }
-    };
-
-    // 宿主 div 与 xterm 根元素都没有内边距，可用 clientWidth/Height 直接量；
-    // 滚动条与 FitAddon 一样要扣掉，否则最右一列会被压在滚动条下面。
-    const availableBox = (): TerminalBox => {
-      const scrollBar =
-        term.options.scrollback === 0 ? 0 : (internals()._core?.viewport?.scrollBarWidth ?? 0);
-      return {
-        width: Math.max(0, terminalHost.clientWidth - scrollBar),
-        height: terminalHost.clientHeight,
-      };
-    };
-
-    const reportViewport = (rows: number, cols: number) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(`\x00resize:${rows},${cols}`);
-      }
-    };
-
-    /** 重排终端：按仲裁网格渲染（装不下就缩字号），并把本端的自然尺寸上报给后端仲裁。 */
-    const applyLayout = (report: boolean) => {
-      captureBaseCell();
-      const box = availableBox();
-      const natural = baseCell ? naturalGrid(box, baseCell) : null;
-      if (!natural || !baseCell) {
-        // 还没量到基准字元尺寸（首帧/渲染器未就绪），退回 FitAddon 的原有行为
-        fit.fit();
-        if (report) reportViewport(term.rows, term.cols);
-        return;
-      }
-      const target = effectiveGrid ?? natural;
-      const fontSize = fitFontSize(BASE_FONT_SIZE, box, baseCell, target);
-      // 先改字号再改网格：xterm 换字号会重算字元尺寸，顺序反了这一帧会按旧字元排版
-      if (term.options.fontSize !== fontSize) term.options.fontSize = fontSize;
-      if (term.cols !== target.cols || term.rows !== target.rows) {
-        term.resize(target.cols, target.rows);
-      }
-      if (report) reportViewport(natural.rows, natural.cols);
-    };
-
     fit.fit();
-    captureBaseCell();
     // 桌面端挂载即聚焦可直接打字；移动端不自动聚焦（打开面板不弹输入法），
     // 键盘由按键栏的「键盘」键唤起，键入直接进 PTY——@ 文件引用、/ 命令补全
     // 等都由 CLI 自身在终端里渲染。
@@ -872,14 +805,7 @@ function TerminalView({
         if (disposed || wsRef.current !== socket) return;
         if (typeof e.data === "string") {
           // \x00 开头是后端控制帧，不能写进 xterm
-          if (e.data.startsWith("\x00meta:")) {
-            const grid = parseSizeMeta(e.data);
-            if (grid) {
-              effectiveGrid = grid;
-              applyLayout(false); // 仲裁结果不回报，否则两端会互相触发
-            }
-            return;
-          }
+          if (e.data.startsWith("\x00meta:")) return;
           writeOrDefer(e.data);
         } else writeOrDefer(new Uint8Array(e.data));
       };
@@ -899,16 +825,11 @@ function TerminalView({
         setBottomState(true);
         term.reset(); // 后端每次连接都回放 bounded backlog，重置避免叠加重复
         scheduleScrollToBottom();
-        // 断线期间别人的尺寸可能已经变了，先回到本端自然网格，等新的仲裁广播覆盖
-        effectiveGrid = null;
-        applyLayout(false);
-        const naturalRows = term.rows;
-        const naturalCols = term.cols;
         // 长日志只回放末尾的局部 TUI diff；改变一次尺寸再恢复，强制 PTY 补画完整画面。
         // 继续使用旧后端也认识的 resize 控制帧，避免滚动更新期间新前端把 redraw 当输入。
-        const temporaryRows = naturalRows > 1 ? naturalRows - 1 : naturalRows + 1;
-        socket.send(`\x00resize:${temporaryRows},${naturalCols}`);
-        socket.send(`\x00resize:${naturalRows},${naturalCols}`);
+        const temporaryRows = term.rows > 1 ? term.rows - 1 : term.rows + 1;
+        socket.send(`\x00resize:${temporaryRows},${term.cols}`);
+        socket.send(`\x00resize:${term.rows},${term.cols}`);
       };
       socket.onclose = (ev) => {
         if (ev.code === WS_UNAUTHORIZED) {
@@ -1253,16 +1174,7 @@ function TerminalView({
       if (Math.abs(totalDx) > 8 || Math.abs(totalDy) > 8) cancelLongPress();
       if (!tScrollStarted) {
         if (Math.abs(totalDy) < 8) return; // 等纵向位移过阈值再接管，短于此留给点按/长按
-        if (Math.abs(totalDy) < Math.abs(totalDx)) {
-          // 横向手势：仲裁网格比本端容器宽（字号已缩到下限仍装不下）时用来平移查看。
-          // touch-action:none 挡掉了原生横向滚动，只能自己搬 scrollLeft。
-          if (terminalHost.scrollWidth > terminalHost.clientWidth) {
-            terminalHost.scrollLeft -= t.clientX - tLastX;
-            tLastX = t.clientX;
-            e.preventDefault();
-          }
-          return; // 不接管纵向滚动；不可平移时留给横向拖选
-        }
+        if (Math.abs(totalDy) < Math.abs(totalDx)) return; // 横向拖选/手势不接管
         tScrollStarted = true;
       }
       // iOS WebKit 在 touch-action:none 下仍可能先形成文本选区。确认是纵向滚动后清掉
@@ -1351,9 +1263,12 @@ function TerminalView({
     const onResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
-      applyLayout(true);
+      fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(`\x00resize:${term.rows},${term.cols}`);
+      }
     };
     window.addEventListener("resize", onResize);
     // 容器高度变化（如折叠/展开上方详情面板）时也要 refit
@@ -1439,7 +1354,7 @@ function TerminalView({
             最新 ↓
           </button>
         )}
-        <div ref={elRef} className="dh-terminal-pannable dh-terminal-selectable h-full w-full bg-[#131316]" />
+        <div ref={elRef} className="dh-terminal-selectable h-full w-full overflow-hidden bg-[#131316]" />
       </div>
       {previewPath !== null && (
         <FilePreviewOverlay
