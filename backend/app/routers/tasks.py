@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, routing, scheduler, sessions, subtasks, uploads
+from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, routing, scheduler, sessions, subtasks, task_files, uploads
 from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -840,6 +840,42 @@ def get_browser_asset(task_id: int, asset_id: str):
     if not path.is_file():
         raise HTTPException(404, "截图不存在")
     return FileResponse(path, media_type="image/png", filename=asset_id)
+
+
+@router.get("/{task_id}/file")
+def get_task_file(task_id: int, path: str, download: bool = False):
+    """预览/下载终端里双击到的文件。
+
+    远程（手机）访问走的就是这个接口——源文件由后端代读，前端只拿字节流，
+    不需要客户端能访问那台机器的文件系统。
+    """
+    row = db.query_one(
+        "SELECT p.path AS root FROM task t JOIN project p ON p.id=t.project_id "
+        "WHERE t.id=? AND t.deleted=0",
+        (task_id,),
+    )
+    if row is None:
+        raise HTTPException(404, "任务不存在")
+    try:
+        target = task_files.resolve_task_file(Path(row["root"]), path)
+    except task_files.TaskFileError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+
+    kind = task_files.preview_kind(target)
+    as_attachment = download or kind == "binary"
+    return FileResponse(
+        target,
+        media_type=task_files.response_media_type(target, kind),
+        filename=target.name if as_attachment else None,
+        headers={
+            "X-Preview-Kind": kind,
+            "X-Content-Type-Options": "nosniff",
+            # 直接在浏览器地址栏打开这个 URL 时也不给它执行脚本/发请求的能力：
+            # 这些文件正是 agent 刚写进工作目录的，不能当作可信内容。
+            "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; sandbox",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.delete("/{task_id}")
