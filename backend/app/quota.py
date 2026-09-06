@@ -7,7 +7,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 import ssl
 import subprocess
@@ -25,6 +27,9 @@ _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 
 CLAUDE_MIN_INTERVAL = 185
 CODEX_MIN_INTERVAL = 60
+BACKGROUND_REFRESH_INTERVAL = 3600
+
+logger = logging.getLogger("bosun.quota")
 
 _cache: dict[str, dict] = {}   # provider -> {"at": ts, "data": {...}}
 _claude_ver: str | None = None
@@ -243,6 +248,19 @@ def _provider_usage(provider: str, refresh: bool = False) -> dict:
     if provider == "codex":
         return _cached("codex", CODEX_MIN_INTERVAL, _fetch_codex, refresh)
     return {"available": False, "error": f"未知服务商: {provider}"}
+
+
+async def refresh_in_background() -> None:
+    """Refresh subscription usage while idle, independently of browser polling."""
+    while True:
+        started = time.monotonic()
+        for provider in ("claude", "codex"):
+            try:
+                await asyncio.to_thread(_provider_usage, provider)
+            except Exception:
+                logger.exception("Background quota refresh failed: provider=%s", provider)
+        elapsed = time.monotonic() - started
+        await asyncio.sleep(max(0, BACKGROUND_REFRESH_INTERVAL - elapsed))
 
 
 def get_usage(engine: str | None = None, refresh: bool = False) -> dict:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from contextlib import suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -12,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import FileResponse, JSONResponse, Response
 
 from . import auth as auth_service
+from . import quota as quota_service
 from . import agent_skills, codex_skills_guard, config, db, events, orchestrations, policies, reflection_scheduler, scheduler, self_update
 from .routers import (
     auth,
@@ -146,6 +148,19 @@ async def _startup() -> None:
     scheduler.start(loop)
     policies.start_ticker()
     reflection_scheduler.start_ticker()
+
+
+@app.on_event("startup")
+async def _start_quota_refresh() -> None:
+    app.state.quota_refresh_task = asyncio.create_task(quota_service.refresh_in_background())
+
+
+@app.on_event("shutdown")
+async def _stop_quota_refresh() -> None:
+    task = app.state.quota_refresh_task
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 @app.get("/api/health")
