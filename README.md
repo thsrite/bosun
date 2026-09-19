@@ -173,6 +173,8 @@ pkill -x Bosun; rm -rf /Applications/Bosun.app
 
 项目里的「导入会话」可发现本地 OMP 会话，点「加入待办」生成可继续的任务；也支持导入 OMP 的 `.bosun.json` 分享文件。扫描兼容 OMP 当前的 home/tmp 相对路径目录、绝对路径目录和旧版哈希目录，并核对会话所属项目。新增任务和会话列表里的引擎名称显示为 `OMP`，内部引擎标识仍为 `omp`。
 
+OMP 自定义配置目录使用官方变量 `PI_CODING_AGENT_DIR`，会话位于其 `sessions/` 子目录；未设置时使用 `~/${PI_CONFIG_DIR:-.omp}/agent/sessions/`。Bosun 与 OMP 需要继承相同的目录配置。
+
 ### Browser Computer Use（MVP）
 
 Browser 是独立的任务引擎，用于验收本机正在运行的 Web 应用。任务指令必须包含 `http://localhost:端口`、`http://127.0.0.1:端口` 或其它回环地址；公网、局域网地址、文件上传下载、剪贴板和非 HTTP(S) 导航均会被阻止。提交、删除、支付、敏感字段填写等动作会暂停并等待人工确认。

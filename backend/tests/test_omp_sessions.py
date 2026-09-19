@@ -25,7 +25,7 @@ class OmpSessionsTest(unittest.TestCase):
         for mocked in (
             patch.object(Path, "home", return_value=self.home),
             patch.object(tempfile, "gettempdir", return_value=str(self.root / "tmp")),
-            patch.dict(os.environ, {"PI_CODING_AGENT_SESSION_DIR": str(self.store)}),
+            patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.root)}),
             patch.object(sessions, "claude_projects", return_value=self.root / "claude"),
             patch.object(sessions, "CODEX_SESSIONS", self.root / "codex"),
             patch.object(sessions, "kimi_home", return_value=self.root / "kimi"),
@@ -44,6 +44,14 @@ class OmpSessionsTest(unittest.TestCase):
             (str(self.project), time.time()),
         )
         self.uid = "01a0b854-1d8c-76d5-9a4e-62a1a0b772ca"
+
+    def test_config_root_discovers_sessions_without_agent_override(self):
+        with patch.dict(os.environ, {"PI_CONFIG_DIR": ".omp-work"}):
+            os.environ.pop("PI_CODING_AGENT_DIR", None)
+            self.write_transcript(self.home / ".omp-work" / "agent" / "sessions" /
+                                  "-PycharmProjects-license-server")
+            self.assertEqual(sessions.local_session_info("omp", str(self.project), self.uid)["cwd"],
+                             str(self.project))
 
     def transcript(self, cwd=None):
         return "\n".join(json.dumps(row) for row in (

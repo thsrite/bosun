@@ -53,15 +53,17 @@ def claude_env_overrides() -> dict[str, str]:
         return {}
     return {"CLAUDE_CONFIG_DIR": str(claude_home())}
 CODEX_SESSIONS = Path.home() / ".codex" / "sessions"
-# omp 允许用 PI_CODING_AGENT_SESSION_DIR 改会话根目录；agent 是后端 spawn 的，
-# 继承的正是这份环境，所以这里读同一个变量才能跟它对上。
-_OMP_SESSIONS_ENV = "PI_CODING_AGENT_SESSION_DIR"
-OMP_SESSIONS = Path.home() / ".omp" / "agent" / "sessions"
 
 
 def omp_sessions_root() -> Path:
-    configured = os.environ.get(_OMP_SESSIONS_ENV)
-    return Path(configured).expanduser() if configured else OMP_SESSIONS
+    # 与 agent_skills 的 OMP 配置目录一致；OMP 的会话固定在 agent 目录下的 sessions。
+    configured = os.environ.get("PI_CODING_AGENT_DIR")
+    agent_dir = (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / os.environ.get("PI_CONFIG_DIR", ".omp") / "agent"
+    )
+    return agent_dir / "sessions"
 
 
 # kimi 用 KIMI_CODE_HOME 改数据根目录(默认 ~/.kimi-code)；agent 由后端 spawn、
