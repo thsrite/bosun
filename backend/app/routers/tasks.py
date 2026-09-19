@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, routing, scheduler, sessions, subtasks, task_files, uploads
+from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, quota, routing, scheduler, sessions, subtasks, task_files, uploads
 from ..directives import REPORT_DIRECTIVE
 from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
 from ..pty_session import remove_terminal_log_files, script_log_path_for
@@ -285,6 +285,9 @@ def handoff_task(task_id: int, body: HandoffBody):
         raise HTTPException(400, f"未知引擎: {body.engine}")
     if engine == t["engine"]:
         raise HTTPException(400, "接力引擎必须与当前引擎不同")
+    allowed, _, reason = quota.check_engine(engine)
+    if not allowed:
+        raise HTTPException(429, reason)
 
     context = _handoff_log_context(t)
     recent = _last_user_instruction(t)
@@ -674,6 +677,9 @@ def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
         engine, _ = routing.pick_engine()
     if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {engine}")
+    allowed, _, reason = quota.check_engine(engine)
+    if not allowed:
+        raise HTTPException(429, reason)
 
     # 名额在建行之前占：拿不到就直接回 429，不留一条起不来的子任务记录
     if not subtasks.acquire_slot():

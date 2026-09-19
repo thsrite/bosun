@@ -202,11 +202,28 @@ class DispatchSkillSyncTest(unittest.TestCase):
                 "claude": True, "codex": True, "omp": False, "kimi": True, "browser": False,
             }),
             patch("app.auth.issue_task_token", return_value="token"),
+            patch("app.quota.is_enabled", return_value=True),
+            patch("app.quota._provider_usage", return_value={"available": False}),
         ):
             values = env.task_env(7, "codex", artifact_required=True)
 
         self.assertEqual(values["BOSUN_AVAILABLE_ENGINES"], "claude,kimi")
         self.assertEqual(values["BOSUN_ARTIFACT_REQUIRED"], "1")
+
+    def test_task_environment_excludes_exhausted_subscription_engines(self):
+        with (
+            patch("app.engine_updates.installed_engines", return_value={
+                "claude": True, "codex": True, "omp": True, "kimi": True,
+            }),
+            patch("app.auth.issue_task_token", return_value="token"),
+            patch("app.quota.is_enabled", return_value=True),
+            patch("app.quota.block_pct", return_value=90),
+            patch("app.quota._provider_usage", return_value={
+                "available": True, "weekly_pct": 100,
+            }),
+        ):
+            values = env.task_env(7, "omp")
+        self.assertEqual(values["BOSUN_AVAILABLE_ENGINES"], "kimi")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ description: 在 Bosun 派发的任务中需要另一个模型给第二意见、
 
 先在 prompt 中写清范围、验收条件、禁止修改的内容，以及完整结果的交付位置。复审等长结果应指定父任务可读的独立结果文件，要求子任务先保存结果、再立即回报，不能只在自己的终端输出后等待。
 
+`BOSUN_AVAILABLE_ENGINES` 已按现有额度保护设置排除超限执行器，但它只是本轮启动时的快照。派发入口会再次检查额度；收到额度不足的 HTTP 429 时，不要重复派发同一执行器，应改选列表内仍可用的执行器。没有可用执行器时明确报告，不要绕过 Bosun 直接启动 CLI。用量未知与关闭额度保护时沿用系统既有策略。
+
 ```sh
 curl --fail-with-body -sS --connect-timeout 10 --max-time 3700 -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $BOSUN_TASK_TOKEN" -d '{"engine":"<引擎>","prompt":"<任务与结果交付位置>","timeout":900}' "$BOSUN_API/api/tasks/$BOSUN_TASK_ID/spawn"
 ```

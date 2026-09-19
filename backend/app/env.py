@@ -52,14 +52,14 @@ def task_env(task_id: int, engine: str | None = None, artifact_required: bool = 
     BOSUN_TASK_TOKEN 让 agent 在开了访问口令时也能回报：它只对本任务的
     /report 端点有效(见 auth.issue_task_token)，拿不到别的接口。
     """
-    from . import auth, engine_updates
+    from . import auth, engine_updates, quota
 
     cli_names = {"claude": "claude", "codex": "codex", "omp": "omp", "kimi": "kimi"}
     installed = engine_updates.installed_engines()
     available = [
         cli_names[name]
         for name in ("claude", "codex", "omp", "kimi")
-        if name != engine and installed.get(name)
+        if name != engine and installed.get(name) and quota.check_engine(name)[0]
     ]
 
     return child_env({
