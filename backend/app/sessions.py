@@ -2,7 +2,7 @@
 
 claude:    ~/.claude/projects/<cwd 编码(/→-)>/<session-id>.jsonl
 codex: ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
-omp:   ~/.omp/agent/sessions/abs-<目录名>-<sha256(真实路径)>/<时间戳>_<uuid>.jsonl
+omp:   ~/.omp/agent/sessions/<cwd 编码>/<时间戳>_<uuid>.jsonl
 kimi:  ~/.kimi-code/sessions/wd_<slug>_<sha256(真实路径)[:12]>/session_<uuid>/
        (state.json 存 cwd/时间，事件流在 agents/main/wire.jsonl)
 """
@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -102,6 +103,7 @@ def _capture_new_session(
     engine: str | None = None,
     prompt: str | None = None,
     pattern: str = "*.jsonl",
+    project_path: str | None = None,
 ) -> str | None:
     """在按 cwd 隔离的会话目录里，取本次运行新出现的最新会话 uid。
 
@@ -131,7 +133,9 @@ def _capture_new_session(
                 continue
             created = mtime
             if engine is not None:
-                meta = _session_meta(p, engine)
+                meta = _session_meta(p, engine, project_path)
+                if project_path is not None and meta is None:
+                    continue
                 if expected_prompt is not None:
                     # 首条指令还没落盘时 meta 为空/无 prompt：这轮先不认领，下轮再看，
                     # 不能抢一个还不知道属于谁的会话。
@@ -187,37 +191,44 @@ def codex_session_path(uid: str) -> Path | None:
 
 def omp_dir_digest(cwd: str) -> str:
     """omp 会话目录名里的哈希：sha256(解析后的真实路径)。"""
-    return hashlib.sha256(str(Path(cwd).expanduser().resolve()).encode()).hexdigest()
+    return hashlib.sha256(str(Path(cwd).expanduser().resolve()).replace("\\", "/").encode()).hexdigest()
+
+
+def _omp_absolute_dir_name(cwd: Path) -> str:
+    encoded = re.sub(r"[/\\:]", "-", re.sub(r"^[/\\]", "", str(cwd)))
+    return f"--{encoded}--"
 
 
 def omp_project_dirs(cwd: str) -> list[Path]:
-    """同一 cwd 下所有可能存放会话的 omp 目录，按名字排序。
-
-    默认布局下目录名是 `<scope>-<可读名>-<sha256(真实路径)>`，scope 由 omp 自己决定
-    (实测 abs，家目录/临时目录下可能是别的前缀)。哈希只认路径，所以同一项目理论上
-    可能同时存在多个前缀的桶——读取一律扫全部，避免「导入的会话看不见」或
-    「新会话捕获不到」。
-
-    另外 PI_CODING_AGENT_SESSION_DIR 被设置时，omp 可能直接把会话文件写在该目录下
-    而不再分桶。两种语义都扫：文件名本身要过 _omp_uid 校验，多扫一个目录不会误认。
-    """
+    """读取当前路径编码目录、旧绝对路径/哈希目录及自定义平铺目录，不迁移用户文件。"""
     root = omp_sessions_root()
     if not root.is_dir():
         return []
     digest = omp_dir_digest(cwd)
-    dirs = sorted((p for p in root.glob(f"*-{digest}") if p.is_dir()), key=lambda p: p.name)
+    resolved = Path(cwd).expanduser().resolve()
+    candidates = [
+        omp_project_dir(cwd),
+        root / _omp_absolute_dir_name(resolved),
+        root / _omp_absolute_dir_name(Path(cwd).expanduser().absolute()),
+        *sorted(root.glob(f"*-{digest}")),
+    ]
+    dirs = list(dict.fromkeys(p for p in candidates if p.is_dir()))
     if any(_omp_uid(p) for p in root.glob("*.jsonl")):
         dirs.append(root)
     return dirs
 
 
 def omp_project_dir(cwd: str) -> Path:
-    """写入用的单一目标目录：优先复用 omp 已建好的桶，没有才按 abs 约定新建。"""
-    existing = omp_project_dirs(cwd)
-    if existing:
-        return existing[0]
+    """与 OMP session-paths.ts 一致：home 相对、tmp 相对，否则绝对路径编码。"""
     resolved = Path(cwd).expanduser().resolve()
-    return omp_sessions_root() / f"abs-{resolved.name}-{omp_dir_digest(cwd)}"
+    for base, prefix in ((Path.home().resolve(), "-"), (Path(tempfile.gettempdir()).resolve(), "-tmp")):
+        if resolved == base:
+            return omp_sessions_root() / prefix
+        if base in resolved.parents:
+            relative = re.sub(r"[/\\:]", "-", str(resolved.relative_to(base)))
+            separator = "" if prefix.endswith("-") else "-"
+            return omp_sessions_root() / f"{prefix}{separator}{relative}"
+    return omp_sessions_root() / _omp_absolute_dir_name(resolved)
 
 
 def _omp_uid(path: Path) -> str | None:
@@ -248,7 +259,7 @@ def capture_omp_session(
     """返回本次运行新生成的 omp 会话 uuid。"""
     return _capture_new_session(
         omp_project_dirs(cwd), before, since_ts, _omp_uid, exclude_uids,
-        engine="omp", prompt=prompt,
+        engine="omp", prompt=prompt, project_path=cwd,
     )
 
 
@@ -518,6 +529,10 @@ def _session_meta(path: Path, engine: str, project_path: str | None = None) -> d
 
     if engine == "codex" and project_path and not _same_or_child(cwd, project_path):
         return None
+    # OMP 路径编码有碰撞，自定义根目录也可能混放多个项目；不能仅凭目录认领。
+    if engine == "omp" and project_path:
+        if not cwd or Path(cwd).expanduser().resolve() != Path(project_path).expanduser().resolve():
+            return None
 
     prompt = first_user or summary
     return {
