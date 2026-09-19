@@ -4,7 +4,7 @@ import type { Engine } from "./types";
 const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }> = {
   claude: { name: "Claude Code", short: "Claude", badge: "bg-violet-500/15 text-violet-300" },
   codex: { name: "Codex", short: "Codex", badge: "bg-emerald-500/10 text-emerald-300" },
-  omp: { name: "Oh My Pi", short: "omp", badge: "bg-sky-500/10 text-sky-300" },
+  omp: { name: "OMP", short: "OMP", badge: "bg-sky-500/10 text-sky-300" },
   kimi: { name: "Kimi Code", short: "Kimi", badge: "bg-amber-500/10 text-amber-300" },
   browser: { name: "Browser", short: "Browser", badge: "bg-cyan-500/10 text-cyan-300" },
 };
