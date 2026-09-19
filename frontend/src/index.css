@@ -110,10 +110,13 @@ body {
 /* Match xterm's compact layout: never change desktop or other pages' typography. */
 @media (max-width: 767px) and (pointer: coarse) {
   .dh-terminal-header {
-    @apply gap-1.5 px-2 py-2;
+    @apply flex-wrap gap-1.5 px-2 py-1;
   }
   .dh-terminal-header > span {
     @apply text-xs;
+  }
+  .dh-terminal-header > select {
+    @apply w-20 min-w-0;
   }
   .dh-terminal-viewport {
     @apply bg-dh-surface px-1;
@@ -125,7 +128,7 @@ body {
     @apply gap-1;
   }
   .dh-terminal-key-grid > button {
-    @apply min-h-9 border-dh-bsoft bg-dh-s2 text-dh-tsoft;
+    @apply min-h-11 border-dh-bsoft bg-dh-s2 text-dh-tsoft;
   }
 }
 
