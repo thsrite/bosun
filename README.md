@@ -175,6 +175,19 @@ pkill -x Bosun; rm -rf /Applications/Bosun.app
 
 OMP 自定义配置目录使用官方变量 `PI_CODING_AGENT_DIR`，会话位于其 `sessions/` 子目录；未设置时使用 `~/${PI_CONFIG_DIR:-.omp}/agent/sessions/`。Bosun 与 OMP 需要继承相同的目录配置。
 
+### OMP 历史任务无法继续 / Token 显示为空
+
+这通常是任务未关联 `session_uid`，并非 OMP 不支持恢复会话。升级会话目录兼容修复后，需要在运行中任务结束后安全重启后端；源码启动默认不热重载。重启只让新任务使用修复，不会自动补齐历史记录。
+
+源码环境可先预览历史回填，再显式应用：
+
+```bash
+python3 backend/scripts/backfill_omp_sessions.py
+python3 backend/scripts/backfill_omp_sessions.py --apply
+```
+
+在能访问原始数据库和 OMP 会话文件的环境执行；继承相同的 `BOSUN_DATA`、`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`。应用前先备份数据库。工具只回填已结束或已暂停、存在起止时间且不是恢复轮次的任务，要求项目、原始指令和创建时间匹配且双向唯一；活动任务、已认领会话和歧义候选不会被修改。Token 按任务起止时间补算 `input + output`，不含缓存读写；没有用量记录时不伪造数值。工具不重启服务、不重新运行任务、不修改会话文件，重复应用不会重复累计。
+
 ### Browser Computer Use（MVP）
 
 Browser 是独立的任务引擎，用于验收本机正在运行的 Web 应用。任务指令必须包含 `http://localhost:端口`、`http://127.0.0.1:端口` 或其它回环地址；公网、局域网地址、文件上传下载、剪贴板和非 HTTP(S) 导航均会被阻止。提交、删除、支付、敏感字段填写等动作会暂停并等待人工确认。
