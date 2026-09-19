@@ -116,14 +116,17 @@ const TERMINAL_DESKTOP_TYPOGRAPHY = {
   minimumContrastRatio: 1,
   fontFamily: "ui-monospace, Menlo, monospace",
 };
-// Keep glyphs inside xterm's cells: negative spacing can clip CJK on narrower fallback fonts.
-// Explicit monospace fallbacks also avoid different DOM/OffscreenCanvas generic-font metrics.
+// Half-em Latin advances make two terminal cells match a full-em CJK glyph without clipping.
 const TERMINAL_TOUCH_TYPOGRAPHY = {
   fontSize: 14,
   lineHeight: 1.1,
   letterSpacing: 0,
   minimumContrastRatio: 4.5,
-  fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
+  fontFamily: '"Bosun Terminal", ui-monospace, Menlo, monospace',
+};
+const TERMINAL_TOUCH_FALLBACK_TYPOGRAPHY = {
+  ...TERMINAL_TOUCH_TYPOGRAPHY,
+  fontFamily: TERMINAL_DESKTOP_TYPOGRAPHY.fontFamily,
 };
 const TERMINAL_THEME = {
   background: "#131316",
@@ -459,8 +462,13 @@ function TerminalView({
     stickRef.current = true;
     setAtBottom(true);
     const compactLayout = window.matchMedia("(max-width: 767px) and (pointer: coarse)");
+    const touchFontSpec = `${TERMINAL_TOUCH_TYPOGRAPHY.fontSize}px "Bosun Terminal"`;
+    let touchFontReady = document.fonts.check(touchFontSpec);
+    let touchFontRequested = false;
     const term = new Terminal({
-      ...(compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY),
+      ...(compactLayout.matches
+        ? touchFontReady ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_TOUCH_FALLBACK_TYPOGRAPHY
+        : TERMINAL_DESKTOP_TYPOGRAPHY),
       theme: TERMINAL_THEME,
       cursorBlink: true,
       convertEol: true,
@@ -1330,12 +1338,26 @@ function TerminalView({
     const onResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
-      term.options = compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY;
+      term.options = compactLayout.matches
+        ? touchFontReady ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_TOUCH_FALLBACK_TYPOGRAPHY
+        : TERMINAL_DESKTOP_TYPOGRAPHY;
       fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
       claimViewport();
+      if (compactLayout.matches && !touchFontReady && !touchFontRequested) {
+        touchFontRequested = true;
+        void document.fonts.load(touchFontSpec).then(
+          (faces) => {
+            if (disposed || faces.length === 0) return;
+            touchFontReady = true;
+            onResize();
+          },
+          (error: unknown) => console.warn("Mobile terminal font unavailable", error),
+        );
+      }
     };
+    onResize();
     window.addEventListener("resize", onResize);
     compactLayout.addEventListener("change", onResize);
     // 容器高度变化（如折叠/展开上方详情面板）时也要 refit

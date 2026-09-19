@@ -4,6 +4,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* @fontsource/iosevka 5.3.0, OFL-1.1; license shipped in /fonts/OFL.txt.
+   Latin/punctuation/arrows/box-drawing subset; CJK stays in the system font. */
+@font-face {
+  font-family: "Bosun Terminal";
+  src: url("./assets/fonts/iosevka-mobile.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF, U+2500-259F;
+}
+
 :root {
   /* 碳黑仪表色板：中性碳黑基底 + 琥珀信号强调色（2026-08 UI 翻新，方向 02） */
   /* RGB 三元组：供 Tailwind dh 色板做透明度运算（bg-dh-surface/80 → 毛玻璃底色） */
