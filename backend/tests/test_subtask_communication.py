@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import auth, db, scheduler, subtasks
+from app import auth, db, quota, scheduler, subtasks
 from app.main import app
 from app.pty_session import PtySession
 from app.routers import tasks as tasks_router
@@ -53,6 +53,69 @@ class SubtaskCommunicationTest(unittest.TestCase):
             (child_id,),
         )
         return child_id
+
+    def test_spawn_rejects_exhausted_engines_before_creating_children(self):
+        for engine in ("cc", "codex", "auto"):
+            with (
+                self.subTest(engine=engine),
+                patch.object(quota, "_provider_usage", return_value={
+                    "available": True, "weekly_pct": 100,
+                }),
+                patch("app.engine_updates.is_installed", return_value=True),
+                patch.object(scheduler, "start_subtask"),
+                patch.object(subtasks, "wait_for_result", return_value={"status": "done"}),
+            ):
+                with self.assertRaises(tasks_router.HTTPException) as raised:
+                    tasks_router.spawn_subtask(
+                        self.parent_id,
+                        tasks_router.SpawnBody(engine=engine, prompt="复审"),
+                        _Request(self.parent_token),
+                    )
+                self.assertEqual(raised.exception.status_code, 429)
+                self.assertEqual(subtasks.child_count(self.parent_id), 0)
+                self.assertEqual(subtasks.inflight(), 0)
+
+    def test_spawn_keeps_engines_without_subscription_quota_available(self):
+        with (
+            patch.object(quota, "_provider_usage", side_effect=AssertionError("unexpected quota request")),
+            patch.object(scheduler, "start_subtask"),
+            patch.object(subtasks, "wait_for_result", return_value={"status": "done"}),
+        ):
+            result = tasks_router.spawn_subtask(
+                self.parent_id,
+                tasks_router.SpawnBody(engine="omp", prompt="复审"),
+                _Request(self.parent_token),
+            )
+        child = db.query_one("SELECT engine FROM task WHERE id=?", (result["id"],))
+        self.assertEqual(child["engine"], "omp")
+
+    def test_handoff_preserves_source_until_target_quota_is_available(self):
+        source_id = self._task("running", self.parent_id)
+        usage = {"available": True, "weekly_pct": 100}
+
+        def cancel(task_id):
+            db.execute("UPDATE task SET status='cancelled' WHERE id=?", (task_id,))
+
+        with (
+            patch.object(quota, "_provider_usage", return_value=usage),
+            patch.object(scheduler, "cancel", side_effect=cancel),
+            patch.object(scheduler, "tick"),
+        ):
+            with self.assertRaises(tasks_router.HTTPException) as raised:
+                tasks_router.handoff_task(
+                    source_id, tasks_router.HandoffBody(engine="codex", start=True),
+                )
+            self.assertEqual(raised.exception.status_code, 429)
+            self.assertEqual(db.query_one("SELECT status FROM task WHERE id=?", (source_id,))["status"], "running")
+            self.assertEqual(db.query_one("SELECT COUNT(*) AS n FROM task WHERE kind='handoff'")["n"], 0)
+
+            usage["weekly_pct"] = 20
+            result = tasks_router.handoff_task(
+                source_id, tasks_router.HandoffBody(engine="codex", start=True),
+            )
+        target = db.query_one("SELECT kind,status,engine FROM task WHERE id=?", (result["id"],))
+        self.assertEqual(tuple(target), ("handoff", "queued", "codex"))
+        self.assertEqual(db.query_one("SELECT status FROM task WHERE id=?", (source_id,))["status"], "cancelled")
 
     def test_needs_input_keeps_child_alive_for_parent_reply(self):
         child_id = self._waiting_child()

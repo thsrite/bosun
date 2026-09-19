@@ -52,7 +52,7 @@ class SpawnAliasTest(unittest.TestCase):
                 scheduler, "start_subtask"
             ), patch.object(
                 subtasks, "wait_for_result", return_value={"status": "done", "summary": "ok"}
-            ):
+            ), patch("app.quota._provider_usage", return_value={"available": False}):
                 result = tasks_router.spawn_subtask(
                     self.parent_id,
                     tasks_router.SpawnBody(engine=alias, prompt="复审"),
