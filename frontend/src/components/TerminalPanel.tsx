@@ -108,6 +108,10 @@ const MAX_DEFERRED_TERMINAL_BYTES = 4 * 1024 * 1024;
 const APPLICATION_SCROLL_STEPS = 48;
 const APPLICATION_SCROLL_STEPS_PER_FRAME = 8;
 const APPLICATION_SCROLL_COOLDOWN_MS = 500;
+const TERMINAL_DESKTOP_TYPOGRAPHY = { fontSize: 12, lineHeight: 1, letterSpacing: 0 };
+// Canvas rounds letterSpacing to device pixels; fractional negatives do not tighten its cells.
+// Change xterm's grid rather than CSS so glyphs, cursor and selection keep the same coordinates.
+const TERMINAL_TOUCH_TYPOGRAPHY = { fontSize: 12, lineHeight: 1.1, letterSpacing: -1 };
 const TERMINAL_THEME = {
   background: "#131316",
   foreground: "#ededf0",
@@ -432,8 +436,9 @@ function TerminalView({
     userScrolledRef.current = false;
     stickRef.current = true;
     setAtBottom(true);
+    const compactLayout = window.matchMedia("(max-width: 767px) and (pointer: coarse)");
     const term = new Terminal({
-      fontSize: 12,
+      ...(compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY),
       fontFamily: "ui-monospace, Menlo, monospace",
       theme: TERMINAL_THEME,
       cursorBlink: true,
@@ -1287,12 +1292,14 @@ function TerminalView({
     const onResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
+      term.options = compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY;
       fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
       claimViewport();
     };
     window.addEventListener("resize", onResize);
+    compactLayout.addEventListener("change", onResize);
     // 容器高度变化（如折叠/展开上方详情面板）时也要 refit
     const ro = new ResizeObserver(onResize);
     ro.observe(elRef.current);
@@ -1324,6 +1331,7 @@ function TerminalView({
       document.removeEventListener("selectionchange", maybeResumeDeferredWrites);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("resize", onResize);
+      compactLayout.removeEventListener("change", onResize);
       if (retry) clearTimeout(retry);
       ws?.close();
       if (wsRef.current === ws) wsRef.current = null;
@@ -1450,11 +1458,11 @@ function TerminalMobileComposer({
   };
 
   return (
-    <div className="dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
+    <div className="dh-terminal-composer dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
       {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
           软键盘唯一从「键盘」键唤起（轻点终端正文只滚动/点链接，不再误弹输入法），
           聚焦 xterm 隐藏 textarea 后键入直进 PTY。 */}
-      <div className="grid grid-cols-6 gap-1.5">
+      <div className="dh-terminal-key-grid grid grid-cols-6 gap-1.5">
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b")} label="Esc" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\t")} label="Tab" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x03")} label="Ctrl-C" />
@@ -1912,7 +1920,7 @@ export function TerminalPanel({
           </div>
         )}
         {/* 头部 */}
-        <div className="dh-scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-dh-bsoft px-4 py-3">
+        <div className={`${isChat ? "" : "dh-terminal-header"} dh-scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-dh-bsoft px-4 py-3`}>
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
           <span className="shrink-0 font-mono text-sm text-slate-400">#{detail.id}</span>
           <select
@@ -2220,8 +2228,8 @@ export function TerminalPanel({
               : active
                 ? // 移动端运行中：底部安全区由输入条承担；键盘弹出时会收回留白。
                   // 桌面端(md)无输入条，保留 8px 底距。
-                  "p-2 pb-0 md:pb-2"
-                : "dh-safe-bottom-pad p-2"
+                  "dh-terminal-viewport p-2 pb-0 md:pb-2"
+                : "dh-terminal-viewport dh-safe-bottom-pad p-2"
           }`}
         >
           {hasSession ? (

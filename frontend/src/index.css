@@ -107,6 +107,28 @@ body {
   }
 }
 
+/* Match xterm's compact layout: never change desktop or other pages' typography. */
+@media (max-width: 767px) and (pointer: coarse) {
+  .dh-terminal-header {
+    @apply gap-1.5 px-2 py-2;
+  }
+  .dh-terminal-header > span {
+    @apply text-xs;
+  }
+  .dh-terminal-viewport {
+    @apply bg-dh-surface px-1;
+  }
+  .dh-terminal-composer {
+    @apply px-1 pt-1;
+  }
+  .dh-terminal-key-grid {
+    @apply gap-1;
+  }
+  .dh-terminal-key-grid > button {
+    @apply min-h-9 border-dh-bsoft bg-dh-s2 text-dh-tsoft;
+  }
+}
+
 /* Bosun 卡片：暗色实心面 + 发丝细边，无高光无投影（碳黑仪表：层次全靠明度差） */
 .card {
   background: var(--dh-surface);
