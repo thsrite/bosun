@@ -242,6 +242,10 @@ def with_omp_runtime_args(
     thinking = normalize_omp_thinking(reasoning_override) if reasoning_override else omp_thinking()
     if thinking:
         prefix += ["--thinking", thinking]
+    # Bosun already owns the outer PTY.  OMP's nested PTY adds terminal probing and
+    # repaint noise, while automatic title generation starts an extra model turn
+    # that duplicates Bosun's task title.
+    prefix += ["--no-pty", "--no-title"]
     return [*prefix, *argv[1:]]
 
 
