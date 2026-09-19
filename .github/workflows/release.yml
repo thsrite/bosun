@@ -86,7 +86,9 @@ jobs:
           cache: pip
       - name: 构建 Bosun.app（内嵌后端）
         run: |
-          pip install -r backend/requirements.txt pyinstaller
+          # Intel 的 cryptography 需源码构建；静态链接避免与 Python 自带 OpenSSL 同名冲突。
+          # 禁用缓存，避免复用之前动态链接的 wheel。
+          OPENSSL_STATIC=1 python -m pip install --no-cache-dir -r backend/requirements.txt pyinstaller
           BOSUN_PYTHON="$(command -v python)" bash macos/build.sh --bundle
       - name: 冒烟测试
         run: |
