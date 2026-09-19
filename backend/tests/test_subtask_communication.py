@@ -3,8 +3,10 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 from app import auth, db, scheduler, subtasks
-from app.main import _TASK_CREDENTIAL_PATH
+from app.main import app
 from app.pty_session import PtySession
 from app.routers import tasks as tasks_router
 from app.sdk_session import SdkSession
@@ -127,12 +129,103 @@ class SubtaskCommunicationTest(unittest.TestCase):
         self.assertEqual(row["report_result"], "needs_input")
         self.assertEqual(row["report_summary"], "选 A 还是 B？")
 
-    def test_reply_endpoint_uses_task_credentials(self):
-        self.assertTrue(_TASK_CREDENTIAL_PATH.fullmatch("/api/tasks/42/reply"))
+    def test_parent_acknowledgement_closes_child_without_losing_result(self):
+        child_id = self._waiting_child()
+        db.execute(
+            "UPDATE task SET report_result='done', report_summary='验证完成' WHERE id=?",
+            (child_id,),
+        )
 
-    def test_crew_message_endpoints_use_task_credentials(self):
-        self.assertTrue(_TASK_CREDENTIAL_PATH.fullmatch("/api/tasks/42/message"))
-        self.assertTrue(_TASK_CREDENTIAL_PATH.fullmatch("/api/tasks/42/messages/7/ack"))
+        class Session:
+            stopped = 0
+
+            def graceful_stop(self):
+                self.stopped += 1
+
+        session = Session()
+        with patch.object(scheduler, "_sessions", {child_id: session}), patch.object(
+            scheduler, "tick"
+        ), patch.object(scheduler, "_finalize_tokens"):
+            first = tasks_router.acknowledge_subtask_result(child_id, _Request(self.parent_token))
+            second = tasks_router.acknowledge_subtask_result(child_id, _Request(self.parent_token))
+            self.assertIsNone(scheduler.get_session(child_id))
+
+        self.assertEqual(session.stopped, 1)
+        self.assertEqual(first, second)
+        self.assertEqual(first["status"], "done")
+        result = tasks_router.get_task_result(child_id, _Request(self.parent_token))
+        self.assertEqual(result["summary"], "验证完成")
+        self.assertTrue(result["finished"])
+
+    def test_acknowledgement_settles_result_when_process_already_exited(self):
+        child_id = self._waiting_child()
+        db.execute("UPDATE task SET report_result='done' WHERE id=?", (child_id,))
+        with patch.object(scheduler, "_sessions", {}), patch.object(
+            scheduler, "tick"
+        ), patch.object(scheduler, "_finalize_tokens"):
+            result = tasks_router.acknowledge_subtask_result(child_id, _Request(self.parent_token))
+        self.assertEqual(result["status"], "done")
+
+    def test_acknowledgement_does_not_close_a_child_awaiting_an_answer(self):
+        child_id = self._waiting_child()
+        with self.assertRaises(tasks_router.HTTPException) as raised:
+            tasks_router.acknowledge_subtask_result(child_id, _Request(self.parent_token))
+        self.assertEqual(raised.exception.status_code, 409)
+        result = tasks_router.get_task_result(child_id, _Request(self.parent_token))
+        self.assertTrue(result["needs_reply"])
+        self.assertEqual(result["summary"], "选 A 还是 B？")
+
+    def test_exited_child_with_unanswered_question_cannot_be_acknowledged(self):
+        child_id = self._waiting_child()
+        db.execute("UPDATE task SET status='done' WHERE id=?", (child_id,))
+        result = tasks_router.get_task_result(child_id, _Request(self.parent_token))
+        self.assertTrue(result["needs_reply"])
+        self.assertFalse(result["finished"])
+        with self.assertRaises(tasks_router.HTTPException) as raised:
+            tasks_router.acknowledge_subtask_result(child_id, _Request(self.parent_token))
+        self.assertEqual(raised.exception.status_code, 409)
+
+    def test_session_cleanup_preserves_an_unanswered_question_without_process(self):
+        child_id = self._waiting_child()
+        with (
+            patch.object(scheduler, "_sessions", {}),
+            patch.object(scheduler, "tick"),
+            patch.object(scheduler, "_finalize_tokens"),
+        ):
+            scheduler.finish_subtask(child_id)
+        result = tasks_router.get_task_result(child_id, _Request(self.parent_token))
+        self.assertEqual(result["status"], "waiting_input")
+        self.assertTrue(result["needs_reply"])
+        self.assertEqual(result["summary"], "选 A 还是 B？")
+
+    def test_acknowledgement_preserves_failure_status(self):
+        child_id = self._task("failed", self.parent_id)
+        db.execute("UPDATE task SET report_result='failed' WHERE id=?", (child_id,))
+        with patch.object(scheduler, "_sessions", {}), patch.object(scheduler, "tick"):
+            result = tasks_router.acknowledge_subtask_result(child_id, _Request(self.parent_token))
+        self.assertEqual(result["status"], "failed")
+
+    def test_acknowledgement_http_route_accepts_only_the_owning_parent(self):
+        child_id = self._task("done", self.parent_id)
+        child_token = auth.issue_task_token(child_id)
+        other_parent = self._task("running")
+        other_token = auth.issue_task_token(other_parent)
+        client = TestClient(app)
+        with patch.object(auth, "is_enabled", return_value=True), patch.object(
+            scheduler, "_sessions", {}
+        ), patch.object(scheduler, "tick"):
+            for token in (child_token, other_token):
+                response = client.post(
+                    f"/api/tasks/{child_id}/result/ack",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(response.status_code, 401)
+            response = client.post(
+                f"/api/tasks/{child_id}/result/ack",
+                headers={"Authorization": f"Bearer {self.parent_token}"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "done")
 
     def test_completed_parent_cannot_keep_driving_child(self):
         child_id = self._waiting_child()
