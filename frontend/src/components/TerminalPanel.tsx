@@ -372,13 +372,20 @@ function terminalPanelBodyStyle(): CSSProperties {
   };
 }
 
+function taskSwipeDirection(dx: number, dy: number): -1 | 0 | 1 {
+  if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
+  return dx < 0 ? 1 : -1;
+}
+
 /** 内层：xterm + WebSocket（实时流 / 结束后回放日志），断线自动重连。 */
 function TerminalView({
   taskId,
   live,
+  onSwipeTask,
 }: {
   taskId: number;
   live: boolean;
+  onSwipeTask?: (direction: -1 | 1) => void;
 }) {
   const elRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -401,6 +408,8 @@ function TerminalView({
   const copySelectionRef = useRef<(() => void) | null>(null);
   const liveRef = useRef(live);
   liveRef.current = live;
+  const onSwipeTaskRef = useRef(onSwipeTask);
+  onSwipeTaskRef.current = onSwipeTask;
 
   const scrollToLatest = useCallback(() => {
     const term = termRef.current;
@@ -1171,14 +1180,18 @@ function TerminalView({
     let lastTapX = 0;
     let lastTapY = 0;
 
+    let startedWithSelection = false;
     const onTouchStart = (e: globalThis.TouchEvent) => {
       if (e.touches.length !== 1) {
         cancelLongPress();
+        tActive = false;
+        touchActive = false;
         return;
       }
       const t = e.touches[0];
       if (!t) return;
       e.stopPropagation();
+      startedWithSelection = term.hasSelection() || hasNativeTerminalSelection();
       touchActive = true;
       pauseOverflowed = false;
       stopFling(); // 手指按下打断上一次甩滚
@@ -1236,6 +1249,17 @@ function TerminalView({
       cancelLongPress();
       const wasSelecting = tSelecting;
       tSelecting = false;
+      const end = e.changedTouches[0];
+      const dx = end ? end.clientX - tStartX : 0;
+      const dy = end ? end.clientY - tStartY : 0;
+      const direction = taskSwipeDirection(dx, dy);
+      if (
+        wasActive && e.type === "touchend" && !wasSelecting && !startedWithSelection &&
+        !tScrollStarted && !term.hasSelection() && !hasNativeTerminalSelection() &&
+        direction !== 0 && onSwipeTaskRef.current
+      ) {
+        onSwipeTaskRef.current(direction);
+      }
       if (wasSelecting) {
         // 松手不直接写剪贴板（WebKit 对 touchend 手势的剪贴板授权不可靠），改为浮出
         // 「复制」按钮，由按钮的 click 手势完成复制
@@ -1248,6 +1272,8 @@ function TerminalView({
         wasActive &&
         !wasSelecting &&
         !tScrollStarted &&
+        Math.abs(dx) < 8 &&
+        Math.abs(dy) < 8 &&
         e.type === "touchend" &&
         performance.now() - tStartAt < 350;
       if (tapLike && term.hasSelection()) {
@@ -1722,8 +1748,8 @@ export function TerminalPanel({
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    switchBy(dx < 0 ? 1 : -1);
+    const direction = taskSwipeDirection(dx, dy);
+    if (direction !== 0) switchBy(direction);
   }
 
   async function downloadLog() {
@@ -2300,7 +2326,12 @@ export function TerminalPanel({
                   {historyMode === "history" ? (
                     <SessionHistoryView key={`history-${detail.id}`} taskId={detail.id} />
                   ) : detail.log_path ? (
-                    <TerminalView key={`terminal-${detail.id}`} taskId={detail.id} live={false} />
+                    <TerminalView
+                      key={`terminal-${detail.id}`}
+                      taskId={detail.id}
+                      live={false}
+                      onSwipeTask={canSwitch && !editing ? switchBy : undefined}
+                    />
                   ) : (
                     <div className="flex h-full items-center justify-center text-xs text-dh-muted">
                       该待执行任务还没有原始终端日志
@@ -2309,7 +2340,12 @@ export function TerminalPanel({
                 </div>
               </div>
             ) : (
-              <TerminalView key={`terminal-${detail.id}`} taskId={detail.id} live={active} />
+              <TerminalView
+                key={`terminal-${detail.id}`}
+                taskId={detail.id}
+                live={active}
+                onSwipeTask={canSwitch && !editing ? switchBy : undefined}
+              />
             )
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-400">
