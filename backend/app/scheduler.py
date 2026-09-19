@@ -586,11 +586,13 @@ def finish_subtask(task_id: int) -> None:
     已出结论的落 done 而不是 cancelled：结论是有效的，看板和统计不该显示成被取消。
     已是终态的（如 agent 回报 failed）只收进程，状态不动。
     """
-    if task_id not in _sessions:
+    row = db.query_one("SELECT status, report_result FROM task WHERE id=?", (task_id,))
+    if row is not None and row["report_result"] == "needs_input":
         return
-    row = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
-    if row is not None and row["status"] == "waiting_input":
+    if row is not None and row["status"] == "waiting_input" and row["report_result"] == "done":
         complete(task_id)  # graceful_stop 让引擎落盘会话，便于日后查阅/续跑
+        return
+    if task_id not in _sessions:
         return
     session = _sessions.pop(task_id, None)
     if session is not None:

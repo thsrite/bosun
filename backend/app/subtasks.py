@@ -50,6 +50,8 @@ def _finished(status: str, report_result: str | None) -> bool:
 
 def is_final(status: str, report_result: str | None) -> bool:
     """是否已得到最终结果；needs_input 只结束当前通信回合。"""
+    if report_result == "needs_input":
+        return False
     return status in _TERMINAL_STATUSES or (
         status == "waiting_input" and report_result == "done"
     )

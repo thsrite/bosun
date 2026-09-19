@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, routing, scheduler, sessions, subtasks, task_files, uploads
+from ..directives import REPORT_DIRECTIVE
 from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
@@ -693,7 +694,9 @@ def _spawn_and_wait(parent, engine: str, body: SpawnBody) -> dict:
         (
             parent["project_id"],
             engine,
-            body.prompt,
+            body.prompt + "\n\n[Bosun 受控子任务] 完成、失败或需要父任务答复时立即回报，"
+            "不要只在终端输出后等待。若父任务指定了结果文件，先保存完整结果再回报；"
+            "最终回报会交付父任务并触发会话回收。" + REPORT_DIRECTIVE,
             title,
             parent["priority"],
             parent["auto_approve"],  # 审批策略随父任务，子任务不额外放宽
@@ -782,6 +785,24 @@ def get_task_result(task_id: int, request: Request = None):
         "needs_reply": row["report_result"] == "needs_input",
         "finished": subtasks.is_final(row["status"], row["report_result"]),
     }
+
+
+@router.post("/{task_id}/result/ack")
+def acknowledge_subtask_result(task_id: int, request: Request = None):
+    """父任务读完最终结果后幂等确认回收；保留任务记录、日志与结果。"""
+    child = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if child is None:
+        raise HTTPException(404, "子任务不存在")
+    parent_id = child["parent_task_id"]
+    if parent_id is None:
+        raise HTTPException(409, "目标任务不是子任务")
+    if not _spawn_authorized(parent_id, request):
+        raise HTTPException(401, "父任务凭证无效")
+    if not subtasks.is_final(child["status"], child["report_result"]):
+        raise HTTPException(409, "子任务尚未产生最终结果，不能回收")
+    scheduler.finish_subtask(task_id)
+    settled = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
+    return {"id": task_id, "status": settled["status"], "acknowledged": True}
 
 
 @router.post("/{task_id}/pause")
