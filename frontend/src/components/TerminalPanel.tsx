@@ -26,6 +26,12 @@ import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import type { ClaimState } from "../terminalClaim";
 import { shouldClaimViewport } from "../terminalClaim";
 import { extractPathAt } from "../terminalFilePaths";
+import {
+  MAX_DEFERRED_TERMINAL_BYTES,
+  MAX_DEFER_MS,
+  shouldDeferTerminalWrite,
+  shouldResumeDeferredWrites,
+} from "../terminalStream";
 import { FilePreviewOverlay } from "./FilePreviewOverlay";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Engine, Task } from "../types";
@@ -103,7 +109,6 @@ const PANEL_SAFE_AREA_STYLE = {
   paddingTop: "env(safe-area-inset-top)",
 } satisfies CSSProperties;
 const AUDIO_RECORDING_TIMEOUT_MS = 60000;
-const MAX_DEFERRED_TERMINAL_BYTES = 4 * 1024 * 1024;
 // 触摸滚动过历史后「回到最新」时，向 TUI 补发的滚轮步数与每帧步数。Claude 一侧把滚轮当
 // 菜单/列表选择处理，同步灌一大批会误触命令，所以总量克制、按帧摊开。
 const APPLICATION_SCROLL_STEPS = 48;
@@ -538,6 +543,9 @@ function TerminalView({
     let deferredBytes = 0;
     let touchActive = false;
     let pauseOverflowed = false;
+    // 本轮暂停开始的时刻与它的超时兜底句柄
+    let deferredSince: number | null = null;
+    let deferTimer: number | null = null;
     let applicationScrollActive = false;
     let pasteUploadsInFlight = 0;
     let selectionResumeTimer: number | null = null;
@@ -694,6 +702,13 @@ function TerminalView({
     };
     terminalHost.addEventListener("paste", onTerminalPaste, true);
 
+    const clearDeferTimeout = () => {
+      if (deferTimer != null) {
+        window.clearTimeout(deferTimer);
+        deferTimer = null;
+      }
+    };
+
     const setBottomState = (next: boolean) => {
       setAtBottom((prev) => (prev === next ? prev : next));
     };
@@ -731,6 +746,9 @@ function TerminalView({
     };
 
     const flushDeferredWrites = (onFlushed?: () => void) => {
+      // 队列吐完即本轮暂停结束：时刻与超时兜底一起销账
+      deferredSince = null;
+      clearDeferTimeout();
       const batch = deferredWrites.splice(0);
       deferredBytes = 0;
       if (batch.length === 0) {
@@ -755,20 +773,45 @@ function TerminalView({
 
     const maybeResumeDeferredWrites = () => {
       if (disposed) return;
-      if (touchActive || userScrolledRef.current || hasNativeTerminalSelection()) return;
+      if (!shouldResumeDeferredWrites({ touchActive, hasSelection: hasNativeTerminalSelection() })) {
+        return;
+      }
       pauseOverflowed = false;
       flushDeferredWrites();
     };
 
     const writeOrDefer = (data: string | Uint8Array) => {
       if (disposed) return;
-      const shouldPause =
-        touchDevice &&
-        !pauseOverflowed &&
-        (touchActive || userScrolledRef.current || hasNativeTerminalSelection());
+      const now = performance.now();
+      const hasSelection = hasNativeTerminalSelection();
+      const shouldPause = shouldDeferTerminalWrite({
+        touchDevice,
+        touchActive,
+        hasSelection,
+        overflowed: pauseOverflowed,
+        deferredSince,
+        now,
+      });
       if (!shouldPause) {
+        // 暂停条件仍在却放行了 = 闸门已开（超时/超量）。记住它，一路直写到条件消失，
+        // 否则每条输出都会重新起一轮 1.5s 暂停，观感又变成"一卡一卡"。
+        if (touchActive || hasSelection) pauseOverflowed = true;
+        if (deferredWrites.length > 0) flushDeferredWrites();
+        deferredSince = null;
+        clearDeferTimeout();
         writeNow(data);
         return;
+      }
+      if (deferredSince === null) {
+        deferredSince = now;
+        // 手指按住不放、选区一直留着都不该让任务看起来停更：到点无条件补写
+        clearDeferTimeout();
+        deferTimer = window.setTimeout(() => {
+          deferTimer = null;
+          if (disposed) return;
+          pauseOverflowed = true;
+          flushDeferredWrites();
+        }, MAX_DEFER_MS);
       }
       const nextDeferredBytes = deferredBytes + terminalDataByteLength(data);
       deferredWrites.push(data);
@@ -854,6 +897,8 @@ function TerminalView({
         stickRef.current = true;
         touchActive = false;
         pauseOverflowed = false;
+        deferredSince = null;
+        clearDeferTimeout();
         applicationScrollActive = false;
         stopApplicationScroll();
         deferredWrites.splice(0);
@@ -942,8 +987,23 @@ function TerminalView({
       stickRef.current = false;
       lastUserScrollAtRef.current = performance.now();
     };
+    // 滚轮/翻页键在捕获阶段先标记意图，但那一下可能压根没滚动（已经贴在底部）。视口没变
+    // 就没有 onScroll 把自动跟随打开回来，于是"在底部滚一下，输出就不再自动跟了"。
+    // 下一帧对账：还在底部且没有写入在途，就退回跟随态。
+    const markUserScrollWithBottomCheck = (event?: Event) => {
+      if (event && !event.isTrusted) return;
+      markUserScroll();
+      requestAnimationFrame(() => {
+        if (disposed || appWritesInFlight > 0) return;
+        const buffer = term.buffer.active;
+        if (buffer.baseY - buffer.viewportY > 2) return;
+        userScrolledRef.current = false;
+        stickRef.current = true;
+        maybeResumeDeferredWrites();
+      });
+    };
     const markKeyboardScroll = (e: KeyboardEvent) => {
-      if (["End", "Home", "PageDown", "PageUp"].includes(e.key)) markUserScroll();
+      if (["End", "Home", "PageDown", "PageUp"].includes(e.key)) markUserScrollWithBottomCheck();
     };
     const focusTerminal = () => {
       // 桌面端按下即聚焦；移动端 pointerdown 也是滚动手势的起点，不能在这里聚焦
@@ -1020,12 +1080,22 @@ function TerminalView({
       const buffer = term.buffer.active;
       let moved = true;
       if (lines !== 0) {
+        const wasFollowing = !userScrolledRef.current;
+        // 必须先标记再滚：scrollLines 会同步触发 onScroll，那里靠这个时间戳区分
+        // "用户手势到底部"与"应用重绘到底部"。
         markUserScroll();
         const before = buffer.viewportY;
         // xterm: 负数向上（历史）、正数向下（最新）。上滑时 dy/lines<0，必须原样传入；
         // 取反会让上滑变成向下滚，而终端初始已在底部，于是视觉上完全没有反应。
         term.scrollLines(lines);
         moved = buffer.viewportY !== before;
+        if (!moved && wasFollowing) {
+          // 已经贴在底部（或顶部），这一下手势没翻动任何历史，不该据此关掉自动跟随：
+          // 视口没变就不会有 onScroll 把跟随打开回来，于是"在底部随便划一下，任务就
+          // 再也不刷新了"。原样退回跟随态。
+          userScrolledRef.current = false;
+          stickRef.current = true;
+        }
       }
       // 撞到顶/底后余量清零，避免离开边界时凭空吃掉一段手指位移
       if (
@@ -1201,7 +1271,6 @@ function TerminalView({
       e.stopPropagation();
       startedWithSelection = term.hasSelection() || hasNativeTerminalSelection();
       touchActive = true;
-      pauseOverflowed = false;
       stopFling(); // 手指按下打断上一次甩滚
       tStartX = tLastX = t.clientX;
       tStartY = tLastY = t.clientY;
@@ -1317,7 +1386,7 @@ function TerminalView({
     // terminalHost 才标记，onScroll 看不到“用户滚动”，下一帧的新输出仍会把视图拉回底部。
     // 捕获阶段先记录意图，实际离开底部后 onScroll 就会关闭自动跟随。
     const userScrollCaptureOptions = { capture: true, passive: true } as AddEventListenerOptions;
-    terminalHost.addEventListener("wheel", markUserScroll, userScrollCaptureOptions);
+    terminalHost.addEventListener("wheel", markUserScrollWithBottomCheck, userScrollCaptureOptions);
     terminalHost.addEventListener("touchstart", onTouchStart, touchCaptureOptions);
     terminalHost.addEventListener("touchmove", onTouchMove, touchCaptureOptions);
     terminalHost.addEventListener("touchend", onTouchEnd, touchEndCaptureOptions);
@@ -1374,6 +1443,7 @@ function TerminalView({
       stopApplicationScroll();
       if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
       if (selectionResumeTimer != null) window.clearTimeout(selectionResumeTimer);
+      clearDeferTimeout();
       scrollDisposable.dispose();
       selectionChangeDisposable.dispose();
       copySelectionRef.current = null;
@@ -1382,7 +1452,7 @@ function TerminalView({
       terminalHost.removeEventListener("dblclick", onDoubleClick);
       terminalHost.removeEventListener("copy", onTerminalCopy);
       terminalHost.removeEventListener("paste", onTerminalPaste, true);
-      terminalHost.removeEventListener("wheel", markUserScroll, userScrollCaptureOptions);
+      terminalHost.removeEventListener("wheel", markUserScrollWithBottomCheck, userScrollCaptureOptions);
       terminalHost.removeEventListener("touchstart", onTouchStart, touchCaptureOptions);
       terminalHost.removeEventListener("touchmove", onTouchMove, touchCaptureOptions);
       terminalHost.removeEventListener("touchend", onTouchEnd, touchEndCaptureOptions);
