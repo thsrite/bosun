@@ -6,7 +6,6 @@ import { Terminal } from "@xterm/xterm";
 import {
   useCallback,
   useEffect,
-  useId,
   useReducer,
   useRef,
   useState,
@@ -114,25 +113,10 @@ const AUDIO_RECORDING_TIMEOUT_MS = 60000;
 const APPLICATION_SCROLL_STEPS = 48;
 const APPLICATION_SCROLL_STEPS_PER_FRAME = 8;
 const APPLICATION_SCROLL_COOLDOWN_MS = 500;
-const TERMINAL_DESKTOP_TYPOGRAPHY = {
-  fontSize: 12,
-  lineHeight: 1,
-  letterSpacing: 0,
-  minimumContrastRatio: 1,
-  fontFamily: "ui-monospace, Menlo, monospace",
-};
-// Half-em Latin advances make two terminal cells match a full-em CJK glyph without clipping.
-const TERMINAL_TOUCH_TYPOGRAPHY = {
-  fontSize: 14,
-  lineHeight: 1.1,
-  letterSpacing: 0,
-  minimumContrastRatio: 4.5,
-  fontFamily: '"Bosun Terminal", ui-monospace, Menlo, monospace',
-};
-const TERMINAL_TOUCH_FALLBACK_TYPOGRAPHY = {
-  ...TERMINAL_TOUCH_TYPOGRAPHY,
-  fontFamily: TERMINAL_DESKTOP_TYPOGRAPHY.fontFamily,
-};
+const TERMINAL_DESKTOP_TYPOGRAPHY = { fontSize: 12, lineHeight: 1, letterSpacing: 0 };
+// Canvas rounds letterSpacing to device pixels; fractional negatives do not tighten its cells.
+// Change xterm's grid rather than CSS so glyphs, cursor and selection keep the same coordinates.
+const TERMINAL_TOUCH_TYPOGRAPHY = { fontSize: 12, lineHeight: 1.1, letterSpacing: -1 };
 const TERMINAL_THEME = {
   background: "#131316",
   foreground: "#ededf0",
@@ -467,13 +451,9 @@ function TerminalView({
     stickRef.current = true;
     setAtBottom(true);
     const compactLayout = window.matchMedia("(max-width: 767px) and (pointer: coarse)");
-    const touchFontSpec = `${TERMINAL_TOUCH_TYPOGRAPHY.fontSize}px "Bosun Terminal"`;
-    let touchFontReady = document.fonts.check(touchFontSpec);
-    let touchFontRequested = false;
     const term = new Terminal({
-      ...(compactLayout.matches
-        ? touchFontReady ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_TOUCH_FALLBACK_TYPOGRAPHY
-        : TERMINAL_DESKTOP_TYPOGRAPHY),
+      ...(compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY),
+      fontFamily: "ui-monospace, Menlo, monospace",
       theme: TERMINAL_THEME,
       cursorBlink: true,
       convertEol: true,
@@ -1407,24 +1387,11 @@ function TerminalView({
     const onResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
-      term.options = compactLayout.matches
-        ? touchFontReady ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_TOUCH_FALLBACK_TYPOGRAPHY
-        : TERMINAL_DESKTOP_TYPOGRAPHY;
+      term.options = compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY;
       fit.fit();
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
       claimViewport();
-      if (compactLayout.matches && !touchFontReady && !touchFontRequested) {
-        touchFontRequested = true;
-        void document.fonts.load(touchFontSpec).then(
-          (faces) => {
-            if (disposed || faces.length === 0) return;
-            touchFontReady = true;
-            onResize();
-          },
-          (error: unknown) => console.warn("Mobile terminal font unavailable", error),
-        );
-      }
     };
     onResize();
     window.addEventListener("resize", onResize);
@@ -1561,8 +1528,6 @@ function TerminalMobileComposer({
   onFocusTerminal: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const extraKeysId = useId();
 
   const sendKey = (data: string) => {
     if (!connected) return;
@@ -1590,39 +1555,30 @@ function TerminalMobileComposer({
   };
 
   return (
-    <div className="dh-terminal-composer dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-dh-surface px-2 pt-2 md:hidden">
-      {/* 常用键常驻一行；展开补充键时保留终端焦点，避免收起正在使用的输入法。 */}
+    <div className="dh-terminal-composer dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
+      {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
+          软键盘唯一从「键盘」键唤起（轻点终端正文只滚动/点链接，不再误弹输入法），
+          聚焦 xterm 隐藏 textarea 后键入直进 PTY。 */}
       <div className="dh-terminal-key-grid grid grid-cols-6 gap-1.5">
-        <TerminalKeyButton disabled={!connected} onSend={onFocusTerminal} label={<KeyboardIcon />} />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b")} label="Esc" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\t")} label="Tab" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x03")} label="Ctrl-C" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[A")} label="↑" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x7f")} label="⌫" />
+        <AttachmentPicker
+          buttonClassName="w-full whitespace-nowrap rounded-md border border-dh-border bg-dh-s2 px-1 py-1.5 text-[12px] font-medium text-slate-200 hover:bg-dh-hover disabled:opacity-40"
+          disabled={!connected || uploading}
+          onFiles={onPickFiles}
+          title="上传文件（可多选），路径会粘贴到终端输入行"
+        >
+          {uploading ? "…" : "File"}
+        </AttachmentPicker>
+        <TerminalKeyButton disabled={!connected} onSend={onFocusTerminal} label={<KeyboardIcon />} />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey(" ")} label="Space" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[D")} label="←" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[B")} label="↓" />
+        <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[C")} label="→" />
         <TerminalKeyButton disabled={!connected} onSend={() => sendKey(TERMINAL_SUBMIT_KEY)} label="Enter" />
-        <TerminalKeyButton
-          disabled={false}
-          onSend={() => setExpanded((value) => !value)}
-          label={expanded ? "收起" : "更多"}
-          expanded={expanded}
-          controls={extraKeysId}
-        />
-      </div>
-      <div id={extraKeysId} hidden={!expanded}>
-        <div className="dh-terminal-key-grid grid grid-cols-4 gap-1.5">
-          <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\t")} label="Tab" />
-          <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x03")} label="Ctrl-C" />
-          <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x7f")} label="⌫" />
-          <AttachmentPicker
-            buttonClassName="w-full whitespace-nowrap rounded-md border border-dh-border bg-dh-s2 px-1 py-1.5 text-[12px] font-medium text-dh-tsoft hover:bg-dh-hover disabled:opacity-40"
-            disabled={!connected || uploading}
-            onFiles={onPickFiles}
-            title="上传文件（可多选），路径会粘贴到终端输入行"
-          >
-            {uploading ? "…" : "File"}
-          </AttachmentPicker>
-          <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[D")} label="←" />
-          <TerminalKeyButton disabled={!connected} onSend={() => sendKey(" ")} label="Space" />
-          <TerminalKeyButton disabled={!connected} onSend={() => sendKey("\x1b[C")} label="→" />
-        </div>
       </div>
     </div>
   );
@@ -1651,22 +1607,16 @@ function TerminalKeyButton({
   disabled,
   onSend,
   label,
-  expanded,
-  controls,
 }: {
   disabled: boolean;
   onSend: () => void;
   label: ReactNode;
-  expanded?: boolean;
-  controls?: string;
 }) {
   return (
     <button
       type="button"
-      className="w-full whitespace-nowrap rounded-md border border-dh-border bg-dh-soft px-1 py-1.5 text-center text-[12px] font-medium text-dh-tsoft hover:border-dh-border hover:bg-dh-hover disabled:opacity-40"
+      className="w-full whitespace-nowrap rounded-md border border-dh-border bg-dh-soft px-1 py-1.5 text-center text-[12px] font-medium text-slate-200 hover:border-dh-border hover:bg-dh-hover disabled:opacity-40"
       disabled={disabled}
-      aria-expanded={expanded}
-      aria-controls={controls}
       // 拦掉默认的焦点转移：正在用输入法直打终端时按方向键/Enter，键盘不收起
       onPointerDown={(e) => e.preventDefault()}
       onClick={onSend}
