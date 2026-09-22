@@ -89,8 +89,12 @@ export function ClaudeManagerView() {
   const refresh = useCallback(async () => {
     const data = await api.claude.list();
     setRoot(data.root);
-    setResources(data.resources);
-    return data.resources;
+    // 技能以入口文件代表整个目录，附属文档不作为独立技能展示。
+    const listed = data.resources.filter(
+      (item) => item.category !== "skill" || /^skills\/[^/]+\/SKILL\.md$/.test(item.path),
+    );
+    setResources(listed);
+    return listed;
   }, []);
 
   const loadDoc = useCallback(async (path: string) => {
