@@ -669,8 +669,6 @@ def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
         raise HTTPException(403, "子任务不能再派生子任务（最多一层）")
     if parent["status"] not in ("running", "waiting_input"):
         raise HTTPException(409, "父任务未在执行，不能派生子任务")
-    if subtasks.child_count(task_id) >= subtasks.max_children():
-        raise HTTPException(429, f"子任务数已达上限（{subtasks.max_children()}）")
 
     engine = normalize_engine_id(body.engine)
     if engine == "auto":
@@ -694,23 +692,29 @@ def _spawn_and_wait(parent, engine: str, body: SpawnBody) -> dict:
     """建行、派发、阻塞等结论。调用方持有 spawn 名额。"""
     task_id = parent["id"]
     title = (body.title or "").strip() or derive_title(body.prompt)
-    child_id = db.execute(
-        "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,"
-        "parent_task_id,created_at) VALUES(?,?,?,?,?,?,?,'queued',?,?)",
-        (
-            parent["project_id"],
-            engine,
-            body.prompt + "\n\n[Bosun 受控子任务] 完成、失败或需要父任务答复时立即回报，"
-            "不要只在终端输出后等待。若父任务指定了结果文件，先保存完整结果再回报；"
-            "最终回报会交付父任务并触发会话回收。" + REPORT_DIRECTIVE,
-            title,
-            parent["priority"],
-            parent["auto_approve"],  # 审批策略随父任务，子任务不额外放宽
-            "task",
-            task_id,
-            time.time(),
-        ),
-    )
+    # 检查与建行共用数据库锁，避免并行派发同时看到最后一个空位。
+    # 只保护名额认领，启动及等待期间不得持锁，否则子任务无法回报。
+    with db._lock:
+        limit = subtasks.max_children()
+        if subtasks.child_count(task_id) >= limit:
+            raise HTTPException(429, f"未结束子任务数已达上限（{limit}），结束后可继续派发")
+        child_id = db.execute(
+            "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,"
+            "parent_task_id,created_at) VALUES(?,?,?,?,?,?,?,'queued',?,?)",
+            (
+                parent["project_id"],
+                engine,
+                body.prompt + "\n\n[Bosun 受控子任务] 完成、失败或需要父任务答复时立即回报，"
+                "不要只在终端输出后等待。若父任务指定了结果文件，先保存完整结果再回报；"
+                "最终回报会交付父任务并触发会话回收。" + REPORT_DIRECTIVE,
+                title,
+                parent["priority"],
+                parent["auto_approve"],  # 审批策略随父任务，子任务不额外放宽
+                "task",
+                task_id,
+                time.time(),
+            ),
+        )
     events.emit("task.spawned", {"task_id": child_id, "parent_task_id": task_id})
     # 绕过并发槽直接派发：父任务正占着槽等它，排队会互锁
     scheduler.start_subtask(child_id)

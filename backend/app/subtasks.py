@@ -9,7 +9,7 @@ agent 会绕开不用）。
 不受 max_concurrent 约束、也不计入配额路由——超发是现状，不是这里引入的新问题。
 换来的是看板可见、独立日志、可取消、计入配额、回报归属天然正确（子任务由后端直接
 派发，nesting.py 的进程链恰好是 1 层，无需给拦截开任何口子）。
-代价由硬上限兜住：默认每个父任务最多 3 个子任务。
+代价由并发硬上限兜住：默认每个父任务最多 3 个未结束子任务，结束后释放名额。
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from . import db
 
 _FALSE = {"0", "false", "no", "off"}
 
-DEFAULT_MAX_CHILDREN = 3      # 即最坏情况下的额度放大倍数，刻意取小
+DEFAULT_MAX_CHILDREN = 3      # 单个父任务的未结束子任务上限
 DEFAULT_TIMEOUT = 900.0       # 15min，与 autopilot.FIX_TIMEOUT 同量级
 MAX_TIMEOUT = 3600.0          # 钳制上限：父任务不能被无限期阻塞
 DEFAULT_CONCURRENCY = 8       # 同时阻塞在 /spawn 上的请求数上限，见 acquire_slot
@@ -63,7 +63,7 @@ def enabled() -> bool:
 
 
 def max_children() -> int:
-    """单个父任务最多可派生的子任务数（默认 3）。"""
+    """单个父任务最多同时保留的未结束子任务数（默认 3）。"""
     try:
         return max(0, int(os.environ.get("BOSUN_SUBTASK_MAX", DEFAULT_MAX_CHILDREN)))
     except ValueError:
@@ -101,7 +101,7 @@ def acquire_slot() -> bool:
     直到子任务出结论——最长 15 分钟。而 /report、/cancel 也都是同步端点、共用这个池：
     不限流的话阻塞的 spawn 会把子任务自己的 /report 挤出线程池，子任务报不上结论、
     父任务全部空转到超时，形成自锁。名额必须明显小于线程池容量。
-    「每父任务 3 个」管的是单个父任务的额度放大倍数，父任务数量本身没有上限，
+    「每父任务 3 个」管的是单个父任务的未结束子任务数，父任务数量本身没有上限，
     拦不住这里的线程池耗尽。
     """
     global _inflight
@@ -123,9 +123,12 @@ def inflight() -> int:
 
 
 def child_count(parent_id: int) -> int:
-    """该父任务已派生的子任务数（含已完成的：上限管的是总放大倍数，不是并发数）。"""
+    """未结束子任务数；最终回报释放名额，等待授权或父任务答复仍占用。"""
     row = db.query_one(
-        "SELECT COUNT(*) AS n FROM task WHERE parent_task_id=? AND deleted=0", (parent_id,)
+        "SELECT COUNT(*) AS n FROM task WHERE parent_task_id=? AND deleted=0 "
+        "AND status NOT IN ('done','failed','cancelled','interrupted') "
+        "AND NOT (status='waiting_input' AND COALESCE(report_result,'')='done')",
+        (parent_id,),
     )
     return int(row["n"]) if row else 0
 
