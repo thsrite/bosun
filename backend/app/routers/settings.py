@@ -8,7 +8,6 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import agent_skills, browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler
-from ..pty_session import script_log_path_for
 from ..engines import normalize_engine_id
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -125,35 +124,11 @@ def get_storage():
 
 @router.post("/storage/compress")
 def compress_storage():
-    """压缩历史任务日志：已终结任务（done/failed/cancelled）的日志 gzip 归档并删原文件；
+    """压缩历史任务日志：已终结任务的日志 gzip 归档并删原文件（规则见 log_archive）。
 
-    进行中或可恢复的任务（queued/running/waiting_input/paused/interrupted）与
-    运行中的 autopilot 日志不动。查看历史日志时会自动从压缩包读取。
+    查看历史日志时会自动从压缩包读取。
     """
-    protected: set[str] = set()
-    for row in db.query(
-        "SELECT log_path FROM task "
-        "WHERE log_path IS NOT NULL AND status NOT IN ('done','failed','cancelled')"
-    ):
-        protected.add(row["log_path"])
-        protected.add(script_log_path_for(row["log_path"]))
-    for row in db.query(
-        "SELECT log_path FROM autopilot_run "
-        "WHERE log_path IS NOT NULL AND status='running'"
-    ):
-        protected.add(row["log_path"])
-    compressed_count = 0
-    saved_size = 0
-    for path in config.LOG_DIR.iterdir():
-        if not path.is_file() or path.suffix == ".gz" or str(path) in protected:
-            continue
-        try:
-            if path.stat().st_size == 0:
-                continue
-            saved_size += log_archive.compress(path)
-        except OSError:
-            continue
-        compressed_count += 1
+    compressed_count, saved_size = log_archive.archive_ended_logs()
     return {"compressed_count": compressed_count, "saved_size": saved_size, **get_storage()}
 
 

@@ -1,13 +1,18 @@
 """历史任务日志的 gzip 归档与透明读取。
 
-压缩由设置页「压缩历史日志」触发：已终结任务的日志压成同名 .gz 并删除原文件。
+已终结任务的日志压成同名 .gz 并删除原文件：设置页「压缩历史日志」立即全量压缩，
+调度器另外定期把闲置超过 AUTO_ARCHIVE_IDLE_SECONDS 的日志自动归档。
 读取侧统一走本模块：原文件缺失时自动回退读 .gz，历史日志压缩后仍可查看。
 """
 from __future__ import annotations
 
 import gzip
 import shutil
+import time
 from pathlib import Path
+
+# 日志最后一次写入超过这么久、且任务已终结，才自动归档；手动压缩不受此限
+AUTO_ARCHIVE_IDLE_SECONDS = 3 * 24 * 3600
 
 
 def gz_path(path: str | Path) -> Path:
@@ -76,6 +81,44 @@ def compress(path: Path) -> int:
     saved = orig_size - gz.stat().st_size
     path.unlink()
     return saved
+
+
+def archive_ended_logs(min_idle_seconds: float = 0) -> tuple[int, int]:
+    """把已终结任务（done/failed/cancelled）的日志 gzip 归档，返回 (归档数, 节省字节)。
+
+    进行中或可恢复的任务（queued/running/waiting_input/paused/interrupted）与运行中的
+    autopilot 日志不动；min_idle_seconds 过滤掉最近还写过的日志。
+    """
+    from . import config, db
+    from .pty_session import script_log_path_for
+
+    protected: set[str] = set()
+    for row in db.query(
+        "SELECT log_path FROM task "
+        "WHERE log_path IS NOT NULL AND status NOT IN ('done','failed','cancelled')"
+    ):
+        protected.add(row["log_path"])
+        protected.add(script_log_path_for(row["log_path"]))
+    for row in db.query(
+        "SELECT log_path FROM autopilot_run "
+        "WHERE log_path IS NOT NULL AND status='running'"
+    ):
+        protected.add(row["log_path"])
+    cutoff = time.time() - min_idle_seconds
+    count = 0
+    saved = 0
+    for path in config.LOG_DIR.iterdir():
+        if not path.is_file() or path.suffix == ".gz" or str(path) in protected:
+            continue
+        try:
+            st = path.stat()
+            if st.st_size == 0 or st.st_mtime > cutoff:
+                continue
+            saved += compress(path)
+        except OSError:
+            continue
+        count += 1
+    return count, saved
 
 
 def remove(path: str | Path) -> None:

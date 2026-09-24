@@ -1,6 +1,7 @@
 """单个任务的 pty 会话：拉起 claude/codex 交互进程，流式读写 + 日志落盘。
 
-- 后台线程读 pty 输出：追加到日志文件 + 推给所有订阅的 asyncio.Queue
+- 后台线程读 pty 输出：追加到日志文件 + 推给所有订阅的 asyncio.Queue；落盘前丢掉
+  被后续帧整行覆盖的 TUI 重绘帧（见 terminal_log_compact），实时推送不受影响
 - write() 把用户输入写回 pty
 - 任务状态只认 agent 的权威回报（收尾 HTTP 回调 → mark_reported）；基于终端输出的
   正则/静默启发式判定默认关闭，需要时用 BOSUN_WAIT_HEURISTICS=1 回退开启
@@ -23,6 +24,7 @@ from typing import Callable, NamedTuple
 
 from .config import IDLE_SECONDS
 from .pty_compat import PtyProcess
+from .terminal_log_compact import TerminalLogCompactor
 
 # PTY logs contain every TUI repaint. A long Codex/Claude session can therefore
 # grow to tens of megabytes even though xterm only needs the latest screen and
@@ -436,6 +438,8 @@ class PtySession:
         self._session_cleared = False
         self._buf = ""
         self._log_fh = None
+        self._log_compactor = TerminalLogCompactor()
+        self._log_lock = threading.Lock()
         self._reader: threading.Thread | None = None
         self._idle_watch: threading.Thread | None = None
         self._stop = threading.Event()
@@ -531,8 +535,7 @@ class PtySession:
             if not data:
                 break
             self.last_output = time.time()
-            if self._log_fh:
-                self._log_fh.write(data)
+            self._write_log(self._log_compactor.feed, data)
             self._broadcast(data)
             # 滚动文本缓冲 + 决策提示检测(claude TUI 有动画, 不能只靠静默)
             text = _ANSI_RE.sub("", data.decode(errors="replace"))
@@ -598,9 +601,19 @@ class PtySession:
         self._waiting_kind = None
         return "running"
 
+    def _write_log(self, compact, *args) -> None:
+        with self._log_lock:
+            if not self._log_fh:
+                return
+            out = compact(*args)
+            if out:
+                self._log_fh.write(out)
+
     def _idle_loop(self) -> None:
         while not self._stop.is_set():
             time.sleep(1.0)
+            # 输出停了，扣在压缩器里的最后几帧也要及时落盘
+            self._write_log(self._log_compactor.flush_if_stale)
             self._maybe_set_idle_waiting()
             self._maybe_nudge_report()
             self._maybe_mark_stalled()
@@ -711,11 +724,14 @@ class PtySession:
                 code = self.proc.exitstatus if self.proc.exitstatus is not None else -1
             except Exception:
                 pass
-        if self._log_fh:
-            try:
-                self._log_fh.close()
-            except Exception:
-                pass
+        with self._log_lock:
+            if self._log_fh:
+                try:
+                    self._log_fh.write(self._log_compactor.flush())
+                    self._log_fh.close()
+                except Exception:
+                    pass
+                self._log_fh = None
         self.loop.call_soon_threadsafe(self.on_exit, self.task_id, code)
 
     def _set_status(self, status: str) -> None:
@@ -745,6 +761,8 @@ class PtySession:
         self.subscribers.discard(q)
 
     def read_backlog(self) -> TerminalBacklog:
+        # 先把压缩器扣着的帧落盘，回放才是当前完整画面
+        self._write_log(self._log_compactor.flush)
         return read_terminal_backlog(self.log_path)
 
     # ---- 写 / 控制 ----

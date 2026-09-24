@@ -18,7 +18,7 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-from . import agent_skills, browser_computer, db, engine_settings, events, sessions
+from . import agent_skills, browser_computer, db, engine_settings, events, log_archive, sessions
 from .config import DATA_DIR, LOG_DIR
 from .engines import build_argv, build_resume_argv, uses_stdin_prompt, with_report_directive
 from .pty_session import PtySession, remove_terminal_log_files
@@ -938,6 +938,32 @@ def _reconcile() -> None:
         events.emit("task.status", {"task_id": r["id"], "status": "interrupted"})
 
 
+_LOG_ARCHIVE_INTERVAL = 6 * 3600
+_LOG_ARCHIVE_FIRST_DELAY = 10 * 60  # 避开启动高峰
+_log_archive_due = time.monotonic() + _LOG_ARCHIVE_FIRST_DELAY
+_log_archive_running = threading.Lock()
+
+
+def _archive_stale_logs() -> None:
+    if not _log_archive_running.acquire(blocking=False):
+        return
+    try:
+        log_archive.archive_ended_logs(log_archive.AUTO_ARCHIVE_IDLE_SECONDS)
+    except Exception:
+        pass
+    finally:
+        _log_archive_running.release()
+
+
+def _maybe_archive_logs() -> None:
+    """定期把闲置已久的已终结任务日志 gzip 归档（TUI 日志压缩率约 95%），放线程池里跑。"""
+    global _log_archive_due
+    if _loop is None or time.monotonic() < _log_archive_due:
+        return
+    _log_archive_due = time.monotonic() + _LOG_ARCHIVE_INTERVAL
+    _loop.run_in_executor(None, _archive_stale_logs)
+
+
 async def _run_loop() -> None:
     while True:
         try:
@@ -947,6 +973,7 @@ async def _run_loop() -> None:
                 from . import orchestrations
                 orchestrations.sweep_reliable_communications()
                 orchestrations.sweep_timeouts()  # 常驻班组的整轮超时闸
+                _maybe_archive_logs()
         except Exception:
             pass
         await asyncio.sleep(2.0)
