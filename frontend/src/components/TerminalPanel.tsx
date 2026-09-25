@@ -22,6 +22,7 @@ import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
 import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
+import { getTerminalSelectionText, installTerminalDragCopy } from "../terminalSelection";
 import type { ClaimState } from "../terminalClaim";
 import { shouldClaimViewport } from "../terminalClaim";
 import { extractPathAt } from "../terminalFilePaths";
@@ -559,12 +560,15 @@ function TerminalView({
     };
     // xterm paints its own selection, so the browser's native Copy command sees an empty DOM
     // selection unless we explicitly populate the synchronous clipboard event.
-    const getTerminalSelection = () => getNativeTerminalSelection() || term.getSelection();
+    const getTerminalSelection = () => term.hasSelection()
+      ? getTerminalSelectionText(term)
+      : getNativeTerminalSelection();
     const onTerminalCopy = (event: ClipboardEvent) => {
       const selection = getTerminalSelection();
       if (!selection || !event.clipboardData) return;
       event.clipboardData.setData("text/plain", selection);
       event.preventDefault();
+      event.stopPropagation();
     };
     const copyTerminalSelection = (notifySuccess = false) => {
       const selection = getTerminalSelection();
@@ -616,11 +620,13 @@ function TerminalView({
       }
     };
     copySelectionRef.current = () => copyTerminalSelection(true);
+    const disposeDragCopy = installTerminalDragCopy(term, () => copyTerminalSelection());
     const selectionChangeDisposable = term.onSelectionChange(() => {
       // 选区被清除（轻点取消 / 重连 reset 等）时收起「复制」按钮
       if (!term.hasSelection()) setSelectionReady(false);
     });
-    terminalHost.addEventListener("copy", onTerminalCopy);
+    // Run before xterm's own copy listener, which otherwise writes the raw wrapped text.
+    terminalHost.addEventListener("copy", onTerminalCopy, true);
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const isCopy = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c";
@@ -1106,7 +1112,7 @@ function TerminalView({
     };
     // canvas 渲染器把文字画进画布，iOS 原生长按选区（依赖 DOM 文字层）不再可用。
     // 用 xterm 自带选区补：长按选中所在词，按住拖动按字符扩选（高亮由渲染器绘制），
-    // 松手自动写入剪贴板；轻点一下清除选区。
+    // 松手显示复制按钮；轻点一下清除选区。
     let tLongPressTimer: number | null = null;
     let tSelecting = false;
     let tSelectAnchorIdx = 0;
@@ -1417,7 +1423,8 @@ function TerminalView({
       ro.disconnect();
       terminalHost.removeEventListener("pointerdown", focusTerminal);
       terminalHost.removeEventListener("dblclick", onDoubleClick);
-      terminalHost.removeEventListener("copy", onTerminalCopy);
+      terminalHost.removeEventListener("copy", onTerminalCopy, true);
+      disposeDragCopy();
       terminalHost.removeEventListener("paste", onTerminalPaste, true);
       terminalHost.removeEventListener("wheel", markUserScrollWithBottomCheck, userScrollCaptureOptions);
       terminalHost.removeEventListener("touchstart", onTouchStart, touchCaptureOptions);
