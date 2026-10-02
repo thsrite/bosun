@@ -191,8 +191,7 @@ function installMobileImeInsertTextFix(term: Terminal): () => void {
 function useVisualViewportCssVars() {
   useEffect(() => {
     const vv = window.visualViewport;
-    const isTouch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-    if (!vv || !isTouch) return;
+    if (!vv || !isTouchDevice()) return;
 
     const rootStyle = document.documentElement.style;
     let frame: number | null = null;
@@ -200,6 +199,8 @@ function useVisualViewportCssVars() {
 
     const apply = () => {
       frame = null;
+      // 双指缩放也会缩小 visualViewport，不能把它当键盘高度来挪动按钮。
+      if (Math.abs(vv.scale - 1) > 0.01) return;
       const h = Math.round(vv.height);
       // iOS 听写/键盘切换时 visualViewport.height 会短暂报出极小值；写入后面板会被压成白屏。
       if (!Number.isFinite(h) || h < getMinUsableViewportHeight()) return;
@@ -223,11 +224,20 @@ function useVisualViewportCssVars() {
 
     schedule();
     vv.addEventListener("resize", schedule);
+    // 键盘平移可视区域时 offsetTop 可以单独变化，不一定伴随 resize。
+    vv.addEventListener("scroll", schedule);
+    window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", schedule);
+    document.addEventListener("focusin", schedule);
+    document.addEventListener("focusout", schedule);
     return () => {
       if (frame != null) cancelAnimationFrame(frame);
       vv.removeEventListener("resize", schedule);
+      vv.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
+      document.removeEventListener("focusin", schedule);
+      document.removeEventListener("focusout", schedule);
       rootStyle.removeProperty("--dh-visual-viewport-height");
       rootStyle.removeProperty("--dh-panel-bottom-offset");
       rootStyle.removeProperty("--dh-panel-safe-bottom");
@@ -240,8 +250,18 @@ function usePwaResumeViewportRecovery() {
     if (!isTouchDevice()) return;
     const rootStyle = document.documentElement.style;
     const timers = new Set<number>();
+    const frames = new Set<number>();
+
+    const cancelPending = () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      timers.clear();
+      for (const frame of frames) window.cancelAnimationFrame(frame);
+      frames.clear();
+    };
 
     const apply = () => {
+      // 保留用户主动缩放后的浏览位置，不在恢复流程里强制归零。
+      if (Math.abs((window.visualViewport?.scale ?? 1) - 1) > 0.01) return;
       const raw = Math.round(window.visualViewport?.height ?? 0);
       const fallback = getLayoutViewportHeight();
       const h = Number.isFinite(raw) && raw >= getMinUsableViewportHeight() ? raw : fallback;
@@ -265,10 +285,15 @@ function usePwaResumeViewportRecovery() {
     };
 
     const schedule = () => {
+      cancelPending();
       for (const delay of [0, 80, 250, 700]) {
         const timer = window.setTimeout(() => {
           timers.delete(timer);
-          window.requestAnimationFrame(apply);
+          const frame = window.requestAnimationFrame(() => {
+            frames.delete(frame);
+            apply();
+          });
+          frames.add(frame);
         }, delay);
         timers.add(timer);
       }
@@ -280,11 +305,14 @@ function usePwaResumeViewportRecovery() {
 
     window.addEventListener("pageshow", schedule);
     window.addEventListener("focus", schedule);
+    // 收起键盘后也恢复文档位置；延迟回调中的焦点守卫避免干扰输入框间切换。
+    document.addEventListener("focusout", schedule);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      for (const timer of timers) window.clearTimeout(timer);
+      cancelPending();
       window.removeEventListener("pageshow", schedule);
       window.removeEventListener("focus", schedule);
+      document.removeEventListener("focusout", schedule);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);

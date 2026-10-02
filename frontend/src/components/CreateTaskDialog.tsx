@@ -323,8 +323,39 @@ export function CreateTaskDialog({
   }
 
   return (
-    <Modal title={project ? `新任务 · ${project.name}` : "新建任务"} onClose={onClose}>
-      <div className="space-y-3 text-sm" onPaste={handlePaste}>
+    <Modal
+      title={project ? `新任务 · ${project.name}` : "新建任务"}
+      onClose={onClose}
+      footer={
+        <div className="dh-create-task-actions flex flex-wrap justify-end gap-2 text-sm">
+          <button
+            type="button"
+            className="shrink-0 rounded-lg border border-dh-bsoft px-3 py-1.5 text-dh-tsoft hover:bg-dh-hover"
+            onClick={onClose}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
+            disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
+            onClick={() => submit(false)}
+          >
+            {busy ? "处理中…" : "加入待办"}
+          </button>
+          <button
+            type="button"
+            className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+            disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
+            onClick={() => submit(true)}
+            title="创建并立即排入调度执行"
+          >
+            {busy ? "处理中…" : "创建并执行"}
+          </button>
+        </div>
+      }
+    >
+      <div className="dh-create-task-form space-y-3 text-sm" onPaste={handlePaste}>
         {projects && (
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-dh-tsoft">项目</span>
@@ -339,7 +370,7 @@ export function CreateTaskDialog({
             </select>
           </label>
         )}
-        <div className="flex flex-wrap gap-3">
+        <div className="dh-create-task-engines flex flex-wrap gap-3">
           {availableEngines.length > 1 && (
             <label className="flex items-center gap-1.5" title="按配额余量+历史成功率自动选">
               <input type="radio" checked={executionMode === "single" && engine === "auto"} onChange={() => selectEngine("auto")} />
@@ -390,8 +421,8 @@ export function CreateTaskDialog({
           autoFocus={!projects && !isCoarsePointer()}
         />
         {!isBrowser && <div className="rounded-lg border-2 border-dashed border-dh-accent bg-dh-soft p-3 shadow-inner shadow-black/20">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-100">📋 粘贴截图到这里（Ctrl/⌘ + V）</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-full text-xs font-medium text-slate-100">📋 粘贴截图到这里（Ctrl/⌘ + V）</span>
             <AttachmentPicker
               accept="image/*"
               buttonClassName="ml-auto rounded-md border border-dh-accent bg-dh-accent px-2.5 py-1 text-xs font-medium text-dh-accfg hover:bg-dh-acchov"
@@ -472,31 +503,6 @@ export function CreateTaskDialog({
               仅访问本机回环地址 · 危险动作始终确认
             </span>
           )}
-        </div>
-        <div className="flex flex-col gap-2 pt-2">
-          <div className="flex items-center gap-2">
-            <button
-              className="ml-auto shrink-0 rounded-lg border border-dh-bsoft px-3 py-1.5 text-dh-tsoft hover:bg-dh-hover"
-              onClick={onClose}
-            >
-              取消
-            </button>
-            <button
-              className="shrink-0 rounded-lg bg-dh-accent px-3 py-1.5 font-medium text-dh-accfg hover:bg-dh-acchov disabled:opacity-50"
-              disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
-              onClick={() => submit(false)}
-            >
-              {busy ? "处理中…" : "加入待办"}
-            </button>
-            <button
-              className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-              disabled={busy || !selectedProject || (!prompt.trim() && (isBrowser || attachments.length === 0))}
-              onClick={() => submit(true)}
-              title="创建并立即排入调度执行"
-            >
-              {busy ? "处理中…" : "创建并执行"}
-            </button>
-          </div>
         </div>
       </div>
     </Modal>

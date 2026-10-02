@@ -226,8 +226,8 @@ textarea::placeholder {
 }
 
 /* ===== 移动端适配 ===== */
-/* iOS Safari: 输入控件字号 <16px 时聚焦会自动放大整页 → 小屏统一提到 16px(!important 压过工具类字号) */
-@media (max-width: 640px) {
+/* 输入时避免页面自动缩放。按触摸能力覆盖 iPad 横屏及接鼠标的场景，不能只看手机宽度。 */
+@media (max-width: 640px), (any-pointer: coarse) {
   input,
   textarea,
   select {
@@ -238,6 +238,17 @@ textarea::placeholder {
 @media (pointer: coarse) {
   button {
     min-height: 2.25rem;
+  }
+}
+
+/* 新建任务的触屏目标包含整个可见控件，不用重叠的伪元素扩展热区。 */
+@media (any-pointer: coarse) {
+  .dh-create-task-actions button,
+  .dh-create-task-form button,
+  .dh-create-task-engines label {
+    min-height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
   }
 }
 
