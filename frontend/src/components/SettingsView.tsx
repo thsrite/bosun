@@ -82,7 +82,7 @@ function BosunVersion() {
   async function update() {
     if (updating || !info) return;
     const confirmed = await confirmDialog(
-      `将本地代码更新到 ${info.latest_tag}，并按需重装依赖、重建前端，完成后后端会重启（运行中的任务会被中断）。确定更新？`,
+      `将本地代码更新到 ${info.latest_tag}，并按需重装依赖、重建前端，完成后后端会重启（终端任务不受影响，重启后自动接管；对话模式的 Claude 任务会续跑会话）。确定更新？`,
       { danger: true },
     );
     if (!confirmed) return;
@@ -612,7 +612,7 @@ export function SettingsView({
   async function restartBackend() {
     if (restartingBackend) return;
     const confirmed = await confirmDialog(
-      "运行中的任务会被中断。Bosun 状态栏程序不会重启，图标和菜单仍会保留。确定重启后端？",
+      "终端任务不受影响，重启后自动接管；对话模式的 Claude 任务会续跑会话。Bosun 状态栏程序不会重启，图标和菜单仍会保留。确定重启后端？",
       { danger: true },
     );
     if (!confirmed) return;

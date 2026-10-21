@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, NamedTuple
@@ -435,19 +436,54 @@ class PtySession:
                 Path(script_log_path).unlink(missing_ok=True)
             except OSError:
                 pass
-        self.proc = PtyProcess.spawn(
-            spawn_argv, cwd=self.cwd, env=env, dimensions=(30, 100)
-        )
+        self.proc = self._spawn_proc(spawn_argv, env, (30, 100))
         self._winsize = (30, 100)
+        self._start_threads()
+        if self.initial_prompt:
+            threading.Thread(target=self._send_initial_prompt, daemon=True).start()
+        if self.post_input:
+            threading.Thread(target=self._send_post_input, daemon=True).start()
+
+    def _spawn_proc(self, argv: list[str], env: dict, dimensions: tuple[int, int]):
+        """优先交给会话宿主托管（后端重启不打断任务）；宿主不可用时退回本进程 PTY。"""
+        from . import ptyd_client
+
+        if ptyd_client.enabled() and ptyd_client.ensure_running():
+            try:
+                return ptyd_client.RemotePty.spawn(
+                    f"task-{self.task_id}-{uuid.uuid4().hex[:8]}",
+                    argv,
+                    cwd=self.cwd,
+                    env=env,
+                    dimensions=dimensions,
+                    meta={"task_id": self.task_id},
+                )
+            except ptyd_client.PtydUnavailable:
+                pass
+        return PtyProcess.spawn(argv, cwd=self.cwd, env=env, dimensions=dimensions)
+
+    def _start_threads(self) -> None:
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
         # 空闲巡检始终在跑：状态启发式(默认关)与催报兜底(默认开)各自内部把关
         self._idle_watch = threading.Thread(target=self._idle_loop, daemon=True)
         self._idle_watch.start()
-        if self.initial_prompt:
-            threading.Thread(target=self._send_initial_prompt, daemon=True).start()
-        if self.post_input:
-            threading.Thread(target=self._send_post_input, daemon=True).start()
+
+    def adopt(self, proc, status: str, reported: bool) -> None:
+        """接管后端重启前就在跑、由会话宿主托管的 PTY：不重新拉起进程、不重发首条指令。
+
+        宿主会先把后端不在期间攒下的输出补过来，照常落盘、推送、做状态检测。
+        """
+        Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
+        self._log_fh = open(self.log_path, "ab", buffering=0)
+        self.proc = proc
+        self.status = status if status in {"running", "waiting_input"} else "running"
+        if reported:
+            self._reported = True
+            self._nudge_sent = True
+            self._wait_reason = "reported"
+            self._waiting_kind = "review" if self.status == "waiting_input" else None
+        self._start_threads()
 
     @property
     def waiting_kind(self) -> str | None:

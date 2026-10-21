@@ -13,6 +13,13 @@ import uvicorn
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
+# 会话宿主（ptyd）与后端共用同一个入口：冻结包里只有一个可执行文件，靠参数分流。
+# 必须在导入 app.main 之前分流，宿主不需要也不该加载整个 Web 应用。
+if __name__ == "__main__" and "--ptyd" in sys.argv[1:]:
+    from app.ptyd import main as ptyd_main
+
+    sys.exit(ptyd_main())
+
 # 直接导入 app 对象而非 "app.main:app" 字符串：
 # PyInstaller 靠静态导入图收集依赖，字符串导入在冻结包内会找不到模块。
 from app.main import app

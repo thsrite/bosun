@@ -320,17 +320,11 @@ def _finalize_tokens(task_id: int, delay: float) -> None:
         events.emit("task.tokens", {"task_id": task_id, "tokens": tokens})
 
 
-def _start_task(row) -> None:
-    assert _loop is not None
-    project = db.query_one("SELECT * FROM project WHERE id=?", (row["project_id"],))
-    if project is None:
-        db.execute("UPDATE task SET status='failed' WHERE id=?", (row["id"],))
-        return
-    log_path = str(LOG_DIR / f"task-{row['id']}.log")
-    engine, auto = row["engine"], bool(row["auto_approve"])
+def _orchestration_role(task_id: int):
+    """(编排步骤行, 是否须提交阶段产物, 是否待命)；普通任务返回 (None, False, False)。"""
     orchestration_step = db.query_one(
         "SELECT model,reasoning_effort,run_id,position FROM orchestration_step_run WHERE task_id=?",
-        (row["id"],),
+        (task_id,),
     )
     artifact_required = orchestration_step is not None
     # 常驻班组：未持棒的角色以待命身份起会话，不参与静默兜底(它本来就该一直安静)
@@ -341,6 +335,142 @@ def _start_task(row) -> None:
             (orchestration_step["run_id"],),
         )
         standby = bool(run_row and run_row["current_position"] != orchestration_step["position"])
+    return orchestration_step, artifact_required, standby
+
+
+# 宿主里的会话只在这些状态下值得接管；interrupted 也算——旧版后端或宿主暂时连不上时
+# 可能已被误标中断，进程其实还活着，接管后 _reconcile 会把状态修回活动态。
+_ADOPTABLE_STATUSES = {"running", "waiting_input", "interrupted"}
+
+
+def _adopt_hosted_sessions() -> None:
+    """接管会话宿主里还活着的任务进程（后端重启后由此「续上」而不是标中断）。
+
+    同时回收宿主里已没有任务需要的会话（后端不在期间任务被取消/删除等），免得留下
+    没人管的孤儿 CLI。宿主没在跑时什么都不做，也不会为此去拉起它。
+    """
+    from . import ptyd_client
+
+    if not ptyd_client.enabled() or _loop is None:
+        return
+    with _tick_lock:  # 与 _start_task 串行，避免和正在启动的同一任务交错
+        hosted = ptyd_client.list_sessions()
+        if hosted:
+            _adopt_listed(hosted)
+
+
+def _adopt_listed(hosted: list[dict]) -> None:
+    from . import ptyd_client
+
+    # 同一任务理论上只有一个会话；万一有多个（上一轮 kill 尚未生效），接管最新的
+    hosted.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
+    seen: set[int] = set()
+    for item in hosted:
+        key = item.get("key") or ""
+        try:
+            task_id = int((item.get("meta") or {}).get("task_id"))
+        except (TypeError, ValueError):
+            ptyd_client.forget(key)
+            continue
+        current = _sessions.get(task_id)
+        if current is not None:
+            proc = getattr(current, "proc", None)
+            # proc 还没赋值 = 本进程正在拉起它（宿主已登记、spawn 响应还在路上），别误杀
+            if proc is None or getattr(proc, "key", None) == key:
+                seen.add(task_id)
+                continue
+            ptyd_client.forget(key)  # 任务已由别的会话承接，这个是残留
+            continue
+        if task_id in seen:
+            ptyd_client.forget(key)
+            continue
+        row = db.query_one("SELECT * FROM task WHERE id=?", (task_id,))
+        if row is None or row["deleted"] or row["status"] not in _ADOPTABLE_STATUSES:
+            ptyd_client.forget(key)
+            continue
+        if item.get("attached") and item.get("alive"):
+            continue  # 另一个后端进程还连着（交接窗口），等它断开再接
+        seen.add(task_id)
+        _adopt_one(row, key, item.get("pid"))
+
+
+def _adopt_one(row, key: str, pid) -> None:
+    from . import ptyd_client
+
+    assert _loop is not None
+    task_id = row["id"]
+    _, artifact_required, standby = _orchestration_role(task_id)
+    log_path = row["log_path"] or str(LOG_DIR / f"task-{task_id}.log")
+    session = PtySession(
+        task_id=task_id,
+        argv=[],
+        cwd="",
+        log_path=log_path,
+        loop=_loop,
+        on_status=_on_status,
+        on_exit=_on_exit,
+        task_engine=row["engine"],
+        artifact_required=artifact_required,
+        report_nudge=agent_skills.report_nudge(row["engine"], artifact_required),
+        standby=standby,
+    )
+    try:
+        proc = ptyd_client.RemotePty.attach(key, pid)
+    except ptyd_client.PtydUnavailable:
+        return
+    _sessions[task_id] = session
+    status = row["status"] if row["status"] in {"running", "waiting_input"} else "running"
+    session.adopt(proc, status, reported=bool(row["report_result"]))
+    if row["log_path"] is None:
+        db.execute("UPDATE task SET log_path=? WHERE id=?", (log_path, task_id))
+
+
+def _resume_after_restart(task_id: int) -> bool:
+    """重启前在跑的 Claude SDK 会话：它跑在后端进程里，没法跨重启保留。
+
+    有会话 id 就用 --resume 续上并让它从中断处接着干（走 PTY，由会话宿主托管，
+    下次重启就不会再断）；没有会话 id 返回 False，按原逻辑标中断。
+    """
+    row = db.query_one(
+        "SELECT * FROM task WHERE id=? AND deleted=0 AND status IN ('running','waiting_input')",
+        (task_id,),
+    )
+    if row is None or row["render_mode"] != "chat" or row["engine"] != "claude":
+        return False
+    if not row["session_uid"] or (row["started_at"] or 0) >= _BOOT_TIME:
+        return False
+    if row["status"] == "waiting_input":
+        # 已经停下等人：续上会话但不追加指令，保持「等你回复」的状态
+        prompt = ""
+    else:
+        prompt = RESTART_RESUME_PROMPT
+    prior = max(0, int(time.time() - row["started_at"])) if row["started_at"] else 0
+    changed = db.execute_rowcount(
+        "UPDATE task SET status='queued', resume=1, prompt=?, post_input=NULL, "
+        "original_prompt=COALESCE(NULLIF(original_prompt,''), NULLIF(prompt,'')), "
+        "exit_code=NULL, started_at=NULL, ended_at=NULL, waiting_since=NULL, "
+        "elapsed_accum=elapsed_accum+? WHERE id=? AND status IN ('running','waiting_input')",
+        (prompt, prior, task_id),
+    )
+    if not changed:
+        return False
+    events.emit("task.status", {"task_id": task_id, "status": "queued"})
+    return True
+
+
+RESTART_RESUME_PROMPT = "（Bosun 后端刚重启，上一轮执行被打断。请检查当前进度，从中断处继续完成原任务。）"
+_BOOT_TIME = time.time()
+
+
+def _start_task(row) -> None:
+    assert _loop is not None
+    project = db.query_one("SELECT * FROM project WHERE id=?", (row["project_id"],))
+    if project is None:
+        db.execute("UPDATE task SET status='failed' WHERE id=?", (row["id"],))
+        return
+    log_path = str(LOG_DIR / f"task-{row['id']}.log")
+    engine, auto = row["engine"], bool(row["auto_approve"])
+    orchestration_step, artifact_required, standby = _orchestration_role(row["id"])
     model_override = orchestration_step["model"] if orchestration_step else None
     reasoning_override = orchestration_step["reasoning_effort"] if orchestration_step else None
     session_uid = row["session_uid"]
@@ -931,6 +1061,8 @@ def _reconcile() -> None:
         if session is not None:
             # 死会话清出注册表：终端 WS 才能走「回放日志」分支而不是挂在无输出的死会话上
             _sessions.pop(r["id"], None)
+        if session is None and _resume_after_restart(r["id"]):
+            continue
         db.execute(
             "UPDATE task SET status='interrupted', ended_at=?, waiting_since=NULL WHERE id=?",
             (now, r["id"]),
@@ -968,6 +1100,7 @@ async def _run_loop() -> None:
     while True:
         try:
             if _claim_scheduler():  # 单实例守卫: 非持锁进程不对账/不调度
+                _adopt_hosted_sessions()  # 先接管宿主里的活会话，对账才不会把它们标中断
                 _reconcile()
                 tick()
                 from . import orchestrations
