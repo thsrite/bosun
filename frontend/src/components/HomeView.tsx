@@ -210,12 +210,13 @@ export function HomeView({
   return (
     <div className="space-y-5 px-4 py-5 md:space-y-6 md:px-8 md:py-6">
       {/* 健康概览条：分隔单元格，全部顶对齐 */}
-      <div className="card grid grid-cols-3 items-stretch divide-dh-bsoft md:flex md:flex-wrap md:divide-x">
-        <div className="flex items-center gap-2.5 px-3 py-2.5 md:px-5 md:py-3.5">
+      {/* 手机 4 列：8 个指标两行排完，不占三分之一屏 */}
+      <div className="card grid grid-cols-4 items-stretch divide-dh-bsoft sm:grid-cols-3 md:flex md:flex-wrap md:divide-x">
+        <div className="flex items-center gap-1.5 px-2.5 py-2 sm:gap-2.5 sm:px-3 sm:py-2.5 md:px-5 md:py-3.5">
           <GlowDot tone={healthTone} size={10} />
-          <div>
-            <div className="text-xs text-slate-400">总体健康</div>
-            <div className="text-lg font-semibold text-dh-text md:text-xl">{health}%</div>
+          <div className="min-w-0">
+            <div className="truncate text-[11px] text-slate-400 sm:text-xs">总体健康</div>
+            <div className="text-base font-semibold text-dh-text sm:text-lg md:text-xl">{health}%</div>
           </div>
         </div>
         <Stat label="项目" value={projects.length} />
@@ -225,7 +226,7 @@ export function HomeView({
         <Stat label="自动发现" value={autoOpen} tone="text-violet-300" />
         <Stat label="已修复" value={fixed} tone="text-emerald-300" />
         <Stat label="成功率" value={ov ? `${ov.success_rate}%` : "—"} />
-        <div className="col-span-3 mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-dh-bsoft px-3 pb-2.5 pt-2 text-xs text-slate-400 md:ml-auto md:mt-0 md:border-0 md:px-5 md:pb-0 md:pt-0">
+        <div className="col-span-4 mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-dh-bsoft px-3 pb-2.5 pt-2 text-xs text-slate-400 sm:col-span-3 md:ml-auto md:mt-0 md:border-0 md:px-5 md:pb-0 md:pt-0">
           {autopilotRunning > 0 && (
             <span className="shrink-0 font-medium text-emerald-500">🤖 {autopilotRunning} 自愈中</span>
           )}
@@ -521,7 +522,7 @@ export function HomeView({
                     onOpen(p.id);
                   }
                 }}
-                className="card group flex h-full cursor-pointer flex-col p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                className="card group flex h-full cursor-pointer flex-col p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md sm:p-4"
               >
                 <div className="flex items-start gap-2">
                   <span className="min-w-0 flex-1 truncate font-semibold text-dh-text">{p.name}</span>
@@ -561,8 +562,9 @@ export function HomeView({
                     )}
                   </div>
                 )}
+                {/* 手机上审查状态并入下方标签行，省一行 */}
                 <div
-                  className={`mt-1.5 text-[10px] ${
+                  className={`mt-1.5 hidden text-[10px] sm:block ${
                     p.last_analyze_at && Date.now() / 1000 - p.last_analyze_at > 3 * 86400
                       ? "font-medium text-amber-500"
                       : "text-slate-400"
@@ -579,7 +581,7 @@ export function HomeView({
                     <span className="text-slate-300">未审查</span>
                   )}
                 </div>
-                <div className="mt-auto flex flex-wrap gap-1.5 pt-3 text-[11px]">
+                <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2 text-[11px] sm:pt-3">
                   <span className="rounded-md bg-dh-s2 px-2 py-0.5 text-dh-tsoft">{p.task_total} 任务</span>
                   {draft > 0 && (
                     <span className="rounded-md bg-slate-400/10 px-2 py-0.5 text-dh-tsoft">{draft} 待办</span>
@@ -604,6 +606,15 @@ export function HomeView({
                       🕒 {p.policy_count} 策略
                     </span>
                   )}
+                  <span
+                    className={`text-[10px] sm:hidden ${
+                      p.last_analyze_at && Date.now() / 1000 - p.last_analyze_at > 3 * 86400
+                        ? "font-medium text-amber-500"
+                        : "text-slate-400"
+                    }`}
+                  >
+                    🔍 {p.last_analyze_at ? `审查 ${ago(p.last_analyze_at)}` : "未审查"}
+                  </span>
                 </div>
               </div>
             );
@@ -617,9 +628,9 @@ export function HomeView({
 
 function Stat({ label, value, tone }: { label: string; value: any; tone?: string }) {
   return (
-    <div className="px-3 py-2.5 md:px-5 md:py-3.5">
-      <div className="text-xs text-slate-400">{label}</div>
-      <div className={`text-lg font-semibold md:text-xl ${tone ?? "text-dh-text"}`}>{value}</div>
+    <div className="min-w-0 px-2.5 py-2 sm:px-3 sm:py-2.5 md:px-5 md:py-3.5">
+      <div className="truncate text-[11px] text-slate-400 sm:text-xs">{label}</div>
+      <div className={`text-base font-semibold sm:text-lg md:text-xl ${tone ?? "text-dh-text"}`}>{value}</div>
     </div>
   );
 }

@@ -86,7 +86,8 @@ export function TaskCard({
         <span
           {...attributes}
           {...listeners}
-          className="cursor-grab select-none text-slate-300 hover:text-dh-muted"
+          // 手机上看板一次只显示一列，没有可拖去的目标，把手只占地方
+          className="hidden cursor-grab select-none text-slate-300 hover:text-dh-muted sm:inline"
           title="拖拽"
         >
           ⠿
@@ -108,7 +109,7 @@ export function TaskCard({
         <div className="line-clamp-1 text-[13px] font-medium leading-snug text-dh-text hover:text-dh-text">
           {task.title || taskPromptText(task)}
         </div>
-        {task.title && (
+        {task.title && task.title !== taskPromptText(task) && (
           <div className="mt-0.5 line-clamp-1 text-[11px] text-slate-400">{taskPromptText(task)}</div>
         )}
       </div>
@@ -117,6 +118,12 @@ export function TaskCard({
         <span className={`text-[11px] font-medium ${s.text}`}>
           {isPerm && "🔑 "}
           {s.label}
+          {/* 手机上时长并到状态这一行，省掉底部单独一行 */}
+          {fmtDur(task.started_at, task.ended_at, task.elapsed_accum) && (
+            <span className="ml-1 font-normal text-slate-400 sm:hidden">
+              · ⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}
+            </span>
+          )}
           {terminal && task.ended_at && (
             <span className="ml-1 font-normal text-slate-400">
               · {new Date(task.ended_at * 1000).toLocaleString("zh", {
@@ -141,7 +148,7 @@ export function TaskCard({
             </button>
           )}
           <button
-            className="rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-dh-tsoft hover:bg-dh-hover"
+            className="hidden rounded-md border border-dh-bsoft px-2 py-0.5 text-[11px] text-dh-tsoft hover:bg-dh-hover sm:inline-block"
             onClick={() => onOpen(task)}
           >
             终端
@@ -198,9 +205,13 @@ export function TaskCard({
       </div>
 
       {(fmtDur(task.started_at, task.ended_at, task.elapsed_accum) || task.tokens != null) && (
-        <div className="mt-1.5 flex items-center gap-3 border-t border-dh-bsoft pt-1.5 text-[10px] text-slate-400">
+        <div
+          className={`mt-1.5 items-center gap-3 border-t border-dh-bsoft pt-1.5 text-[10px] text-slate-400 ${
+            task.tokens != null ? "flex" : "hidden sm:flex"
+          }`}
+        >
           {fmtDur(task.started_at, task.ended_at, task.elapsed_accum) && (
-            <span title="处理时长(含续聊累计)">⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</span>
+            <span className="hidden sm:inline" title="处理时长(含续聊累计)">⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</span>
           )}
           {task.tokens != null && <span title="token 用量">◆ {fmtTokens(task.tokens)} tok</span>}
         </div>

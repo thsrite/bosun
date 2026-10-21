@@ -76,28 +76,32 @@ function archiveDoneTasks(tasks: Task[]): DoneArchive[] {
 function Column({
   col,
   tasks,
+  phoneVisible,
   children,
 }: {
   col: (typeof COLUMNS)[number];
   tasks: Task[];
+  /** 手机上一次只显示一列（由顶部分段切换），其余列隐藏 */
+  phoneVisible: boolean;
   children: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${col.key}` });
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-[60vh] w-[82vw] shrink-0 snap-center flex-col rounded-2xl border bg-dh-soft p-3 transition sm:w-[320px] lg:min-w-0 lg:basis-0 lg:flex-1 lg:shrink ${
+      className={`${phoneVisible ? "flex" : "hidden sm:flex"} w-full shrink-0 snap-center flex-col rounded-2xl border bg-dh-soft p-3 transition sm:min-h-[60vh] sm:w-[320px] lg:min-w-0 lg:basis-0 lg:flex-1 lg:shrink ${
         isOver ? "border-slate-400/40 bg-slate-400/10" : "border-dh-bsoft"
       }`}
     >
-      <div className="mb-3 flex items-center gap-2 px-1">
+      <div className="mb-3 hidden items-center gap-2 px-1 sm:flex">
         <span className={`h-2.5 w-2.5 rounded-full ${col.accent}`} />
         <span className="text-sm font-semibold text-dh-tsoft">{col.title}</span>
         <span className={`rounded-full px-2 text-xs font-medium ring-1 ${countTone(col.key)}`}>
           {tasks.length}
         </span>
       </div>
-      <div className="flex max-h-[calc(100dvh-200px)] flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
+      {/* 手机上随页面滚动：列内再套一层滚动区，在小屏上很难滑到底 */}
+      <div className="flex flex-1 flex-col gap-2 pr-0.5 sm:max-h-[calc(100dvh-200px)] sm:overflow-y-auto">
         {children}
       </div>
     </div>
@@ -180,6 +184,8 @@ export function TaskBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const { busy, run } = useSingleFlight();
   const [, setTick] = useState(0);
+  // 手机分段切换选中的列；null = 自动（有执行中就看执行中，否则看第一个非空列）
+  const [phoneCol, setPhoneCol] = useState<ColKey | null>(null);
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const boardTasks = tasks.filter((task) => task.status !== "paused");
@@ -335,18 +341,47 @@ export function TaskBoard({
     );
   }
 
+  const autoCol: ColKey =
+    grouped.active.length > 0
+      ? "active"
+      : (COLUMNS.find((c) => grouped[c.key].length > 0)?.key ?? "active");
+  const shownCol = phoneCol ?? autoCol;
+
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={onDragEnd}>
+      {/* 手机：分段切换代替横滑看板，避免一进来先看到一整屏空的「待办」列 */}
+      <div className="mb-2 grid grid-cols-3 gap-1 rounded-xl border border-dh-bsoft bg-dh-soft p-1 sm:hidden">
+        {COLUMNS.map((col) => {
+          const on = col.key === shownCol;
+          return (
+            <button
+              key={col.key}
+              type="button"
+              className={`flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg text-sm ${
+                on ? "bg-dh-surface font-medium text-dh-text shadow-sm" : "text-dh-tsoft"
+              }`}
+              onClick={() => setPhoneCol(col.key)}
+            >
+              <span className={`h-2 w-2 rounded-full ${col.accent}`} />
+              {col.title}
+              <span className={`rounded-full px-1.5 text-[11px] font-medium ring-1 ${countTone(col.key)}`}>
+                {grouped[col.key].length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
       <div className="dh-scrollbar-none -mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 lg:mx-0 lg:snap-none lg:overflow-visible lg:px-0">
         {COLUMNS.map((col) => (
-          <Column key={col.key} col={col} tasks={grouped[col.key]}>
+          <Column key={col.key} col={col} tasks={grouped[col.key]} phoneVisible={col.key === shownCol}>
             <SortableContext
               items={grouped[col.key].map((t) => t.id)}
               strategy={verticalListSortingStrategy}
             >
               {grouped[col.key].length === 0 && (
                 <div className="rounded-xl border border-dashed border-dh-bsoft py-8 text-center text-xs text-slate-400">
-                  {col.key === "backlog" ? "拖任务到这里 / +任务" : "拖拽到此列"}
+                  <span className="sm:hidden">暂无{col.title}任务</span>
+                  <span className="hidden sm:inline">{col.key === "backlog" ? "拖任务到这里 / +任务" : "拖拽到此列"}</span>
                 </div>
               )}
               {col.key === "done" ? (
