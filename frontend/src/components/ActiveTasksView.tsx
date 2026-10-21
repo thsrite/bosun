@@ -166,14 +166,15 @@ function DraggableTaskRow({ task, children }: { task: Task; children: ReactNode 
         type="button"
         {...attributes}
         {...listeners}
-        className="absolute left-2 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-dh-accent active:cursor-grabbing"
+        // 手机上不显示拖动把手：卡片里的「等待」按钮做同样的事，省下左侧一整列
+        className="absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 cursor-grab rounded p-1 text-slate-300 hover:bg-dh-hover hover:text-dh-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-dh-accent active:cursor-grabbing md:block"
         title="拖到等待执行"
         aria-label={`拖动任务 #${task.id}`}
         onClick={(event) => event.stopPropagation()}
       >
         ⠿
       </button>
-      <div className="pl-7">{children}</div>
+      <div className="md:pl-7">{children}</div>
     </div>
   );
 }
@@ -201,8 +202,8 @@ function fmtDur(start: number | null, end: number | null, accum = 0): string {
   return m < 60 ? `${m}m${secs % 60}s` : `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
-// 移动端任务卡片：窄屏放不下桌面端的多列表格，改成状态/项目一行、标题一行、
-// 时长·Token 带图标、操作独立一行右对齐的紧凑卡片。桌面端(md+)仍走原网格。
+// 移动端任务卡片：窄屏放不下桌面端的多列表格，压成三行——标题+项目、一行摘要、
+// 状态·时长·执行器与操作。一屏能看到更多任务。桌面端(md+)仍走原网格。
 function MobileTaskCard({
   task,
   projectName,
@@ -230,11 +231,15 @@ function MobileTaskCard({
   onReload: () => void;
   actions: ReactNode;
 }) {
+  // 等你处理的任务优先显示 agent 的问题/结论；与标题重复的副标题不再占一行
+  const title = task.title || titleFallback;
+  const line =
+    (task.status === "waiting_input" && task.report_summary) || (subtitle && subtitle !== title ? subtitle : null);
   return (
     <div
       role="button"
       tabIndex={0}
-      className="flex flex-col gap-1.5 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:hidden"
+      className="flex flex-col gap-1 px-3 py-2.5 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:hidden"
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -242,35 +247,27 @@ function MobileTaskCard({
         onOpen();
       }}
     >
-      <div className="flex items-center gap-2">
-        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClass} ${pulse ? "animate-pulse" : ""}`} />
-        <span className={`shrink-0 text-xs font-medium ${statusTextClass}`}>{statusLabel}</span>
-        <span className="ml-auto min-w-0 truncate text-xs text-slate-400" title={projectPath}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass} ${pulse ? "animate-pulse" : ""}`} />
+        <span className="shrink-0 font-mono text-xs text-slate-400">#{task.id}</span>
+        <EditableTaskTitle task={task} fallback={titleFallback} onSaved={onReload} />
+        <span className="ml-auto max-w-[35%] shrink-0 truncate pl-1 text-[11px] text-slate-400" title={projectPath}>
           {projectName}
         </span>
       </div>
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 font-mono text-xs text-slate-400">#{task.id}</span>
+      {line && <div className="truncate pl-4 text-xs text-slate-400">{line}</div>}
+      <div className="flex min-h-[28px] items-center gap-2.5 pl-4 text-[11px] tabular-nums text-slate-400">
+        <span className={`shrink-0 font-medium ${statusTextClass}`}>{statusLabel}</span>
+        <span className="shrink-0">⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</span>
+        {task.tokens != null && <span className="shrink-0">◈ {task.tokens.toLocaleString()}</span>}
         <EngineBadge engine={task.engine} />
         <SubtaskBadge task={task} />
-        <EditableTaskTitle task={task} fallback={titleFallback} onSaved={onReload} />
-      </div>
-      {subtitle && <div className="truncate text-xs text-slate-400">{subtitle}</div>}
-      <div className="mt-0.5 flex items-center gap-4 text-xs tabular-nums text-slate-400">
-        <span className="inline-flex items-center gap-1">
-          <span aria-hidden>⏱</span>
-          {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span aria-hidden>◈</span>
-          {task.tokens != null ? task.tokens.toLocaleString() : "—"}
-        </span>
-      </div>
-      <div
-        className="flex items-center justify-end gap-1.5 text-xs font-medium"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {actions}
+        <div
+          className="ml-auto flex shrink-0 items-center gap-1 text-xs font-medium"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {actions}
+        </div>
       </div>
     </div>
   );
@@ -782,26 +779,32 @@ export function ActiveTasksView({
       />
       <div className={activeWorkspace ? "hidden" : "min-h-0 flex-1 overflow-auto"}>
         <div className="space-y-5 px-4 py-5 md:px-8 md:py-6">
-      <div className="flex flex-wrap items-center gap-2 border-b border-dh-bsoft pb-4">
-        <div className="min-w-0">
+      <div className="flex items-start gap-2 border-b border-dh-bsoft pb-3 md:items-center md:pb-4">
+        <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-dh-text">运行任务</div>
-          <div className="mt-1 text-xs text-slate-400">
-            {activeTasks.length} 个活动任务 · {running} 运行 · {review} 待核对 · {needsInput} 待介入 · {queued} 排队
+          {/* 手机上按项换行，不把一句话拆在中间 */}
+          <div className="mt-1 flex flex-wrap gap-x-1.5 text-xs text-slate-400">
+            <span className="whitespace-nowrap">{activeTasks.length} 个活动任务</span>
+            <span className="whitespace-nowrap">· {running} 运行</span>
+            <span className="whitespace-nowrap">· {review} 待核对</span>
+            <span className="whitespace-nowrap">· {needsInput} 待介入</span>
+            <span className="whitespace-nowrap">· {queued} 排队</span>
           </div>
         </div>
         <button
-          className="ml-auto rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg shadow-sm shadow-black/30 hover:bg-dh-acchov disabled:opacity-50"
+          className="shrink-0 whitespace-nowrap rounded-lg bg-dh-accent px-3 py-1.5 text-sm font-medium text-dh-accfg shadow-sm shadow-black/30 hover:bg-dh-acchov disabled:opacity-50"
           onClick={() => setShowCreate(true)}
           disabled={projects.length === 0}
           title={projects.length === 0 ? "请先添加项目" : "新建任务"}
         >
-          + 新建任务
+          + 新建<span className="hidden sm:inline">任务</span>
         </button>
         <button
-          className="rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
+          className="shrink-0 whitespace-nowrap rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-1.5 text-sm text-dh-tsoft hover:bg-dh-hover"
           onClick={changed}
+          title="刷新"
         >
-          ↻ 刷新
+          ↻<span className="hidden sm:inline"> 刷新</span>
         </button>
       </div>
 
@@ -823,16 +826,20 @@ export function ActiveTasksView({
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-slate-400">#{t.id}</span>
-                    <EngineBadge engine={t.engine} />
-                    <span className={`rounded bg-dh-s2 px-1.5 text-[10px] font-medium ${s.text}`}>
+                    <span className="hidden md:contents">
+                      <EngineBadge engine={t.engine} />
+                    </span>
+                    <span className={`shrink-0 rounded bg-dh-s2 px-1.5 text-[10px] font-medium ${s.text}`}>
                       {attentionLabel(t)}
                     </span>
-                    <span className="min-w-0 truncate text-xs text-slate-400">{p?.name ?? `项目 ${t.project_id}`}</span>
+                    {/* 手机上标题并进这一行、项目名省掉（下方列表里有），每条只占两行 */}
+                    <span className="min-w-0 truncate font-medium text-dh-text md:hidden">{t.title || taskPromptText(t)}</span>
+                    <span className="hidden min-w-0 truncate text-xs text-slate-400 md:inline">{p?.name ?? `项目 ${t.project_id}`}</span>
                   </div>
-                  <div className="mt-1 truncate font-medium text-dh-text">{t.title || taskPromptText(t)}</div>
+                  <div className="mt-1 hidden truncate font-medium text-dh-text md:block">{t.title || taskPromptText(t)}</div>
                   {t.report_summary && (
                     // agent 回报的处理摘要：待人工处理时先看结论，不用点进终端翻日志
-                    <div className="mt-1 line-clamp-2 text-xs text-dh-muted" title={t.report_summary}>
+                    <div className="mt-0.5 line-clamp-1 text-xs text-dh-muted md:mt-1 md:line-clamp-2" title={t.report_summary}>
                       {t.report_summary}
                     </div>
                   )}
@@ -865,7 +872,7 @@ export function ActiveTasksView({
               const s = STATUS_STYLE[statusKey(t)] ?? STATUS_STYLE.draft;
               const actions = (
                 <>
-                  <span className="text-dh-tsoft">终端</span>
+                  <span className="hidden text-dh-tsoft md:inline">终端</span>
                   <button
                     type="button"
                     className="rounded-md px-1.5 py-1 text-[11px] font-normal text-violet-300 hover:bg-violet-500/20 hover:text-violet-300 disabled:opacity-50"
@@ -979,8 +986,9 @@ export function ActiveTasksView({
           </div>
         </div>
         {pausedTasks.length === 0 ? (
-          <div className="flex min-h-28 items-center justify-center rounded-xl border border-dashed border-violet-500/40 bg-violet-500/10 px-4 text-center text-sm text-slate-400">
-            把运行中或归档任务拖到这里
+          <div className="flex min-h-11 items-center justify-center rounded-xl border border-dashed border-violet-500/40 bg-violet-500/10 px-4 text-center text-xs text-slate-400 md:min-h-28 md:text-sm">
+            <span className="md:hidden">点任务上的「等待」移入这里</span>
+            <span className="hidden md:inline">把运行中或归档任务拖到这里</span>
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-violet-500/40 bg-dh-surface">
@@ -1097,8 +1105,8 @@ export function ActiveTasksView({
 
       {totalArchivedCount > 0 && (
         <section className="space-y-3 border-t border-dh-bsoft pt-5">
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
+          <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+            <div className="w-full sm:w-auto">
               <div className="text-sm font-semibold text-dh-text">归档任务</div>
               <div className="mt-1 text-xs text-slate-400">{totalArchivedCount} 个过往任务 · 按日期倒序</div>
             </div>
@@ -1106,7 +1114,7 @@ export function ActiveTasksView({
               aria-label="按项目筛选归档任务"
               value={archiveProjectId}
               onChange={(event) => setArchiveProjectId(event.target.value)}
-              className="w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-tsoft outline-none focus:border-dh-m2 sm:ml-auto sm:w-44"
+              className="w-32 shrink-0 rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-tsoft outline-none focus:border-dh-m2 sm:ml-auto sm:w-44"
             >
               <option value="">全部项目</option>
               {archivedProjects.map((project) => (
@@ -1119,7 +1127,7 @@ export function ActiveTasksView({
                 type="search"
                 value={archiveQuery}
                 onChange={(event) => setArchiveQuery(event.target.value)}
-                placeholder="搜索任务编号、项目、标题或指令…"
+                placeholder="搜索编号、项目、标题…"
                 className="w-full rounded-lg border border-dh-bsoft bg-dh-surface py-2 pl-8 pr-3 text-sm text-dh-tsoft outline-none focus:border-dh-m2"
               />
             </div>
