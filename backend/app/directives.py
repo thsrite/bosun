@@ -23,12 +23,12 @@ REPORT_DIRECTIVE = (
     "①回报——机械照抄此命令填好字段即发，不要分析："
     "result=done|failed|needs_input，summary=≤50字回执（写不出就用"
     "「完成/失败/待答复」），needs_reply=需用户答复时 true。例：\n"
-    "curl -sS -X POST -H 'Content-Type: application/json' "
+    "curl -sS --retry 10 --retry-delay 3 --retry-connrefused -X POST -H 'Content-Type: application/json' "
     '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
     '-d "{\\"result\\":\\"done\\",\\"summary\\":\\"回执\\",'
     '\\"needs_reply\\":false,\\"reporter_pid\\":$$}" '
     '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/report"\n'
-    "（Authorization 头照抄，别做 ${VAR:+…} 这类条件拼接——zsh 不分词，"
+    "（--retry 参数照抄：后端重启的几秒内连不上会自动重试；Authorization 头照抄，别做 ${VAR:+…} 这类条件拼接——zsh 不分词，"
     "会拼成一个畸形参数，请求进不了后端；Windows 用 curl.exe，"
     "reporter_pid 可省；非 2xx 须告知用户）\n"
     "②回报后不得再调工具，把本轮完整结论正文作为最后一条消息打印到终端——"
@@ -42,7 +42,7 @@ REPORT_DIRECTIVE = (
 ORCHESTRATION_REPORT_ADDENDUM = (
     "\n当前任务是编排步骤，上面的收尾改为三步且顺序以这里为准：\n"
     "①先提交完整阶段产物（把占位内容替换为正文）：\n"
-    "curl -sS -X POST -H 'Content-Type: text/plain; charset=utf-8' "
+    "curl -sS --retry 10 --retry-delay 3 --retry-connrefused -X POST -H 'Content-Type: text/plain; charset=utf-8' "
     "-H \"Authorization: Bearer $BOSUN_TASK_TOKEN\" --data-binary @- "
     "\"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/artifact\" <<'BOSUN_ARTIFACT'\n"
     "<完整阶段产物>\n"
@@ -59,7 +59,7 @@ ORCHESTRATION_REPORT_ADDENDUM = (
     "· 发现前面某位做错了：把 result 改成 rework，加 target_position=<第几位>，"
     "summary 写返工意见（只能打回给你前面的角色，全程返工次数有上限，超限转人工）。\n"
     "· 想问班组里另一位（不改变接力棒）：\n"
-    "curl -sS -X POST -H 'Content-Type: application/json' "
+    "curl -sS --retry 10 --retry-delay 3 --retry-connrefused -X POST -H 'Content-Type: application/json' "
     '-H "Authorization: Bearer $BOSUN_TASK_TOKEN" '
     '-d "{\\"to_position\\":2,\\"body\\":\\"你的问题\\",\\"reporter_pid\\":$$}" '
     '"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/message"\n'

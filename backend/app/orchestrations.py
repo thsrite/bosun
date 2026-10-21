@@ -506,7 +506,7 @@ def _queue_message(conn, run_id: int, from_position: int | None, to_position: in
     if kind in RELIABLE_MESSAGE_KINDS:
         ack = (
             f"\n\n【可靠投递】这是消息 #{message_id}。处理正文前先确认收件：\n"
-            "curl -sS -X POST -H 'Content-Type: application/json' "
+            "curl -sS --retry 10 --retry-delay 3 --retry-connrefused -X POST -H 'Content-Type: application/json' "
             "-H \"Authorization: Bearer $BOSUN_TASK_TOKEN\" "
             '-d "{\\"reporter_pid\\":$$}" '
             f"\"$BOSUN_API/api/tasks/$BOSUN_TASK_ID/messages/{message_id}/ack\"\n"

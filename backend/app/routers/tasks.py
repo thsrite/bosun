@@ -797,6 +797,37 @@ def get_task_result(task_id: int, request: Request = None):
     }
 
 
+@router.get("/{task_id}/children")
+def list_subtasks(task_id: int, request: Request = None):
+    """父任务列出自己派生的子任务及其结论。
+
+    /spawn 是同步长请求：后端重启或连接中断时父任务可能还没拿到子任务编号，
+    此时按这里查回编号再走 /result 补查，而不是重复派发同一件事。
+    """
+    parent = db.query_one("SELECT id FROM task WHERE id=? AND deleted=0", (task_id,))
+    if parent is None:
+        raise HTTPException(404, "任务不存在")
+    if not _spawn_authorized(task_id, request):
+        raise HTTPException(401, "凭证无效")
+    rows = db.query(
+        "SELECT * FROM task WHERE parent_task_id=? AND deleted=0 ORDER BY id",
+        (task_id,),
+    )
+    return [
+        {
+            "id": row["id"],
+            "engine": row["engine"],
+            "title": row["title"] or "",
+            "status": row["status"],
+            "result": row["report_result"],
+            "summary": row["report_summary"] or "",
+            "needs_reply": row["report_result"] == "needs_input",
+            "finished": subtasks.is_final(row["status"], row["report_result"]),
+        }
+        for row in rows
+    ]
+
+
 @router.post("/{task_id}/result/ack")
 def acknowledge_subtask_result(task_id: int, request: Request = None):
     """父任务读完最终结果后幂等确认回收；保留任务记录、日志与结果。"""

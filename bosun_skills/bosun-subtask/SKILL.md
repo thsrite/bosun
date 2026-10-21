@@ -22,6 +22,11 @@ curl --fail-with-body -sS --connect-timeout 10 --max-time 3700 -X POST -H 'Conte
 - 父任务可以继续独立工作，但完成通知一到就应读取并处理结果，不等用户追问。只在没有可做的工作时阻塞等待，不用高频轮询制造空转。
 - 监控必须有终止条件：最终结果已处理、请求失败或服务端超时后停止监控；不得永久留下计时器、轮询进程或后台请求。
 - 非 2xx 或连接中断不是“子任务已完成”。已有子任务编号时通过下面的结果接口补查；不要因为没收到响应而盲目重复派发同一任务。
+- Bosun 后端重启会断开 `/spawn` 长请求，但子任务本身照常运行。连接中断且还不知道子任务编号时，先列出本任务派生的子任务查回编号（后端重启的几秒内连不上，`--retry` 会自动重试）：
+
+```sh
+curl --fail-with-body -sS --retry 10 --retry-delay 3 --retry-connrefused --connect-timeout 10 --max-time 60 -H "Authorization: Bearer $BOSUN_TASK_TOKEN" "$BOSUN_API/api/tasks/$BOSUN_TASK_ID/children"
+```
 
 ## 读取结果与继续问答
 
@@ -36,7 +41,7 @@ curl --fail-with-body -sS --connect-timeout 10 --max-time 3700 -X POST -H 'Conte
 已知编号时可补查状态与回报；需要持续补查时使用每 30 秒一次的有界监控，并在最终结果出现或达到本轮超时后停止：
 
 ```sh
-curl --fail-with-body -sS --connect-timeout 10 --max-time 30 -H "Authorization: Bearer $BOSUN_TASK_TOKEN" "$BOSUN_API/api/tasks/<子任务id>/result"
+curl --fail-with-body -sS --retry 10 --retry-delay 3 --retry-connrefused --connect-timeout 10 --max-time 30 -H "Authorization: Bearer $BOSUN_TASK_TOKEN" "$BOSUN_API/api/tasks/<子任务id>/result"
 ```
 
 `finished:false` 或 `needs_reply:true` 不能当作最终完成。需要父任务决策时先处理问题，不能直接关闭子任务。
@@ -46,7 +51,7 @@ curl --fail-with-body -sS --connect-timeout 10 --max-time 30 -H "Authorization: 
 服务端在同步请求拿到最终结果时会自动结束子任务会话。父任务读完结果后仍须调用幂等确认接口，确保补查等路径也完成回收，并停止自己建立的监控：
 
 ```sh
-curl --fail-with-body -sS --connect-timeout 10 --max-time 60 -X POST -H "Authorization: Bearer $BOSUN_TASK_TOKEN" "$BOSUN_API/api/tasks/<子任务id>/result/ack"
+curl --fail-with-body -sS --retry 10 --retry-delay 3 --retry-connrefused --connect-timeout 10 --max-time 60 -X POST -H "Authorization: Bearer $BOSUN_TASK_TOKEN" "$BOSUN_API/api/tasks/<子任务id>/result/ack"
 ```
 
 - 只确认最终结果；`needs_input`、仍运行或等待输入但没有最终回报的任务会被拒绝，不能用取消接口绕过。已由人工或进程退出进入终态的任务也可确认回收，但仍带 `needs_input` 的任务除外。

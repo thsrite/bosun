@@ -54,6 +54,24 @@ class SubtaskCommunicationTest(unittest.TestCase):
         )
         return child_id
 
+    def test_parent_can_list_children_after_losing_spawn_response(self):
+        waiting = self._waiting_child()
+        done = self._task("waiting_input", self.parent_id)
+        db.execute("UPDATE task SET report_result='done', report_summary='通过' WHERE id=?", (done,))
+        self._task("running")  # 别人的任务不该出现
+
+        with patch.object(auth, "is_enabled", return_value=True):
+            items = tasks_router.list_subtasks(self.parent_id, _Request(self.parent_token))
+            with self.assertRaises(tasks_router.HTTPException) as denied:
+                tasks_router.list_subtasks(self.parent_id, _Request("bad-token"))
+
+        self.assertEqual([item["id"] for item in items], [waiting, done])
+        self.assertTrue(items[0]["needs_reply"])
+        self.assertFalse(items[0]["finished"])
+        self.assertTrue(items[1]["finished"])
+        self.assertEqual(items[1]["summary"], "通过")
+        self.assertEqual(denied.exception.status_code, 401)
+
     def test_spawn_rejects_exhausted_engines_before_creating_children(self):
         for engine in ("cc", "codex", "auto"):
             with (
