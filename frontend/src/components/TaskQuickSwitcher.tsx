@@ -33,8 +33,10 @@ export function TaskQuickSwitcher({
   const flat = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
 
   useEffect(() => {
-    // 触屏设备不自动聚焦：一打开就弹软键盘会挡住大半个列表
+    // 触屏设备不自动聚焦：一打开就弹软键盘会挡住大半个列表；
+    // 终端输入框若仍持有焦点（键盘开着），顺手释放掉让键盘收起
     if (!isCoarsePointer()) inputRef.current?.focus();
+    else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }, []);
 
   // 只在打开和改搜索词时重置高亮：任务列表每几秒刷新一次，跟着重置会打断键盘选择。

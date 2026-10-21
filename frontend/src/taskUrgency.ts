@@ -12,6 +12,7 @@ export type UrgencyTask = {
   pending_perm?: boolean;
   waiting_since?: number | null;
   report_summary?: string | null;
+  report_result?: string | null;
 };
 
 export type UrgencyGroup = "attention" | "running" | "queued" | "review" | "other";
@@ -32,7 +33,8 @@ const GROUP_ORDER: UrgencyGroup[] = ["attention", "running", "queued", "review",
  */
 export function urgencyGroup(task: UrgencyTask): UrgencyGroup {
   if (task.status === "waiting_input") {
-    const needsYou = task.pending_perm || task.waiting_kind !== "review";
+    // 回报 needs_input = agent 在等你答复，即便旧后端把等待类型标成 review 也算
+    const needsYou = task.pending_perm || task.report_result === "needs_input" || task.waiting_kind !== "review";
     return needsYou ? "attention" : "review";
   }
   if (task.status === "running") return "running";

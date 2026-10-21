@@ -426,6 +426,68 @@ function taskSwipeDirection(dx: number, dy: number): -1 | 0 | 1 {
   return dx < 0 ? 1 : -1;
 }
 
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, [query]);
+  return matches;
+}
+
+/** 触屏任务条：按紧急度横向排开，当前任务高亮并自动滚入视野，等你处理的带琥珀色描边。 */
+function TaskStrip({
+  tasks,
+  currentId,
+  getProjectName,
+  onPick,
+}: {
+  tasks: Task[];
+  currentId: number;
+  getProjectName?: (projectId: number) => string;
+  onPick: (task: Task) => void;
+}) {
+  const currentRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    currentRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [currentId]);
+  return (
+    <div className="hidden min-[700px]:block">
+      <div className="dh-scrollbar-none flex gap-2 overflow-x-auto border-b border-dh-bsoft px-4 py-2">
+        {tasks.map((t) => {
+          const st = STATUS_STYLE[taskStatusStyleKey(t)] ?? STATUS_STYLE.draft;
+          const current = t.id === currentId;
+          const attention = urgencyGroup(t) === "attention";
+          return (
+            <button
+              key={t.id}
+              ref={current ? currentRef : undefined}
+              type="button"
+              className={`flex min-h-[40px] max-w-[220px] shrink-0 items-center gap-2 rounded-full border px-3 text-left text-sm ${
+                current
+                  ? "border-dh-accent bg-dh-accent font-medium text-dh-accfg"
+                  : attention
+                    ? "border-amber-500/60 text-dh-text active:bg-amber-500/20"
+                    : "border-dh-bsoft text-dh-tsoft active:bg-dh-hover"
+              }`}
+              onClick={() => onPick(t)}
+              title={`${getProjectName?.(t.project_id) ?? ""} · ${st.label}`}
+            >
+              <span className={`h-2 w-2 shrink-0 rounded-full ${st.dot} ${st.pulse ? "animate-pulse" : ""}`} />
+              <span className={`shrink-0 font-mono text-xs ${current ? "" : "text-dh-muted"}`}>#{t.id}</span>
+              <span className="truncate">{t.title || taskPromptText(t)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** 内层：xterm + WebSocket（实时流 / 结束后回放日志），断线自动重连。 */
 function TerminalView({
   taskId,
@@ -1728,6 +1790,7 @@ export function TerminalPanel({
   const [historyMode, setHistoryMode] = useState<"history" | "terminal">("history");
   // 抽屉全屏：桌面端把 48% 宽的抽屉铺满整屏，终端由 ResizeObserver 自动重新 fit
   const [fullscreen, setFullscreen] = useState(false);
+  const lgViewport = useMediaQuery("(min-width: 1024px)");
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const panelTopOffset = useTerminalPanelTopOffset();
   useVisualViewportCssVars();
@@ -1801,6 +1864,12 @@ export function TerminalPanel({
   ).length;
   const currentIdx = switchableTasks.findIndex((t) => t.id === detail.id);
   const canSwitch = currentIdx >= 0 && switchableTasks.length > 1;
+  // 触屏（iPad 等）没有快捷键、‹ › 又小：在顶栏下方常驻一条可横滑的任务条，一点即切。
+  // 手机竖屏太窄，纵向空间也紧，仍走左右滑动 + 快速切换面板。
+  const touch = isTouchDevice();
+  const showTaskStrip = !embedded && canSwitch && touch;
+  // iPad 横屏的抽屉只有屏宽一半：完成/日志/删除收进「详情」，保证「关闭」始终可见
+  const compactActions = touch && !embedded && !fullscreen && lgViewport;
   const attentionTasks = switchableTasks.filter(
     (t) =>
       t.id !== detail.id &&
@@ -2132,7 +2201,7 @@ export function TerminalPanel({
           {canSwitch && (
             <div className="flex shrink-0 items-center rounded-lg border border-dh-bsoft bg-dh-surface text-xs text-dh-muted">
               <button
-                className="px-2 py-1 hover:bg-dh-hover"
+                className={`${touch ? "min-w-[40px] px-3 py-2 min-[700px]:hidden" : "px-2 py-1"} hover:bg-dh-hover`}
                 onClick={() => switchBy(-1)}
                 title="上一个任务（Alt/Option + Shift + ↑）"
               >
@@ -2140,7 +2209,7 @@ export function TerminalPanel({
               </button>
               <button
                 type="button"
-                className="border-x border-dh-bsoft px-2 py-1 tabular-nums hover:bg-dh-hover"
+                className={`border-x border-dh-bsoft tabular-nums hover:bg-dh-hover ${touch ? "px-3 py-2" : "px-2 py-1"}`}
                 onClick={() => setShowSwitcher(true)}
                 title="搜索并切换任务（⌘K 或 Alt/Option + Shift + K）"
               >
@@ -2153,7 +2222,7 @@ export function TerminalPanel({
                 ⌥/Alt ⇧ ↑↓
               </span>
               <button
-                className="px-2 py-1 hover:bg-dh-hover"
+                className={`${touch ? "min-w-[40px] px-3 py-2 min-[700px]:hidden" : "px-2 py-1"} hover:bg-dh-hover`}
                 onClick={() => switchBy(1)}
                 title="下一个任务（Alt/Option + Shift + ↓）"
               >
@@ -2184,7 +2253,9 @@ export function TerminalPanel({
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* 移动端：详情 toggle，展开下方操作 + 任务信息；桌面端不显示(操作常驻) */}
             <button
-              className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover md:hidden"
+              className={`whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover ${
+                compactActions ? "" : "md:hidden"
+              }`}
               onClick={() =>
                 setShowDetails((v) => {
                   if (!v) setMetaCollapsed(false); // 展开时同时展开任务信息
@@ -2193,10 +2264,10 @@ export function TerminalPanel({
               }
               title="任务详情与操作"
             >
-              详情 {showDetails ? "▴" : "▾"}
+              {compactActions ? "更多" : "详情"} {showDetails ? "▴" : "▾"}
             </button>
             {/* 非必要操作：移动端收进「详情」(showDetails)，桌面端常驻 */}
-            <div className={`${showDetails ? "flex" : "hidden"} items-center gap-1.5 md:flex`}>
+            <div className={`${showDetails ? "flex" : "hidden"} items-center gap-1.5 ${compactActions ? "" : "md:flex"}`}>
               {canComplete && (
                 <button
                   className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
@@ -2252,6 +2323,15 @@ export function TerminalPanel({
             </button>
           </div>
         </div>
+
+        {showTaskStrip && (
+          <TaskStrip
+            tasks={switchableTasks}
+            currentId={detail.id}
+            getProjectName={getProjectName}
+            onPick={switchToTask}
+          />
+        )}
 
         {/* 指令 + 元信息（记录）——移动端默认隐藏，点顶部「详情」展开；桌面端常显 */}
         <div className={`${showDetails ? "block" : "hidden"} md:block`}>

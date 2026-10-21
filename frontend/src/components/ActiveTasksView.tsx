@@ -850,12 +850,13 @@ export function ActiveTasksView({
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-dh-bsoft bg-dh-surface">
-          <div className="hidden grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] gap-3 border-b border-dh-bsoft bg-dh-soft px-3 py-2 text-xs font-medium text-slate-400 md:grid">
+          {/* iPad 竖屏（md~lg）收起「项目」「Token」两列，把宽度让给任务标题；项目名并到标题下一行 */}
+          <div className="hidden gap-3 border-b border-dh-bsoft bg-dh-soft px-3 py-2 text-xs font-medium text-slate-400 md:grid md:grid-cols-[104px_minmax(0,1fr)_64px_156px] lg:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px]">
             <span>状态</span>
-            <span>项目</span>
+            <span className="hidden lg:block">项目</span>
             <span>任务</span>
             <span>时长</span>
-            <span>Token</span>
+            <span className="hidden lg:block">Token</span>
             <span className="text-right">操作</span>
           </div>
           <div className="divide-y divide-dh-bsoft">
@@ -918,7 +919,7 @@ export function ActiveTasksView({
                 <div
                   role="button"
                   tabIndex={0}
-                  className="hidden w-full cursor-pointer gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:grid md:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] md:items-center"
+                  className="hidden w-full cursor-pointer gap-3 px-3 py-3 text-left hover:bg-dh-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dh-accent md:grid md:grid-cols-[104px_minmax(0,1fr)_64px_156px] lg:grid-cols-[112px_120px_minmax(0,1fr)_96px_92px_156px] md:items-center"
                   onClick={() => setOpenTaskId(t.id)}
                   onKeyDown={(event) => {
                     if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
@@ -930,7 +931,7 @@ export function ActiveTasksView({
                     <span className={`h-2.5 w-2.5 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
                     <span className={`text-xs font-medium ${s.text}`}>{s.label}</span>
                   </div>
-                  <div className="min-w-0 truncate text-xs text-dh-muted" title={p?.path}>
+                  <div className="hidden min-w-0 truncate text-xs text-dh-muted lg:block" title={p?.path}>
                     {p?.name ?? `项目 ${t.project_id}`}
                   </div>
                   <div className="min-w-0">
@@ -940,12 +941,18 @@ export function ActiveTasksView({
                       <SubtaskBadge task={t} />
                       <EditableTaskTitle task={t} fallback={taskPromptText(t)} onSaved={load} />
                     </div>
-                    {t.title && <div className="mt-0.5 truncate text-xs text-slate-400">{taskPromptText(t)}</div>}
+                    <div className={`mt-0.5 truncate text-xs text-slate-400 ${t.title ? "" : "lg:hidden"}`}>
+                      <span className="lg:hidden" title={p?.path}>
+                        {p?.name ?? `项目 ${t.project_id}`}
+                        {t.title ? " · " : ""}
+                      </span>
+                      {t.title && taskPromptText(t)}
+                    </div>
                   </div>
                   <div className="text-xs tabular-nums text-dh-muted">
                     {fmtDur(t.started_at, t.ended_at, t.elapsed_accum)}
                   </div>
-                  <div className="text-xs tabular-nums text-dh-muted">
+                  <div className="hidden text-xs tabular-nums text-dh-muted lg:block">
                     {t.tokens != null ? t.tokens.toLocaleString() : "—"}
                   </div>
                   <div className="flex items-center justify-end gap-2 text-xs font-medium">

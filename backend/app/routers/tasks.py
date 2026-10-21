@@ -59,7 +59,14 @@ def _annotate_waiting(out: dict) -> dict:
     # - waiting_kind: CLI/SDK 的等待类型(permission | choice | input | review)
     pending_perm = scheduler.get_permission(out["id"]) is not None
     out["pending_perm"] = pending_perm
-    out["waiting_kind"] = "permission" if pending_perm else scheduler.get_waiting_kind(out["id"])
+    if pending_perm:
+        out["waiting_kind"] = "permission"
+    elif out.get("report_result") == "needs_input":
+        # agent 回报「需要你答复」：会话层回报后一律记成 review（本轮已结束），
+        # 但对用户而言这是在等回复，不是等核对——否则会被归进「待核对」、排到最后。
+        out["waiting_kind"] = "input"
+    else:
+        out["waiting_kind"] = scheduler.get_waiting_kind(out["id"])
     return out
 
 
@@ -552,7 +559,7 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
         "report_result": body.result,
         "report_summary": summary,
         "needs_reply": body.needs_reply,
-        "waiting_kind": "review" if body.result == "done" else None,
+        "waiting_kind": {"done": "review", "needs_input": "input"}.get(body.result),
         "waiting_since": current["waiting_since"] if current else None,
         "notify_user": status == "waiting_input" and (
             t["status"] != "waiting_input" or t["waiting_since"] is None

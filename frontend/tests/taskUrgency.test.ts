@@ -25,6 +25,11 @@ test("waiting tasks that need the user come first, finished-awaiting-review last
 test("permission prompts count as needing the user even when kind is review", () => {
   assert.equal(urgencyGroup(task(1, "waiting_input", { waiting_kind: "review", pending_perm: true })), "attention");
   assert.equal(urgencyGroup(task(2, "waiting_input", { waiting_kind: null })), "attention");
+  assert.equal(
+    urgencyGroup(task(3, "waiting_input", { waiting_kind: "review", report_result: "needs_input" })),
+    "attention",
+  );
+  assert.equal(urgencyGroup(task(4, "waiting_input", { waiting_kind: "review", report_result: "done" })), "review");
 });
 
 test("equal urgency keeps the caller's order", () => {
