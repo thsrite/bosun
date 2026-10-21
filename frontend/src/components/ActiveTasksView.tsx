@@ -17,7 +17,14 @@ import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Project, Task } from "../types";
 import { CreateTaskDialog } from "./CreateTaskDialog";
 import { TerminalPanel } from "./TerminalPanel";
-import { TerminalWorkspace, type WorkspaceLayout } from "./TerminalWorkspace";
+import {
+  LAYOUTS,
+  MAX_WORKSPACE_SLOTS,
+  TerminalWorkspace,
+  fitLayout,
+  parseWorkspaceLayout,
+  type WorkspaceLayout,
+} from "./TerminalWorkspace";
 import { taskPromptText } from "../taskText";
 import { engineBadgeClass, engineName, engineShort } from "../engines";
 
@@ -277,11 +284,6 @@ function archiveTimestamp(task: Task): number {
   return task.ended_at ?? task.started_at ?? task.created_at;
 }
 
-// 打开 N 个终端时，选能容纳的最小布局：1→单格 2→左右 3~4→四宫格
-function fitLayout(count: number): WorkspaceLayout {
-  return count <= 1 ? 1 : count <= 2 ? 2 : 4;
-}
-
 // 终端工作台：一组并排终端（布局 + 任务集合），可在「运行任务」页内以子 tab 切换
 type Workspace = {
   id: string;
@@ -313,8 +315,8 @@ function loadWorkspaces(): Workspace[] {
       .map((w) => ({
         id: w.id,
         name: typeof w.name === "string" ? w.name : "工作台",
-        layout: ([1, 2, 4] as WorkspaceLayout[]).includes(w.layout) ? w.layout : 1,
-        taskIds: w.taskIds.filter((x: unknown) => typeof x === "number").slice(-4),
+        layout: parseWorkspaceLayout(w.layout),
+        taskIds: w.taskIds.filter((x: unknown) => typeof x === "number").slice(-MAX_WORKSPACE_SLOTS),
       }));
   } catch {
     return [];
@@ -502,14 +504,15 @@ export function ActiveTasksView({
       activeWorkspaceId && list.some((w) => w.id === activeWorkspaceId) ? activeWorkspaceId : null;
     if (!targetId) {
       if (list.length === 0) {
-        list = [...list, { id: newWorkspaceId(), name: nextWorkspaceName(list), layout: 1, taskIds: [] }];
+        list = [...list, { id: newWorkspaceId(), name: nextWorkspaceName(list), layout: "1", taskIds: [] }];
       }
       targetId = list[list.length - 1].id;
     }
     list = list.map((w) => {
       if (w.id !== targetId || w.taskIds.includes(id)) return w;
-      const next = [...w.taskIds, id].slice(-4);
-      return { ...w, taskIds: next, layout: w.layout >= next.length ? w.layout : fitLayout(next.length) };
+      // 当前布局放得下就不动（保留用户选的形式），放不下才自动扩到能容纳的最小布局
+      const next = [...w.taskIds, id].slice(-MAX_WORKSPACE_SLOTS);
+      return { ...w, taskIds: next, layout: LAYOUTS[w.layout].slots >= next.length ? w.layout : fitLayout(next.length) };
     });
     setWorkspaces(list);
     setActiveWorkspaceId(targetId);
@@ -526,13 +529,13 @@ export function ActiveTasksView({
     setWorkspaces((prev) =>
       prev.map((w) =>
         w.id === activeWorkspace.id
-          ? { ...w, layout: l, taskIds: w.taskIds.length > l ? w.taskIds.slice(-l) : w.taskIds }
+          ? { ...w, layout: l, taskIds: w.taskIds.slice(-LAYOUTS[l].slots) }
           : w,
       ),
     );
   }
   function createWorkspace() {
-    const ws: Workspace = { id: newWorkspaceId(), name: nextWorkspaceName(workspaces), layout: 1, taskIds: [] };
+    const ws: Workspace = { id: newWorkspaceId(), name: nextWorkspaceName(workspaces), layout: "1", taskIds: [] };
     setWorkspaces((prev) => [...prev, ws]);
     setActiveWorkspaceId(ws.id);
   }

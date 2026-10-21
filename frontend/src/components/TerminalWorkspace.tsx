@@ -4,7 +4,7 @@ import type { Task } from "../types";
 import { TerminalPanel } from "./TerminalPanel";
 import { taskPromptText } from "../taskText";
 
-export type WorkspaceLayout = 1 | 2 | 4;
+export type WorkspaceLayout = "1" | "2" | "3" | "3m" | "4" | "6";
 
 // 桌面端并排，移动端 fallback 到单终端全屏（屏幕放不下宫格）
 function useIsDesktop(): boolean {
@@ -43,18 +43,54 @@ function useHeaderTop(): number {
   return top;
 }
 
-// 布局越多，抽屉越宽，给每个终端留出可读宽度
-const DRAWER_WIDTH: Record<WorkspaceLayout, string> = {
-  1: "lg:w-[48%] lg:min-w-[560px]",
-  2: "lg:w-[74%]",
-  4: "lg:w-[92%]",
+type LayoutSpec = {
+  /** 能容纳的终端数 */
+  slots: number;
+  icon: string;
+  title: string;
+  columns: string;
+  rows: string;
+  /** 格子是否占多行，下标对应 slot */
+  spans?: Record<number, string>;
+  // 布局越多，抽屉越宽，给每个终端留出可读宽度
+  drawer: string;
 };
 
-const LAYOUT_META: { value: WorkspaceLayout; icon: string; title: string }[] = [
-  { value: 1, icon: "▢", title: "单格" },
-  { value: 2, icon: "▤", title: "左右两格" },
-  { value: 4, icon: "⊞", title: "四宫格" },
-];
+export const LAYOUTS: Record<WorkspaceLayout, LayoutSpec> = {
+  "1": { slots: 1, icon: "▢", title: "单格", columns: "1fr", rows: "1fr", drawer: "lg:w-[48%] lg:min-w-[560px]" },
+  "2": { slots: 2, icon: "◫", title: "左右两格", columns: "1fr 1fr", rows: "1fr", drawer: "lg:w-[74%]" },
+  "3": { slots: 3, icon: "▥", title: "三列", columns: "1fr 1fr 1fr", rows: "1fr", drawer: "lg:w-[92%]" },
+  "3m": {
+    slots: 3,
+    icon: "◧",
+    title: "左大右二",
+    columns: "3fr 2fr",
+    rows: "1fr 1fr",
+    spans: { 0: "1 / span 2" },
+    drawer: "lg:w-[92%]",
+  },
+  "4": { slots: 4, icon: "⊞", title: "四宫格", columns: "1fr 1fr", rows: "1fr 1fr", drawer: "lg:w-[92%]" },
+  "6": { slots: 6, icon: "▦", title: "六宫格（3×2）", columns: "1fr 1fr 1fr", rows: "1fr 1fr", drawer: "lg:w-[96%]" },
+};
+
+const LAYOUT_ORDER: WorkspaceLayout[] = ["1", "2", "3", "3m", "4", "6"];
+
+export const MAX_WORKSPACE_SLOTS = 6;
+
+export function isWorkspaceLayout(v: unknown): v is WorkspaceLayout {
+  return typeof v === "string" && v in LAYOUTS;
+}
+
+/** 旧版存的是数字 1/2/4，读出时转成新 id */
+export function parseWorkspaceLayout(v: unknown): WorkspaceLayout {
+  const key = typeof v === "number" ? String(v) : v;
+  return isWorkspaceLayout(key) ? key : "1";
+}
+
+/** 打开 N 个终端时，选能容纳的最小布局：1→单格 2→左右 3→三列 4→四宫格 5~6→六宫格 */
+export function fitLayout(count: number): WorkspaceLayout {
+  return count <= 1 ? "1" : count <= 2 ? "2" : count <= 3 ? "3" : count <= 4 ? "4" : "6";
+}
 
 /** 多终端并排宿主：桌面端 1/2/4 宫格；移动端只显示激活的一个。 */
 export function TerminalWorkspace({
@@ -111,25 +147,28 @@ export function TerminalWorkspace({
     );
   }
 
-  const slots = Array.from({ length: layout }, (_, i) => openTasks[i] ?? null);
+  const spec = LAYOUTS[layout];
+  const slots = Array.from({ length: spec.slots }, (_, i) => openTasks[i] ?? null);
   const gridStyle: CSSProperties = {
-    gridTemplateColumns: layout === 1 ? "1fr" : "1fr 1fr",
-    gridTemplateRows: layout === 4 ? "1fr 1fr" : "1fr",
+    gridTemplateColumns: spec.columns,
+    gridTemplateRows: spec.rows,
   };
+  const cellStyle = (i: number): CSSProperties | undefined =>
+    spec.spans?.[i] ? { gridRow: spec.spans[i] } : undefined;
 
   const body = (
       <div
         className={
           inline
             ? "flex h-full w-full flex-col overflow-hidden bg-dh-soft"
-            : `flex h-full w-full max-w-full flex-col overflow-hidden bg-dh-soft shadow-2xl ${DRAWER_WIDTH[layout]}`
+            : `flex h-full w-full max-w-full flex-col overflow-hidden bg-dh-soft shadow-2xl ${spec.drawer}`
         }
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-dh-border bg-dh-s2 px-3 py-2">
           <span className="text-xs font-medium text-slate-200">终端工作台</span>
           <span className="text-[11px] text-dh-muted">{openTasks.length} 个终端</span>
           <div className="ml-auto flex items-center gap-1">
-            {LAYOUT_META.map(({ value, icon, title }) => (
+            {LAYOUT_ORDER.map((value) => (
               <button
                 key={value}
                 type="button"
@@ -137,9 +176,9 @@ export function TerminalWorkspace({
                   layout === value ? "bg-dh-accent text-dh-accfg" : "text-slate-300 hover:bg-dh-hover"
                 }`}
                 onClick={() => onLayoutChange(value)}
-                title={title}
+                title={LAYOUTS[value].title}
               >
-                {icon} {value}
+                {LAYOUTS[value].icon} {LAYOUTS[value].slots}
               </button>
             ))}
             <button
@@ -158,6 +197,7 @@ export function TerminalWorkspace({
               <div
                 key={`cell-${t.id}`}
                 className="min-h-0 overflow-hidden rounded-lg border border-dh-border bg-dh-surface"
+                style={cellStyle(i)}
               >
                 <TerminalPanel
                   embedded
@@ -171,6 +211,7 @@ export function TerminalWorkspace({
               <div
                 key={`pick-${i}`}
                 className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-dh-border bg-dh-s2"
+                style={cellStyle(i)}
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-dh-border px-3 py-2">
                   <span className="text-xs font-medium text-slate-200">选择任务加入</span>
@@ -219,6 +260,7 @@ export function TerminalWorkspace({
               <button
                 key={`empty-${i}`}
                 type="button"
+                style={cellStyle(i)}
                 className="flex min-h-0 items-center justify-center rounded-lg border border-dashed border-dh-border bg-dh-s2/40 px-3 text-center text-xs text-dh-muted hover:border-dh-border hover:text-slate-400"
                 onClick={() => setPickingSlot(i)}
               >
