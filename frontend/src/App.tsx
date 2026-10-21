@@ -376,9 +376,10 @@ export default function App() {
     <InstalledEnginesContext.Provider value={installedEngines}>
       <div className="dh-app-shell flex h-full min-w-0 flex-col">
         <header className="dh-app-header relative z-50 border-b border-dh-bsoft bg-dh-soft/95">
-          <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 lg:gap-3 lg:px-8">
+          {/* 手机上整个顶栏压成一行：logo 收起（与「项目」入口重复）、导航用短名、待输入与状态徽标并入同一行 */}
+          <div className="flex items-center gap-1.5 px-2 py-1.5 sm:flex-wrap sm:gap-2 sm:px-4 sm:py-2.5 lg:gap-3 lg:px-8">
             <button
-              className="flex min-w-0 items-center gap-2 pr-2 text-left"
+              className="hidden min-w-0 items-center gap-2 pr-2 text-left sm:flex"
               onClick={() => goTab("projects")}
             >
               <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-dh-border bg-black">
@@ -390,20 +391,27 @@ export default function App() {
               </span>
             </button>
 
-            <nav className="dh-scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            <nav className="dh-scrollbar-none flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto sm:gap-1">
               {NAV.filter((n) => n.key !== "claude" || claudeInstalled === true).map((n) => {
                 const active = !inProject && tab === n.key;
                 return (
                   <button
                     key={n.key}
                     onClick={() => goTab(n.key)}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition lg:px-3 ${
+                    className={`flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1.5 text-[13px] transition sm:gap-1.5 sm:px-2.5 sm:text-sm lg:px-3 ${
                       active
                         ? "bg-black font-medium text-white ring-1 ring-slate-700"
                         : "text-dh-tsoft hover:bg-dh-hover"
                     }`}
                   >
-                    <span>{n.label}</span>
+                    {n.short ? (
+                      <>
+                        <span className="sm:hidden">{n.short}</span>
+                        <span className="hidden sm:inline">{n.label}</span>
+                      </>
+                    ) : (
+                      <span>{n.label}</span>
+                    )}
                     {n.key === "tasks" && activeTotal > 0 && (
                       <span className="rounded-full bg-emerald-500/15 px-1.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-dh-border">
                         {activeTotal}
@@ -414,10 +422,10 @@ export default function App() {
               })}
             </nav>
 
-            <div className="flex w-full items-center gap-2 sm:w-auto lg:gap-3">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 lg:gap-3">
               {totalWaiting > 0 && (
                 <button
-                  className="flex animate-pulse items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 md:py-1"
+                  className="flex animate-pulse items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 sm:px-2.5 md:py-1"
                   onClick={() => goTab("tasks")}
                   title="有任务在等待你输入/介入"
                 >

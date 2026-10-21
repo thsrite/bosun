@@ -267,14 +267,13 @@ function Provider({ label, q }: { label: string; q: ProviderUsage | null | undef
   );
 }
 
-function CompactProvider({ label, q }: { label: string; q: ProviderUsage | null | undefined }) {
+function StatusDot({ label, q }: { label: string; q: ProviderUsage | null | undefined }) {
   const worst = worstPct(q);
   return (
-    <span className="flex min-w-0 items-center gap-1">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${q?.available ? headerDotColor(worst) : "bg-emerald-300"}`} />
-      <span className="shrink-0 text-dh-tsoft">{label}</span>
-      <span className="truncate tabular-nums text-dh-muted">{compactText(q)}</span>
-    </span>
+    <span
+      className={`h-2 w-2 shrink-0 rounded-full ${q?.available ? headerDotColor(worst) : "bg-emerald-300"}`}
+      title={`${label} ${compactText(q)}`}
+    />
   );
 }
 
@@ -590,17 +589,17 @@ export function QuotaBadge({
 
   return (
     <>
+      {/* 窄屏只放各执行器的状态色点（绿/黄/红=额度宽裕/偏紧/告急），点开看详情；
+          文字版挤占整整一行顶栏 */}
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full border border-dh-bsoft bg-dh-soft/70 px-3 py-1 text-xs hover:bg-dh-hover md:hidden"
+        className="flex shrink-0 items-center gap-1.5 rounded-full border border-dh-bsoft bg-dh-soft/70 px-2.5 py-2 hover:bg-dh-hover md:hidden"
         onClick={() => setOpen(true)}
         title={statusTitle}
+        aria-label={statusTitle}
       >
-        {usageProviders.map((p, i) => (
-          <span key={p.engine} className="flex min-w-0 items-center gap-2">
-            {i > 0 && <span className="shrink-0 text-dh-m2">|</span>}
-            <CompactProvider label={p.chip} q={q?.[p.usageKey!]} />
-          </span>
+        {usageProviders.map((p) => (
+          <StatusDot key={p.engine} label={p.chip} q={q?.[p.usageKey!]} />
         ))}
       </button>
       <button

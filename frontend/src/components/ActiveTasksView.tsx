@@ -372,7 +372,7 @@ function WorkspaceTabs({
   refreshing: boolean;
 }) {
   return (
-    <div className="dh-scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-dh-bsoft bg-dh-surface px-3 py-2">
+    <div className="dh-scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-dh-bsoft bg-dh-surface px-2 py-1 sm:px-3 sm:py-2">
       <button
         type="button"
         className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
