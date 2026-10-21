@@ -23,6 +23,8 @@ export type AppSettings = {
   quota_enabled: boolean;
   status_badge_enabled: boolean;
   subtask_skill_enabled: boolean;
+  /** 单个任务同时保留的未结束子任务上限，默认 3 */
+  subtask_max_children: number;
   report_skill_enabled: boolean;
   skill_path_overrides: Partial<Record<Exclude<Engine, "browser">, string>>;
   agent_skill_paths: Record<Exclude<Engine, "browser">, {

@@ -14,6 +14,7 @@ agent 会绕开不用）。
 from __future__ import annotations
 
 import os
+import sqlite3
 import threading
 import time
 
@@ -22,6 +23,8 @@ from . import db
 _FALSE = {"0", "false", "no", "off"}
 
 DEFAULT_MAX_CHILDREN = 3      # 单个父任务的未结束子任务上限
+MAX_CHILDREN_CAP = 20         # 设置页可调的上限，防止误填过大
+MAX_CHILDREN_SETTING = "subtask_max_children"
 DEFAULT_TIMEOUT = 900.0       # 15min，与 autopilot.FIX_TIMEOUT 同量级
 MAX_TIMEOUT = 3600.0          # 钳制上限：父任务不能被无限期阻塞
 DEFAULT_CONCURRENCY = 8       # 同时阻塞在 /spawn 上的请求数上限，见 acquire_slot
@@ -62,8 +65,24 @@ def enabled() -> bool:
     return os.environ.get("BOSUN_SUBTASK", "1").strip().lower() not in _FALSE
 
 
+def clamp_max_children(value: object) -> int:
+    try:
+        return min(max(int(value), 1), MAX_CHILDREN_CAP)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_CHILDREN
+
+
 def max_children() -> int:
-    """单个父任务最多同时保留的未结束子任务数（默认 3）。"""
+    """单个父任务最多同时保留的未结束子任务数（默认 3）。
+
+    设置页保存的值优先，其次环境变量 BOSUN_SUBTASK_MAX；每次派生时现读，改完立即生效。
+    """
+    try:
+        stored = db.get_setting(MAX_CHILDREN_SETTING)
+    except sqlite3.Error:  # 库未就绪（如独立调用策略函数）时退回环境变量
+        stored = None
+    if stored not in (None, ""):
+        return clamp_max_children(stored)
     try:
         return max(0, int(os.environ.get("BOSUN_SUBTASK_MAX", DEFAULT_MAX_CHILDREN)))
     except ValueError:

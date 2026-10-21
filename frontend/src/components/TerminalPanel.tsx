@@ -40,14 +40,40 @@ import { taskPromptText } from "../taskText";
 import { engineName, engineShort } from "../engines";
 import { useAvailableEngines } from "../installedEngines";
 
-// 「其他任务需要处理」提醒：同一轮等待只弹一次，关闭或跳转后不再打扰。
-// 用 任务id + 该轮等待起点 作 key（waiting_since 在任务离开 waiting_input 时清空，
-// 下一轮等待会换新值，所以是新一轮才会再弹）。放模块级是因为面板在任务间
-// 切换时会按 key 重挂载，组件内 state 会丢。
-const seenAttention = new Set<string>();
+// 「其他任务需要处理」提醒：同一个提醒只弹一次，关闭或跳转后不再打扰。
+// 不能用 waiting_since 作 key：终端状态在 running / waiting_input 间来回切时每次都会
+// 换新值，导致同一件事反复弹。改用 任务id + 回报摘要——摘要只在 agent 新回报时变，
+// 才算新的提醒。记录存 localStorage，刷新页面后也不会重弹（不可用时退化为仅本页内存）。
+const SEEN_ATTENTION_KEY = "bosun.seenAttention";
+const SEEN_ATTENTION_MAX = 500;
+const seenAttention = new Set<string>(loadSeenAttention());
+
+function loadSeenAttention(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEEN_ATTENTION_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function markAttentionSeen(keys: string[]) {
+  keys.forEach((k) => {
+    seenAttention.delete(k); // 重新插入到末尾，裁剪时保留最近的
+    seenAttention.add(k);
+  });
+  const all = [...seenAttention];
+  const kept = all.slice(Math.max(0, all.length - SEEN_ATTENTION_MAX));
+  if (kept.length < all.length) all.slice(0, all.length - kept.length).forEach((k) => seenAttention.delete(k));
+  try {
+    localStorage.setItem(SEEN_ATTENTION_KEY, JSON.stringify(kept));
+  } catch {
+    // 隐私模式等场景写不进去，仅保留内存记录
+  }
+}
 
 function attentionKey(t: Task): string {
-  return `${t.id}:${t.waiting_since ?? 0}`;
+  return `${t.id}:${t.report_summary ?? ""}`;
 }
 
 function fmtTime(t: number | null): string {
@@ -1691,6 +1717,8 @@ export function TerminalPanel({
   const [editPrompt, setEditPrompt] = useState("");
   const [perm, setPerm] = useState<{ tool: string; input: string } | null>(null);
   const [, bumpAttention] = useReducer((n: number) => n + 1, 0);
+  // 本次挂载里已弹出的提醒：弹出即记为已看过（换任务、刷新都不再弹），但在关闭前保持显示
+  const shownAttention = useRef(new Set<string>());
   const [historyMode, setHistoryMode] = useState<"history" | "terminal">("history");
   // 抽屉全屏：桌面端把 48% 宽的抽屉铺满整屏，终端由 ResizeObserver 自动重新 fit
   const [fullscreen, setFullscreen] = useState(false);
@@ -1766,13 +1794,21 @@ export function TerminalPanel({
     (t) =>
       t.id !== detail.id &&
       t.status === "waiting_input" &&
-      !seenAttention.has(attentionKey(t)),
+      (!seenAttention.has(attentionKey(t)) || shownAttention.current.has(attentionKey(t))),
   );
   const showAttention = attentionTasks.length > 0;
+  const attentionKeys = attentionTasks.map(attentionKey).join("|");
 
-  /** 关闭/跳转即视为已看过：把当前提醒里的所有轮次记下，不再重复弹。 */
+  useEffect(() => {
+    const fresh = attentionKeys.split("|").filter((k) => k && !shownAttention.current.has(k));
+    if (fresh.length === 0) return;
+    fresh.forEach((k) => shownAttention.current.add(k));
+    markAttentionSeen(fresh);
+  }, [attentionKeys]);
+
+  /** 关闭/跳转后收起提醒；同一个提醒已在弹出时记过，不会再弹。 */
   function dismissAttention() {
-    attentionTasks.forEach((t) => seenAttention.add(attentionKey(t)));
+    shownAttention.current.clear();
     bumpAttention();
   }
 

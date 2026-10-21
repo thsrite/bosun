@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   quota_enabled: true,
   status_badge_enabled: true,
   subtask_skill_enabled: false,
+  subtask_max_children: 3,
   report_skill_enabled: false,
   skill_path_overrides: {},
   agent_skill_paths: {

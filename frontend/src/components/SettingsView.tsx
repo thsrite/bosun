@@ -925,6 +925,22 @@ export function SettingsView({
             </label>
           </Field>
           <Field
+            label="子任务上限"
+            hint="每个任务同时允许的未结束子任务数，默认 3；保存后立即生效。"
+          >
+            <input
+              type="number"
+              min={1}
+              max={20}
+              className="w-20 rounded-md border border-dh-bsoft bg-dh-surface px-2.5 py-1 text-sm text-dh-text"
+              value={settings.subtask_max_children}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (n >= 1) void onChange({ subtask_max_children: Math.min(n, 20) });
+              }}
+            />
+          </Field>
+          <Field
             label="任务回报技能"
             hint="开启后同步 bosun-report；不会改写原始任务提示，漏报时才由 Bosun 补催。"
           >

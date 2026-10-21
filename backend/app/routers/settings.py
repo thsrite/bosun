@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import agent_skills, browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler
+from .. import agent_skills, browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler, subtasks
 from ..engines import normalize_engine_id
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -24,6 +24,8 @@ class Settings(BaseModel):
     quota_enabled: bool = True
     status_badge_enabled: bool = True
     subtask_skill_enabled: bool = False
+    # None = 不改动（旧前端不回传时保持原值）
+    subtask_max_children: int | None = None
     report_skill_enabled: bool = False
     skill_path_overrides: dict[str, str] = Field(default_factory=dict)
     claude_invocation: str = "auto"
@@ -58,6 +60,7 @@ def get_settings():
         "quota_enabled": quota.is_enabled(),
         "status_badge_enabled": status_badge_enabled(),
         "subtask_skill_enabled": agent_skills.feature_enabled("subtask"),
+        "subtask_max_children": subtasks.max_children(),
         "report_skill_enabled": agent_skills.feature_enabled("report"),
         "skill_path_overrides": agent_skills.path_overrides(),
         "agent_skill_paths": agent_skills.path_info(),
@@ -178,6 +181,8 @@ def update_settings(body: Settings):
     db.set_setting("status_badge_enabled", "1" if body.status_badge_enabled else "0")
     db.set_setting("subtask_skill_enabled", "1" if body.subtask_skill_enabled else "0")
     db.set_setting("report_skill_enabled", "1" if body.report_skill_enabled else "0")
+    if body.subtask_max_children is not None:
+        db.set_setting(subtasks.MAX_CHILDREN_SETTING, subtasks.clamp_max_children(body.subtask_max_children))
     for engine, path in normalized_paths.items():
         db.set_setting(f"agent_skill_path:{engine}", path)
     invocation = body.claude_invocation.strip().lower()
