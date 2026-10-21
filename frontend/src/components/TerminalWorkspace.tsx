@@ -1,8 +1,20 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import type { Task } from "../types";
 import { TerminalPanel } from "./TerminalPanel";
 import { taskPromptText } from "../taskText";
+import { moveToSlot } from "../workspaceSlots";
 
 export type WorkspaceLayout = "1" | "2" | "3" | "3m" | "4" | "6";
 
@@ -92,7 +104,88 @@ export function fitLayout(count: number): WorkspaceLayout {
   return count <= 1 ? "1" : count <= 2 ? "2" : count <= 3 ? "3" : count <= 4 ? "4" : "6";
 }
 
-/** 多终端并排宿主：桌面端 1/2/4 宫格；移动端只显示激活的一个。 */
+/**
+ * 有任务的格子：整格是放置目标，顶栏把手是拖动源（只拖把手，不拖整块终端）。
+ * 放大时内层改为绝对定位盖满网格（网格容器是定位祖先），外层留在原位占住格子，
+ * 其余格子 invisible——尺寸都不变，终端不会因此重排或把 PTY 压小。
+ */
+function TaskCell({
+  task,
+  slot,
+  style,
+  maximized,
+  hidden,
+  canDrag,
+  children,
+}: {
+  task: Task;
+  slot: number;
+  style?: CSSProperties;
+  maximized: boolean;
+  hidden: boolean;
+  canDrag: boolean;
+  children: (accessory: ReactNode) => ReactNode;
+}) {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `slot-${slot}` });
+  const { setNodeRef: setDragRef, attributes, listeners, isDragging } = useDraggable({
+    id: `task-${task.id}`,
+    disabled: !canDrag,
+  });
+  const handle = canDrag ? (
+    <button
+      ref={setDragRef}
+      type="button"
+      className="cursor-grab touch-none whitespace-nowrap rounded-lg border border-dh-bsoft px-2 py-1 text-xs text-dh-tsoft hover:bg-dh-hover active:cursor-grabbing"
+      title="拖到另一格交换位置"
+      {...attributes}
+      {...listeners}
+    >
+      ⠿
+    </button>
+  ) : null;
+  return (
+    <div ref={setDropRef} className={`min-h-0 ${hidden ? "invisible" : ""}`} style={style}>
+      <div
+        className={`overflow-hidden rounded-lg border bg-dh-surface ${
+          maximized ? "absolute inset-1.5 z-10" : "h-full w-full"
+        } ${
+          isOver && !isDragging
+            ? "border-dh-accent ring-2 ring-dh-accent/50"
+            : maximized
+              ? "border-dh-accent"
+              : "border-dh-border"
+        } ${isDragging ? "opacity-60" : ""}`}
+      >
+        {children(handle)}
+      </div>
+    </div>
+  );
+}
+
+function EmptySlot({
+  slot,
+  style,
+  hidden,
+  children,
+}: {
+  slot: number;
+  style?: CSSProperties;
+  hidden: boolean;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `slot-${slot}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-0 rounded-lg ${hidden ? "invisible" : ""} ${isOver ? "ring-2 ring-dh-accent/50" : ""}`}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** 多终端并排宿主：桌面端多种宫格布局，格子可放大、可拖动交换；移动端只显示激活的一个。 */
 export function TerminalWorkspace({
   inline = false,
   taskIds,
@@ -103,6 +196,7 @@ export function TerminalWorkspace({
   onCloseTask,
   onCloseAll,
   onSwitchTask,
+  onReorderTasks,
   getProjectName,
   onChanged,
 }: {
@@ -115,6 +209,8 @@ export function TerminalWorkspace({
   onCloseTask: (id: number) => void;
   onCloseAll: () => void;
   onSwitchTask: (task: Task) => void;
+  /** 拖动交换格子后的新顺序（顺序即格子位置） */
+  onReorderTasks: (taskIds: number[]) => void;
   getProjectName?: (projectId: number) => string;
   onChanged: () => void;
 }) {
@@ -122,6 +218,11 @@ export function TerminalWorkspace({
   const headerTop = useHeaderTop();
   // 哪个空格正在选任务（null=都收起）
   const [pickingSlot, setPickingSlot] = useState<number | null>(null);
+  // 放大的格子：盖满整个工作台，其余格子保持尺寸只是隐藏（终端不重排、PTY 不被压小）
+  const [maximizedId, setMaximizedId] = useState<number | null>(null);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  // 拖出 6px 才算拖动，避免点把手时误触发
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const openTasks = taskIds
     .map((id) => tasks.find((t) => t.id === id))
     .filter((t): t is Task => !!t);
@@ -155,6 +256,22 @@ export function TerminalWorkspace({
   };
   const cellStyle = (i: number): CSSProperties | undefined =>
     spec.spans?.[i] ? { gridRow: spec.spans[i] } : undefined;
+  // 放大的任务已被关掉/移出时自动还原
+  const maximized = maximizedId !== null && slots.some((t) => t?.id === maximizedId) ? maximizedId : null;
+  const draggingTask = draggingId === null ? null : openTasks.find((t) => t.id === draggingId) ?? null;
+
+  function onDragStart(event: DragStartEvent) {
+    setDraggingId(Number(String(event.active.id).replace("task-", "")));
+  }
+
+  function onDragEnd(event: DragEndEvent) {
+    setDraggingId(null);
+    if (!event.over) return;
+    const fromId = Number(String(event.active.id).replace("task-", ""));
+    const toSlot = Number(String(event.over.id).replace("slot-", ""));
+    const next = moveToSlot(taskIds, fromId, toSlot);
+    if (next) onReorderTasks(next);
+  }
 
   const body = (
       <div
@@ -191,26 +308,55 @@ export function TerminalWorkspace({
             </button>
           </div>
         </div>
-        <div className="grid min-h-0 flex-1 gap-1.5 bg-dh-soft p-1.5" style={gridStyle}>
+        <DndContext
+          sensors={sensors}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDraggingId(null)}
+        >
+        <div className="relative grid min-h-0 flex-1 gap-1.5 bg-dh-soft p-1.5" style={gridStyle}>
           {slots.map((t, i) =>
             t ? (
-              <div
+              <TaskCell
                 key={`cell-${t.id}`}
-                className="min-h-0 overflow-hidden rounded-lg border border-dh-border bg-dh-surface"
+                task={t}
+                slot={i}
                 style={cellStyle(i)}
+                maximized={maximized === t.id}
+                hidden={maximized !== null && maximized !== t.id}
+                canDrag={openTasks.length > 1 && maximized === null}
               >
-                <TerminalPanel
-                  embedded
-                  task={t}
-                  getProjectName={getProjectName}
-                  onClose={() => onCloseTask(t.id)}
-                  onChanged={onChanged}
-                />
-              </div>
+                {(accessory) => (
+                  <TerminalPanel
+                    embedded
+                    task={t}
+                    getProjectName={getProjectName}
+                    onClose={() => onCloseTask(t.id)}
+                    onChanged={onChanged}
+                    headerAccessory={
+                      <>
+                        {accessory}
+                        {spec.slots > 1 && (
+                          <button
+                            type="button"
+                            className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-dh-tsoft hover:bg-dh-hover"
+                            onClick={() => setMaximizedId(maximized === t.id ? null : t.id)}
+                            title={maximized === t.id ? "还原到格子" : "放大这一格（其余终端保持连接）"}
+                          >
+                            {maximized === t.id ? "⤡ 还原" : "⤢ 放大"}
+                          </button>
+                        )}
+                      </>
+                    }
+                  />
+                )}
+              </TaskCell>
             ) : pickingSlot === i ? (
               <div
                 key={`pick-${i}`}
-                className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-dh-border bg-dh-s2"
+                className={`flex min-h-0 flex-col overflow-hidden rounded-lg border border-dh-border bg-dh-s2 ${
+                  maximized !== null ? "invisible" : ""
+                }`}
                 style={cellStyle(i)}
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-dh-border px-3 py-2">
@@ -257,18 +403,27 @@ export function TerminalWorkspace({
                 </div>
               </div>
             ) : (
-              <button
-                key={`empty-${i}`}
-                type="button"
-                style={cellStyle(i)}
-                className="flex min-h-0 items-center justify-center rounded-lg border border-dashed border-dh-border bg-dh-s2/40 px-3 text-center text-xs text-dh-muted hover:border-dh-border hover:text-slate-400"
-                onClick={() => setPickingSlot(i)}
-              >
-                ＋ 点击选择任务加入
-              </button>
+              <EmptySlot key={`empty-${i}`} slot={i} style={cellStyle(i)} hidden={maximized !== null}>
+                <button
+                  type="button"
+                  className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-dh-border bg-dh-s2/40 px-3 text-center text-xs text-dh-muted hover:border-dh-border hover:text-slate-400"
+                  onClick={() => setPickingSlot(i)}
+                >
+                  {draggingId !== null ? "松开放到这里" : "＋ 点击选择任务加入"}
+                </button>
+              </EmptySlot>
             ),
           )}
         </div>
+        <DragOverlay dropAnimation={null}>
+          {draggingTask && (
+            <div className="max-w-[280px] truncate rounded-lg border border-dh-accent bg-dh-surface px-3 py-2 text-xs text-dh-text shadow-xl">
+              <span className="font-mono text-dh-muted">#{draggingTask.id}</span>{" "}
+              {draggingTask.title || taskPromptText(draggingTask)}
+            </div>
+          )}
+        </DragOverlay>
+        </DndContext>
       </div>
   );
   if (inline) return body;

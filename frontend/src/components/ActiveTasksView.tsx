@@ -1268,6 +1268,11 @@ export function ActiveTasksView({
                 prev.map((w) => (w.id === activeWorkspace.id ? { ...w, taskIds: [] } : w)),
               )
             }
+            onReorderTasks={(ids) =>
+              setWorkspaces((prev) =>
+                prev.map((w) => (w.id === activeWorkspace.id ? { ...w, taskIds: ids } : w)),
+              )
+            }
             onSwitchTask={(t) => {
               setTasks((current) => current.some((item) => item.id === t.id) ? current : [...current, t]);
               openTask(t.id);

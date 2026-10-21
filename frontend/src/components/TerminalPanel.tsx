@@ -1697,6 +1697,7 @@ export function TerminalPanel({
   onClose,
   onChanged,
   embedded = false,
+  headerAccessory,
 }: {
   task: Task;
   switchTasks?: Task[];
@@ -1706,6 +1707,8 @@ export function TerminalPanel({
   onChanged: () => void;
   // 嵌入模式：去掉固定抽屉定位与遮罩，由父级网格容器决定尺寸（多终端并排用）
   embedded?: boolean;
+  /** 嵌入模式下由宿主塞进顶栏右侧的控件（工作台格子的拖动把手、放大按钮） */
+  headerAccessory?: ReactNode;
 }) {
   const [detail, setDetail] = useState<Task>(task);
   const { busy, run } = useSingleFlight();
@@ -2228,6 +2231,7 @@ export function TerminalPanel({
                 🗑<span className="hidden sm:inline"> 删除</span>
               </button>
             </div>
+            {embedded && headerAccessory}
             {/* 全屏：仅抽屉模式且桌面端有意义（移动端抽屉本来就是全宽） */}
             {!embedded && (
               <button
