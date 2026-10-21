@@ -82,7 +82,7 @@ export function TaskQuickSwitcher({
         type="search"
         enterKeyHint="go"
         className="mb-3 w-full rounded-lg border border-dh-bsoft bg-dh-surface px-3 py-2 text-sm text-dh-text"
-        placeholder="搜索编号、标题、项目、引擎…（↑↓ 选择，回车跳转）"
+        placeholder={isCoarsePointer() ? "搜索编号、标题、项目…" : "搜索编号、标题、项目、引擎…（↑↓ 选择，回车跳转）"}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}

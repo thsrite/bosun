@@ -426,6 +426,81 @@ function taskSwipeDirection(dx: number, dy: number): -1 | 0 | 1 {
   return dx < 0 ? 1 : -1;
 }
 
+/** 手机底部切换栏：左右按钮写明会切到哪个任务，中间点开快速切换面板。 */
+function TaskPager({
+  prev,
+  next,
+  position,
+  onPrev,
+  onNext,
+  onOpen,
+}: {
+  prev: Task;
+  next: Task;
+  position: string;
+  onPrev: () => void;
+  onNext: () => void;
+  onOpen: () => void;
+}) {
+  const side = (t: Task) => {
+    const st = STATUS_STYLE[taskStatusStyleKey(t)] ?? STATUS_STYLE.draft;
+    return (
+      <>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
+        <span className="shrink-0 font-mono text-[11px] text-dh-muted">#{t.id}</span>
+        <span className="min-w-0 truncate">{t.title || taskPromptText(t)}</span>
+      </>
+    );
+  };
+  const btn =
+    "flex min-h-[36px] min-w-0 flex-1 items-center gap-1 rounded-md border border-dh-border bg-dh-s2 px-2 text-[12px] text-slate-200 active:bg-dh-hover";
+  return (
+    <div className="flex items-center gap-1.5">
+      <button type="button" className={btn} onClick={onPrev} title="上一个任务（也可在终端上向右滑）">
+        <span className="shrink-0 text-dh-muted">‹</span>
+        {side(prev)}
+      </button>
+      <button
+        type="button"
+        className="min-h-[36px] shrink-0 rounded-md border border-dh-border bg-dh-s2 px-2.5 text-[12px] tabular-nums text-dh-tsoft active:bg-dh-hover"
+        onClick={onOpen}
+        title="搜索并切换任务"
+      >
+        {position}
+      </button>
+      <button type="button" className={`${btn} justify-end`} onClick={onNext} title="下一个任务（也可在终端上向左滑）">
+        {side(next)}
+        <span className="shrink-0 text-dh-muted">›</span>
+      </button>
+    </div>
+  );
+}
+
+// 切换任务后在新面板中央短暂提示「#id 标题」：滑动切换时没有其它视觉反馈，
+// 不提示就只能盯着顶栏编号确认。面板按任务重挂载，所以记在模块级。
+let lastSwitchTarget: { id: number; at: number } | null = null;
+
+function SwitchToast({ task }: { task: Task }) {
+  const [visible, setVisible] = useState(
+    () => lastSwitchTarget?.id === task.id && Date.now() - lastSwitchTarget.at < 1500,
+  );
+  useEffect(() => {
+    if (!visible) return;
+    lastSwitchTarget = null;
+    const timer = window.setTimeout(() => setVisible(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, [visible]);
+  if (!visible) return null;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-1/3 z-50 flex justify-center px-6">
+      <div className="max-w-full truncate rounded-full border border-dh-border bg-dh-surface px-4 py-2 text-sm font-medium text-dh-text shadow-xl">
+        <span className="mr-1.5 font-mono text-dh-muted">#{task.id}</span>
+        {task.title || taskPromptText(task)}
+      </div>
+    </div>
+  );
+}
+
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? false);
   useEffect(() => {
@@ -493,10 +568,13 @@ function TerminalView({
   taskId,
   live,
   onSwipeTask,
+  pager,
 }: {
   taskId: number;
   live: boolean;
   onSwipeTask?: (direction: -1 | 1) => void;
+  /** 手机底部任务切换栏：活跃会话放进按键栏顶部，已结束的会话单独占底部一行 */
+  pager?: ReactNode;
 }) {
   const elRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -1619,9 +1697,13 @@ function TerminalView({
           onClose={() => setPreviewPath(null)}
         />
       )}
+      {!live && pager && (
+        <div className="dh-safe-bottom-pad shrink-0 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">{pager}</div>
+      )}
       {live && (
         <TerminalMobileComposer
           taskId={taskId}
+          top={pager}
           connected={connected}
           onSend={sendTerminalData}
           onPaste={pasteTerminalData}
@@ -1641,12 +1723,14 @@ function TerminalView({
 
 function TerminalMobileComposer({
   taskId,
+  top,
   connected,
   onSend,
   onPaste,
   onFocusTerminal,
 }: {
   taskId: number;
+  top?: ReactNode;
   connected: boolean;
   onSend: (data: string) => void;
   onPaste: (data: string) => void;
@@ -1681,6 +1765,7 @@ function TerminalMobileComposer({
 
   return (
     <div className="dh-terminal-composer dh-safe-bottom-pad flex shrink-0 flex-col gap-1.5 border-t border-dh-bsoft bg-[#131316] px-2 pt-2 md:hidden">
+      {top}
       {/* 6 列 × 2 行；↑ 在上、← ↓ → 在下同列对齐，组成方向键「倒 T」。
           软键盘唯一从「键盘」键唤起（轻点终端正文只滚动/点链接，不再误弹输入法），
           聚焦 xterm 隐藏 textarea 后键入直进 PTY。 */}
@@ -1868,6 +1953,19 @@ export function TerminalPanel({
   // 手机竖屏太窄，纵向空间也紧，仍走左右滑动 + 快速切换面板。
   const touch = isTouchDevice();
   const showTaskStrip = !embedded && canSwitch && touch;
+  // 手机：切换控件挪到底部按键栏上方（拇指够得着），顶栏只留标题；仅终端视图有这条栏
+  const terminalViewShown = hasSession && !isChat && !(hasStoredHistory && historyMode === "history");
+  const phonePagerShown = canSwitch && terminalViewShown;
+  const phonePager = phonePagerShown ? (
+    <TaskPager
+      prev={switchableTasks[(currentIdx - 1 + switchableTasks.length) % switchableTasks.length]}
+      next={switchableTasks[(currentIdx + 1) % switchableTasks.length]}
+      position={`${currentIdx + 1}/${switchableTasks.length}`}
+      onPrev={() => switchBy(-1)}
+      onNext={() => switchBy(1)}
+      onOpen={() => setShowSwitcher(true)}
+    />
+  ) : null;
   // iPad 横屏的抽屉只有屏宽一半：完成/日志/删除收进「详情」，保证「关闭」始终可见
   const compactActions = touch && !embedded && !fullscreen && lgViewport;
   const attentionTasks = switchableTasks.filter(
@@ -1892,8 +1990,33 @@ export function TerminalPanel({
     bumpAttention();
   }
 
+  // 执行器下拉：桌面/平板放顶栏；手机顶栏太挤，收进「详情」展开的操作行
+  function renderEngineSelect(className: string) {
+    return (
+          <select
+            className={`shrink-0 rounded border border-dh-bsoft bg-dh-s2 px-1.5 py-0.5 text-xs font-medium text-dh-tsoft disabled:opacity-50 ${className}`}
+            value={detail.engine}
+            disabled={busy}
+            onChange={(e) => void switchEngine(e.target.value as Engine)}
+            title={detail.status === "draft" ? "切换任务执行器" : "切换执行器并创建接力任务"}
+          >
+            {/* 当前任务的引擎即使已卸载也要保留选项，否则 select 显示会落空 */}
+            {(availableEngines.includes(detail.engine)
+              ? availableEngines
+              : [detail.engine, ...availableEngines]
+            ).map((item) => (
+              <option key={item} value={item}>
+                {/* 顶栏空间紧张：claude 用短称 Claude，其余仍用官方全名 */}
+                {item === "claude" ? "Claude" : engineName(item)}
+              </option>
+            ))}
+          </select>
+    );
+  }
+
   function switchToTask(next: Task) {
     if (next.id === detail.id) return;
+    lastSwitchTarget = { id: next.id, at: Date.now() };
     onSwitchTask?.(next);
   }
 
@@ -2179,27 +2302,18 @@ export function TerminalPanel({
         <div className={`${isChat ? "" : "dh-terminal-header"} dh-scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-dh-bsoft px-4 py-3`}>
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dot} ${s.pulse ? "animate-pulse" : ""}`} />
           <span className="shrink-0 font-mono text-sm text-slate-400">#{detail.id}</span>
-          <select
-            className="shrink-0 rounded border border-dh-bsoft bg-dh-s2 px-1.5 py-0.5 text-xs font-medium text-dh-tsoft disabled:opacity-50"
-            value={detail.engine}
-            disabled={busy}
-            onChange={(e) => void switchEngine(e.target.value as Engine)}
-            title={detail.status === "draft" ? "切换任务执行器" : "切换执行器并创建接力任务"}
-          >
-            {/* 当前任务的引擎即使已卸载也要保留选项，否则 select 显示会落空 */}
-            {(availableEngines.includes(detail.engine)
-              ? availableEngines
-              : [detail.engine, ...availableEngines]
-            ).map((item) => (
-              <option key={item} value={item}>
-                {/* 顶栏空间紧张：claude 用短称 Claude，其余仍用官方全名 */}
-                {item === "claude" ? "Claude" : engineName(item)}
-              </option>
-            ))}
-          </select>
+          {renderEngineSelect("max-md:hidden")}
+          {/* 手机顶栏没有任务详情行：直接显示标题，左右滑动切换后一眼知道到了哪个任务 */}
+          <span className="min-w-0 flex-1 truncate font-medium text-dh-text md:hidden">
+            {detail.title || taskPromptText(detail)}
+          </span>
           <span className={`shrink-0 whitespace-nowrap text-sm font-medium ${s.text}`}>{s.label}</span>
           {canSwitch && (
-            <div className="flex shrink-0 items-center rounded-lg border border-dh-bsoft bg-dh-surface text-xs text-dh-muted">
+            <div
+              className={`flex shrink-0 items-center rounded-lg border border-dh-bsoft bg-dh-surface text-xs text-dh-muted ${
+                phonePagerShown ? "max-md:hidden" : ""
+              }`}
+            >
               <button
                 className={`${touch ? "min-w-[40px] px-3 py-2 min-[700px]:hidden" : "px-2 py-1"} hover:bg-dh-hover`}
                 onClick={() => switchBy(-1)}
@@ -2268,6 +2382,7 @@ export function TerminalPanel({
             </button>
             {/* 非必要操作：移动端收进「详情」(showDetails)，桌面端常驻 */}
             <div className={`${showDetails ? "flex" : "hidden"} items-center gap-1.5 ${compactActions ? "" : "md:flex"}`}>
+              {renderEngineSelect("md:hidden")}
               {canComplete && (
                 <button
                   className="whitespace-nowrap rounded-lg border border-dh-bsoft px-2.5 py-1 text-xs text-sky-300 hover:bg-sky-500/20 disabled:opacity-50"
@@ -2566,6 +2681,7 @@ export function TerminalPanel({
                       taskId={detail.id}
                       live={false}
                       onSwipeTask={canSwitch && !editing ? switchBy : undefined}
+                      pager={phonePager}
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-xs text-dh-muted">
@@ -2580,6 +2696,7 @@ export function TerminalPanel({
                 taskId={detail.id}
                 live={active}
                 onSwipeTask={canSwitch && !editing ? switchBy : undefined}
+                pager={phonePager}
               />
             )
           ) : (
@@ -2597,6 +2714,8 @@ export function TerminalPanel({
             </div>
           )}
         </div>
+        {/* 放在最后并抬高层级：xterm 的绘制层自带 z-index，放前面会被盖住 */}
+        {!embedded && <SwitchToast key={detail.id} task={detail} />}
       </div>
   );
   if (embedded) return panel;
