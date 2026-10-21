@@ -39,6 +39,8 @@ import { useSingleFlight } from "../useSingleFlight";
 import { taskPromptText } from "../taskText";
 import { engineName, engineShort } from "../engines";
 import { useAvailableEngines } from "../installedEngines";
+import { nextAttentionTask, sortByUrgency, urgencyGroup } from "../taskUrgency";
+import { TaskQuickSwitcher } from "./TaskQuickSwitcher";
 
 // 「其他任务需要处理」提醒：同一个提醒只弹一次，关闭或跳转后不再打扰。
 // 不能用 waiting_since 作 key：终端状态在 running / waiting_input 间来回切时每次都会
@@ -1717,6 +1719,7 @@ export function TerminalPanel({
   const [editPrompt, setEditPrompt] = useState("");
   const [perm, setPerm] = useState<{ tool: string; input: string } | null>(null);
   const [, bumpAttention] = useReducer((n: number) => n + 1, 0);
+  const [showSwitcher, setShowSwitcher] = useState(false);
   // 本次挂载里已弹出的提醒：弹出即记为已看过（换任务、刷新都不再弹），但在关闭前保持显示
   const shownAttention = useRef(new Set<string>());
   const [historyMode, setHistoryMode] = useState<"history" | "terminal">("history");
@@ -1787,7 +1790,12 @@ export function TerminalPanel({
   const hasSession = active || !!detail.log_path || hasStoredHistory;
   const isDraft = detail.status === "draft";
   const isChat = detail.render_mode === "chat";
-  const switchableTasks = switchTasks.length > 0 ? switchTasks : [detail];
+  // 按紧急度轮转：等你处理的（等得越久越前）→ 运行中 → 排队 → 待核对
+  const switchableTasks = sortByUrgency(switchTasks.length > 0 ? switchTasks : [detail]);
+  const nextAttention = nextAttentionTask(switchableTasks, detail.id);
+  const attentionCount = switchableTasks.filter(
+    (t) => t.id !== detail.id && urgencyGroup(t) === "attention",
+  ).length;
   const currentIdx = switchableTasks.findIndex((t) => t.id === detail.id);
   const canSwitch = currentIdx >= 0 && switchableTasks.length > 1;
   const attentionTasks = switchableTasks.filter(
@@ -1824,25 +1832,33 @@ export function TerminalPanel({
   }
 
   // 桌面端快速巡检任务：即使焦点在 xterm 内也拦截组合键，但编辑表单时不抢键盘。
-  // 使用上下方向与运行任务列表的纵向顺序对应；首尾循环，适合连续查看多条任务。
+  // ⌥⇧↑↓ 按紧急度顺序首尾循环；⌥⇧N 跳到等得最久的待处理任务；
+  // ⌘K / ⌥⇧K 打开快速切换面板（不拦 Ctrl+K：CLI 输入框用它删到行尾）。
+  // Option 组合会改写 event.key（⌥⇧N 得到「˜」），字母键一律按 event.code 判。
   useEffect(() => {
     if (!canSwitch) return;
     const onTaskSwitchShortcut = (event: KeyboardEvent) => {
-      if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      const altShift = event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey;
+      const cmdK = event.metaKey && !event.ctrlKey && !event.altKey && event.code === "KeyK";
+      let action: (() => void) | null = null;
+      if (cmdK || (altShift && event.code === "KeyK")) action = () => setShowSwitcher(true);
+      else if (altShift && event.key === "ArrowUp") action = () => switchBy(-1);
+      else if (altShift && event.key === "ArrowDown") action = () => switchBy(1);
+      else if (altShift && event.code === "KeyN" && nextAttention) action = () => switchToTask(nextAttention);
+      if (!action) return;
 
       const target = event.target instanceof HTMLElement ? event.target : null;
       const isTerminalTarget = !!target?.closest(".xterm");
       const isEditingTarget = !!target?.closest("input, textarea, select, [contenteditable='true']");
-      if (editing || (isEditingTarget && !isTerminalTarget)) return;
+      if (editing || showSwitcher || (isEditingTarget && !isTerminalTarget)) return;
 
       event.preventDefault();
       event.stopPropagation();
-      switchBy(event.key === "ArrowUp" ? -1 : 1);
+      action();
     };
     window.addEventListener("keydown", onTaskSwitchShortcut, true);
     return () => window.removeEventListener("keydown", onTaskSwitchShortcut, true);
-  }, [canSwitch, currentIdx, detail.id, editing, switchableTasks]);
+  }, [canSwitch, currentIdx, detail.id, editing, nextAttention, showSwitcher, switchableTasks]);
 
   function onTouchStart(e: TouchEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
@@ -2119,15 +2135,17 @@ export function TerminalPanel({
               >
                 ‹
               </button>
-              <span
-                className="border-x border-dh-bsoft px-2 py-1 tabular-nums"
-                title="快捷键：Alt/Option + Shift + ↑ / ↓"
+              <button
+                type="button"
+                className="border-x border-dh-bsoft px-2 py-1 tabular-nums hover:bg-dh-hover"
+                onClick={() => setShowSwitcher(true)}
+                title="搜索并切换任务（⌘K 或 Alt/Option + Shift + K）"
               >
                 {currentIdx + 1}/{switchableTasks.length}
-              </span>
+              </button>
               <span
                 className="hidden px-2 py-1 font-mono text-[10px] text-slate-400 xl:inline"
-                title="快捷键：Alt/Option + Shift + ↑ / ↓"
+                title="快捷键：Alt/Option + Shift + ↑ / ↓ 切换，K 搜索，N 下一个待处理"
               >
                 ⌥/Alt ⇧ ↑↓
               </span>
@@ -2139,6 +2157,26 @@ export function TerminalPanel({
                 ›
               </button>
             </div>
+          )}
+          {nextAttention && (
+            <button
+              type="button"
+              className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-500/40 px-2 py-1 text-xs font-medium text-amber-400 hover:bg-amber-500/20"
+              onClick={() => switchToTask(nextAttention)}
+              title={`跳到等得最久的待处理任务 #${nextAttention.id}（Alt/Option + Shift + N）`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              待处理 {attentionCount}
+            </button>
+          )}
+          {showSwitcher && (
+            <TaskQuickSwitcher
+              tasks={switchableTasks}
+              currentId={detail.id}
+              getProjectName={getProjectName}
+              onPick={switchToTask}
+              onClose={() => setShowSwitcher(false)}
+            />
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* 移动端：详情 toggle，展开下方操作 + 任务信息；桌面端不显示(操作常驻) */}
