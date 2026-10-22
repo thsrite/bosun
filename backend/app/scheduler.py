@@ -193,6 +193,8 @@ def _on_exit(task_id: int, exit_code: int) -> None:
     if cur and cur["status"] == status:
         events.emit("task.status", {"task_id": task_id, "status": status, "exit_code": exit_code})
         threading.Thread(target=_finalize_tokens, args=(task_id, 3.0), daemon=True).start()
+    # 本轮可能把会话挪到了新文件：及时改记，对话历史和下次「继续」才是最新的那段
+    threading.Thread(target=_follow_fork_later, args=(task_id, 2.0), daemon=True).start()
     # 父任务进程退出同样要级联取消活动子任务：cancel/delete 有级联，但「跑完就退」
     # 才是主流路径，漏掉它子任务就成了没人认领、也没人杀的孤儿进程。
     _cancel_active_children(task_id)
@@ -294,6 +296,56 @@ def _capture_session(
                 return
         if time.monotonic() - started > max_seconds:
             return
+
+
+def follow_claude_fork(task_id: int) -> str | None:
+    """任务记着的 Claude 会话若已被挪到新的会话文件（续聊时分叉），改记最新的那个。
+
+    返回生效的会话 id（未变化时返回原 id；不适用时返回 None）。
+    """
+    row = db.query_one("SELECT engine, project_id, session_uid FROM task WHERE id=?", (task_id,))
+    if row is None or row["engine"] != "claude" or not row["session_uid"]:
+        return None
+    project = db.query_one("SELECT path FROM project WHERE id=?", (row["project_id"],))
+    if project is None:
+        return row["session_uid"]
+    claimed = {
+        r["session_uid"]
+        for r in db.query(
+            "SELECT session_uid FROM task WHERE id<>? AND session_uid IS NOT NULL", (task_id,)
+        )
+    }
+    fork = sessions.latest_claude_fork(project["path"], row["session_uid"], exclude_uids=claimed)
+    if not fork:
+        return row["session_uid"]
+    changed = db.execute_rowcount(
+        "UPDATE task SET session_uid=? WHERE id=? AND session_uid=?",
+        (fork, task_id, row["session_uid"]),
+    )
+    if changed:
+        events.emit("task.session", {"task_id": task_id, "session_uid": fork})
+    return fork
+
+
+def background_conflict_message(uid: str) -> str | None:
+    """会话正在 Claude 后台运行时的提示（此时 --resume 会被 Claude 拒绝）；没冲突返回 None。"""
+    item = sessions.claude_background_session(uid)
+    if item is None:
+        return None
+    short = item.get("id") or uid[:8]
+    name = item.get("name") or ""
+    return (
+        f"该会话正在 Claude 后台运行{f'（{name}）' if name else ''}，继续会与它冲突。"
+        f"请在终端用 `claude attach {short}` 接入它，或先 `claude stop {short}` 停掉再继续。"
+    )
+
+
+def _follow_fork_later(task_id: int, delay: float) -> None:
+    time.sleep(delay)
+    try:
+        follow_claude_fork(task_id)
+    except Exception:
+        pass
 
 
 def _finalize_tokens(task_id: int, delay: float) -> None:
@@ -462,6 +514,23 @@ RESTART_RESUME_PROMPT = "（Bosun 后端刚重启，上一轮执行被打断。�
 _BOOT_TIME = time.time()
 
 
+def _fail_start(row, log_path: str, reason: str) -> None:
+    """任务没能启动：原因写进终端日志（打开任务就能看到）并落 failed。"""
+    try:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"启动失败: {reason}\n")
+    except OSError:
+        pass
+    db.execute(
+        "UPDATE task SET status='failed', exit_code=127, log_path=?, ended_at=? WHERE id=?",
+        (log_path, time.time(), row["id"]),
+    )
+    events.emit("task.status", {"task_id": row["id"], "status": "failed", "error": reason})
+    from . import orchestrations
+    orchestrations.handle_task_exit(row["id"], 127)
+
+
 def _start_task(row) -> None:
     assert _loop is not None
     project = db.query_one("SELECT * FROM project WHERE id=?", (row["project_id"],))
@@ -523,6 +592,12 @@ def _start_task(row) -> None:
             reasoning_override=reasoning_override,
         )
     else:
+        if row["resume"] and session_uid and engine == "claude":
+            session_uid = follow_claude_fork(row["id"]) or session_uid
+            conflict = background_conflict_message(session_uid)
+            if conflict:
+                _fail_start(row, log_path, conflict)
+                return
         if row["resume"] and session_uid:
             argv = build_resume_argv(
                 engine,
@@ -586,18 +661,7 @@ def _start_task(row) -> None:
         session.start()
     except Exception as exc:  # 启动失败（如 claude 不在 PATH）
         _sessions.pop(row["id"], None)
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"启动失败: {exc}\n")
-        except OSError:
-            pass
-        db.execute(
-            "UPDATE task SET status='failed', exit_code=127, ended_at=? WHERE id=?",
-            (time.time(), row["id"]),
-        )
-        events.emit("task.status", {"task_id": row["id"], "status": "failed", "error": str(exc)})
-        from . import orchestrations
-        orchestrations.handle_task_exit(row["id"], 127)
+        _fail_start(row, log_path, str(exc))
         return
     events.emit("task.status", {"task_id": row["id"], "status": "running"})
     if capture is not None:
@@ -917,9 +981,14 @@ def resume_paused(task_id: int, extra_prompt: str = "") -> bool:
     if project is None:
         raise TaskTransitionError("任务所属项目不存在")
 
+    session_uid = row["session_uid"]
+    if session_uid and row["engine"] == "claude":
+        session_uid = follow_claude_fork(task_id) or session_uid
+        conflict = background_conflict_message(session_uid)
+        if conflict:
+            raise TaskTransitionError(conflict)
     can_resume = bool(
-        row["session_uid"]
-        and sessions.local_session_info(row["engine"], project["path"], row["session_uid"])
+        session_uid and sessions.local_session_info(row["engine"], project["path"], session_uid)
     )
     prior = 0
     if row["started_at"] and row["ended_at"]:
@@ -935,7 +1004,7 @@ def resume_paused(task_id: int, extra_prompt: str = "") -> bool:
         "original_prompt=COALESCE(NULLIF(original_prompt,''), NULLIF(prompt,'')), "
         "exit_code=NULL, started_at=NULL, ended_at=NULL, elapsed_accum=elapsed_accum+?, "
         "paused_from_status=NULL WHERE id=? AND status='paused'",
-        (int(can_resume), prompt, row["session_uid"] if can_resume else None, prior, task_id),
+        (int(can_resume), prompt, session_uid if can_resume else None, prior, task_id),
     )
     if not changed:
         raise TaskTransitionError("任务状态已变化，请刷新后重试")

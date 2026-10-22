@@ -361,7 +361,14 @@ def continue_task(task_id: int, body: ContinueBody):
     proj = db.query_one("SELECT path FROM project WHERE id=?", (t["project_id"],))
     if proj is None:
         raise HTTPException(400, "任务所属项目不存在，无法继续")
-    if sessions.local_session_info(t["engine"], proj["path"], t["session_uid"]) is None:
+    session_uid = t["session_uid"]
+    if t["engine"] == "claude":
+        # 会话若在续聊时被挪到了新文件，先改记最新的那个，否则会加载旧快照
+        session_uid = scheduler.follow_claude_fork(task_id) or session_uid
+        conflict = scheduler.background_conflict_message(session_uid)
+        if conflict:
+            raise HTTPException(409, conflict)
+    if sessions.local_session_info(t["engine"], proj["path"], session_uid) is None:
         raise HTTPException(
             400,
             "该会话未落盘、已丢失或不属于当前项目，已阻止继续以避免加载其他任务的会话；请改用「重跑」",

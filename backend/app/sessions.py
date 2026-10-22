@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from collections.abc import Callable
@@ -176,6 +177,97 @@ def capture_claude_session(
         [claude_project_dir(cwd)], before, since_ts, lambda p: p.stem, exclude_uids,
         engine="claude", prompt=prompt,
     )
+
+
+_FORK_SCAN_LINES = 400  # 首条用户消息之前只有少量元数据行，读这么多足够
+
+
+def _claude_first_user_uuid(path: Path) -> str | None:
+    """会话里第一条用户消息的 uuid：Claude 把会话分叉到新文件时整段历史原样复制，这个值不变。"""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i >= _FORK_SCAN_LINES:
+                    break
+                if '"user"' not in line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if record.get("type") == "user" and record.get("uuid"):
+                    return str(record["uuid"])
+    except OSError:
+        return None
+    return None
+
+
+def latest_claude_fork(cwd: str, uid: str, exclude_uids: set[str] | None = None) -> str | None:
+    """Claude 续聊时可能把会话挪到新的会话文件（历史复制过去、换新 id），之后的对话都写在新文件里。
+
+    任务若还记着旧 id，下次「继续」就会加载旧快照，看起来最近的记录全丢了。这里找出比旧文件
+    更晚写入、且首条用户消息 uuid 相同的会话，返回最新的那个；没有分叉返回 None。
+    exclude_uids 排掉已被其它任务认领的会话（如从同一会话接力/分叉出去的任务）。
+    """
+    directory = claude_project_dir(cwd)
+    base = directory / f"{uid}.jsonl"
+    try:
+        base_mtime = base.stat().st_mtime
+    except OSError:
+        return None
+    root = _claude_first_user_uuid(base)
+    if root is None:
+        return None
+    excluded = exclude_uids or set()
+    best: tuple[float, str] | None = None
+    for p in directory.glob("*.jsonl"):
+        if p.stem == uid or p.stem in excluded or not _UUID_RE.fullmatch(p.stem):
+            continue
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        if mtime <= base_mtime:  # 先按时间过滤，避免逐个读整个项目的历史会话
+            continue
+        if _claude_first_user_uuid(p) != root:
+            continue
+        if best is None or mtime > best[0]:
+            best = (mtime, p.stem)
+    return best[1] if best else None
+
+
+def claude_background_session(uid: str) -> dict | None:
+    """该会话是否正在 Claude 后台运行（claude agents 列表里有它且进程还活着）。
+
+    Bosun 重启等情况下，交互会话可能被 Claude 转入后台继续跑；此时再 `--resume` 同一会话，
+    Claude 会直接拒绝并退出。查询失败（旧版 CLI 没有该子命令、超时等）一律当作没在跑。
+    """
+    from . import config
+
+    try:
+        result = subprocess.run(
+            [config.CLAUDE_BIN, "agents", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+        items = json.loads(result.stdout or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict) or item.get("sessionId") != uid:
+            continue
+        try:
+            os.kill(int(item.get("pid")), 0)
+        except PermissionError:
+            pass  # 进程在，只是不归当前用户
+        except (TypeError, ValueError, ProcessLookupError):
+            continue
+        return item
+    return None
 
 
 def _codex_rollouts() -> list[Path]:

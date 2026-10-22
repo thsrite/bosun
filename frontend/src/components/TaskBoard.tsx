@@ -10,7 +10,7 @@ import {
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
-import { confirmDialog, promptDialog } from "../overlay";
+import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
 import type { Task } from "../types";
 import { useSingleFlight } from "../useSingleFlight";
@@ -334,7 +334,13 @@ export function TaskBoard({
           });
           if (prompt === null) return; // 取消弹窗=不继续；留空=只恢复上下文不发指令
           if (!(await guardQuota(tk.engine))) return;
-          await api.continueTask(tk.id, { prompt, start: true });
+          try {
+            await api.continueTask(tk.id, { prompt, start: true });
+          } catch (e) {
+            // 如会话正在 Claude 后台运行：后端会说明原因和处理办法，必须让用户看到
+            toast(`继续失败：${e instanceof Error ? e.message : String(e)}`, "error");
+            return;
+          }
           onChanged();
         }}
       />
