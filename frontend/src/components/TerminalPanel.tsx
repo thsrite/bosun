@@ -454,6 +454,25 @@ function TaskPager({
   };
   const btn =
     "flex min-h-[36px] min-w-0 flex-1 items-center gap-1 rounded-md border border-dh-border bg-dh-s2 px-2 text-[12px] text-slate-200 active:bg-dh-hover";
+  // 只有两个任务时上一个/下一个是同一个，只放一个「切到它」的按钮，免得左右重复
+  if (prev.id === next.id) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <button type="button" className={btn} onClick={onNext} title="切换到另一个任务（也可在终端上左右滑）">
+          <span className="shrink-0 text-dh-muted">⇄</span>
+          {side(next)}
+        </button>
+        <button
+          type="button"
+          className="min-h-[36px] shrink-0 rounded-md border border-dh-border bg-dh-s2 px-2.5 text-[12px] tabular-nums text-dh-tsoft active:bg-dh-hover"
+          onClick={onOpen}
+          title="搜索并切换任务"
+        >
+          {position}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1.5">
       <button type="button" className={btn} onClick={onPrev} title="上一个任务（也可在终端上向右滑）">
@@ -472,31 +491,6 @@ function TaskPager({
         {side(next)}
         <span className="shrink-0 text-dh-muted">›</span>
       </button>
-    </div>
-  );
-}
-
-// 切换任务后在新面板中央短暂提示「#id 标题」：滑动切换时没有其它视觉反馈，
-// 不提示就只能盯着顶栏编号确认。面板按任务重挂载，所以记在模块级。
-let lastSwitchTarget: { id: number; at: number } | null = null;
-
-function SwitchToast({ task }: { task: Task }) {
-  const [visible, setVisible] = useState(
-    () => lastSwitchTarget?.id === task.id && Date.now() - lastSwitchTarget.at < 1500,
-  );
-  useEffect(() => {
-    if (!visible) return;
-    lastSwitchTarget = null;
-    const timer = window.setTimeout(() => setVisible(false), 1200);
-    return () => window.clearTimeout(timer);
-  }, [visible]);
-  if (!visible) return null;
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-1/3 z-50 flex justify-center px-6">
-      <div className="max-w-full truncate rounded-full border border-dh-border bg-dh-surface px-4 py-2 text-sm font-medium text-dh-text shadow-xl">
-        <span className="mr-1.5 font-mono text-dh-muted">#{task.id}</span>
-        {task.title || taskPromptText(task)}
-      </div>
     </div>
   );
 }
@@ -2016,7 +2010,6 @@ export function TerminalPanel({
 
   function switchToTask(next: Task) {
     if (next.id === detail.id) return;
-    lastSwitchTarget = { id: next.id, at: Date.now() };
     onSwitchTask?.(next);
   }
 
@@ -2714,8 +2707,6 @@ export function TerminalPanel({
             </div>
           )}
         </div>
-        {/* 放在最后并抬高层级：xterm 的绘制层自带 z-index，放前面会被盖住 */}
-        {!embedded && <SwitchToast key={detail.id} task={detail} />}
       </div>
   );
   if (embedded) return panel;
