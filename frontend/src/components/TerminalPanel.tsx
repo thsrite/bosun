@@ -24,7 +24,8 @@ import { TERMINAL_SUBMIT_KEY } from "../terminalInput";
 import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { getTerminalSelectionText, installTerminalDragCopy } from "../terminalSelection";
 import type { ClaimState } from "../terminalClaim";
-import { shouldClaimViewport } from "../terminalClaim";
+import { isUsableTerminalGrid, shouldClaimViewport } from "../terminalClaim";
+import { hasAlternateScreenSequence, prepareTerminalReplay, terminalReplayColumns } from "../terminalReplay";
 import { extractPathAt } from "../terminalFilePaths";
 import {
   MAX_DEFERRED_TERMINAL_BYTES,
@@ -169,28 +170,9 @@ const TERMINAL_THEME = {
   brightCyan: "#67e8f9",
   brightWhite: "#f8fafc",
 };
-const ALT_BUFFER_MODES = new Set([47, 1047, 1049]);
 
 function terminalDataByteLength(data: string | Uint8Array): number {
   return typeof data === "string" ? new TextEncoder().encode(data).byteLength : data.byteLength;
-}
-
-function isOnlyAltBufferModeParams(params: (number | number[])[]): boolean {
-  if (params.length === 0) return false;
-  return params.every((param) => typeof param === "number" && ALT_BUFFER_MODES.has(param));
-}
-
-function installAltBufferScrollbackWorkaround(term: Terminal): () => void {
-  const setMode = term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) =>
-    isOnlyAltBufferModeParams(params),
-  );
-  const resetMode = term.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) =>
-    isOnlyAltBufferModeParams(params),
-  );
-  return () => {
-    setMode.dispose();
-    resetMode.dispose();
-  };
 }
 
 // 移动端输入法打不出符号的修复（与上游 xterm.js#5887 同根因，官方仅提议方向未发版）：
@@ -680,9 +662,17 @@ function TerminalView({
       // canvas 渲染不可用（极老 WebView 等），保持 DOM 渲染器
     }
     termRef.current = term;
-    const disposeAltBufferWorkaround = installAltBufferScrollbackWorkaround(term);
     const disposeImeFix = isTouchDevice() ? installMobileImeInsertTextFix(term) : () => {};
-    fit.fit();
+    let replayingBacklog = false;
+    const fitVisibleTerminal = () => {
+      if (replayingBacklog) return false;
+      if (!terminalHost.getClientRects().length || terminalHost.clientWidth === 0 || terminalHost.clientHeight === 0) return false;
+      const grid = fit.proposeDimensions();
+      if (!isUsableTerminalGrid(grid)) return false;
+      term.resize(grid.cols, grid.rows);
+      return true;
+    };
+    fitVisibleTerminal();
     // 桌面端挂载即聚焦可直接打字；移动端不自动聚焦（打开面板不弹输入法），
     // 键盘由按键栏的「键盘」键唤起，键入直接进 PTY——@ 文件引用、/ 命令补全
     // 等都由 CLI 自身在终端里渲染。
@@ -1056,13 +1046,32 @@ function TerminalView({
       ws = socket;
       wsRef.current = socket;
       socket.binaryType = "arraybuffer";
+      // 后端总是先发送一帧 backlog，再发送实时输出；meta 帧不占这个位置。
+      let awaitingBacklog = true;
       socket.onmessage = (e) => {
         if (disposed || wsRef.current !== socket) return;
         if (typeof e.data === "string") {
           // \x00 开头是后端控制帧，不能写进 xterm
           if (e.data.startsWith("\x00meta:")) return;
-          writeOrDefer(e.data);
-        } else writeOrDefer(new Uint8Array(e.data));
+        }
+        const data = typeof e.data === "string" ? e.data : new Uint8Array(e.data);
+        if (awaitingBacklog) {
+          awaitingBacklog = false;
+          const replayCols = terminalReplayColumns(data, term.cols);
+          if (replayCols > term.cols && !hasAlternateScreenSequence(data)) {
+            replayingBacklog = true;
+            term.resize(replayCols, term.rows);
+            writeNow(prepareTerminalReplay(data, term.rows), () => {
+              // 已结束任务会在回放发送完后关闭 socket，但仍需等 xterm 写完再恢复宽度。
+              if (disposed || ws !== socket) return;
+              replayingBacklog = false;
+              fitVisibleTerminal();
+              scheduleScrollToBottom();
+            }, true);
+            return;
+          }
+        }
+        writeOrDefer(data);
       };
       socket.onopen = () => {
         if (disposed || wsRef.current !== socket) return;
@@ -1080,7 +1089,9 @@ function TerminalView({
         deferredWrites.splice(0);
         deferredBytes = 0;
         setBottomState(true);
+        replayingBacklog = false;
         term.reset(); // 后端每次连接都回放 bounded backlog，重置避免叠加重复
+        fitVisibleTerminal();
         scheduleScrollToBottom();
         // 长日志只回放末尾的局部 TUI diff；改变一次尺寸再恢复，强制 PTY 补画完整画面。
         // 继续使用旧后端也认识的 resize 控制帧，避免滚动更新期间新前端把 redraw 当输入。
@@ -1121,6 +1132,7 @@ function TerminalView({
     let lastClaim: ClaimState | null = null;
     const claimViewport = () => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      if (!fitVisibleTerminal()) return;
       const grid = { rows: term.rows, cols: term.cols };
       const now = Date.now();
       if (!shouldClaimViewport(lastClaim, grid, now)) return;
@@ -1169,6 +1181,11 @@ function TerminalView({
     const markUserScrollWithBottomCheck = (event?: Event) => {
       if (event && !event.isTrusted) return;
       markUserScroll();
+      if (event?.type === "wheel" && term.modes.mouseTrackingMode !== "none") {
+        applicationScrollActive = true;
+        setBottomState(false);
+        return;
+      }
       requestAnimationFrame(() => {
         if (disposed || appWritesInFlight > 0) return;
         const buffer = term.buffer.active;
@@ -1182,6 +1199,7 @@ function TerminalView({
       if (["End", "Home", "PageDown", "PageUp"].includes(e.key)) markUserScrollWithBottomCheck();
     };
     const focusTerminal = () => {
+      claimViewport();
       // 桌面端按下即聚焦；移动端 pointerdown 也是滚动手势的起点，不能在这里聚焦
       // （会导致一拖就弹输入法），改由 onTouchEnd 判定「轻点」后聚焦
       if (isDesktopLayout()) term.focus();
@@ -1584,7 +1602,7 @@ function TerminalView({
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
       term.options = compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY;
-      fit.fit();
+      if (!fitVisibleTerminal()) return;
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
       claimViewport();
@@ -1638,7 +1656,6 @@ function TerminalView({
       deferredWrites.splice(0);
       deferredBytes = 0;
       terminalHost.removeEventListener("mousedown", blockTapFocus, true);
-      disposeAltBufferWorkaround();
       disposeImeFix();
       hardWrappedLinks.dispose();
       term.dispose();
@@ -1866,7 +1883,7 @@ export function TerminalPanel({
   const [showSwitcher, setShowSwitcher] = useState(false);
   // 本次挂载里已弹出的提醒：弹出即记为已看过（换任务、刷新都不再弹），但在关闭前保持显示
   const shownAttention = useRef(new Set<string>());
-  const [historyMode, setHistoryMode] = useState<"history" | "terminal">("history");
+  const [historyMode, setHistoryMode] = useState<"history" | "terminal" | null>(null);
   // 抽屉全屏：桌面端把 48% 宽的抽屉铺满整屏，终端由 ResizeObserver 自动重新 fit
   const [fullscreen, setFullscreen] = useState(false);
   const lgViewport = useMediaQuery("(min-width: 1024px)");
@@ -1906,7 +1923,8 @@ export function TerminalPanel({
     setDetail(task);
     setPerm(null);
     setEditing(false);
-    setHistoryMode("history");
+    // 新任务清除手动选择，让默认视图由运行状态决定。
+    setHistoryMode(null);
   }, [task.id]);
 
   // 运行中：每秒重渲染(时长跳动) + 每3秒拉取(token/状态)
@@ -1931,7 +1949,8 @@ export function TerminalPanel({
 
   // 有未决授权时状态徽标显示"待授权"（perm 本地轮询已有，比列表接口更实时）
   const s = STATUS_STYLE[taskStatusStyleKey(detail, !!perm)] ?? STATUS_STYLE.draft;
-  const hasStoredHistory = !active && !!detail.session_uid;
+  const hasStoredHistory = !!detail.session_uid;
+  const showHistory = (historyMode ?? (active ? "terminal" : "history")) === "history";
   const hasSession = active || !!detail.log_path || hasStoredHistory;
   const isDraft = detail.status === "draft";
   const isChat = detail.render_mode === "chat";
@@ -1948,7 +1967,7 @@ export function TerminalPanel({
   const touch = isTouchDevice();
   const showTaskStrip = !embedded && canSwitch && touch;
   // 手机：切换控件挪到底部按键栏上方（拇指够得着），顶栏只留标题；仅终端视图有这条栏
-  const terminalViewShown = hasSession && !isChat && !(hasStoredHistory && historyMode === "history");
+  const terminalViewShown = hasSession && !isChat && !(hasStoredHistory && showHistory);
   const phonePagerShown = canSwitch && terminalViewShown;
   const phonePager = phonePagerShown ? (
     <TaskPager
@@ -2640,11 +2659,11 @@ export function TerminalPanel({
               />
             ) : hasStoredHistory ? (
               <div className="flex h-full min-h-0 flex-col">
-                <div className="flex shrink-0 items-center gap-1 border-b border-dh-border bg-[#131316] px-2 py-1.5">
+                <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-dh-border bg-[#131316] px-2 py-1.5">
                   <button
                     type="button"
                     className={`rounded-md px-2.5 py-1 text-xs ${
-                      historyMode === "history"
+                      showHistory
                         ? "bg-dh-accent text-dh-accfg"
                         : "text-slate-400 hover:bg-dh-hover hover:text-slate-200"
                     }`}
@@ -2655,7 +2674,7 @@ export function TerminalPanel({
                   <button
                     type="button"
                     className={`rounded-md px-2.5 py-1 text-xs ${
-                      historyMode === "terminal"
+                      !showHistory
                         ? "bg-slate-700 text-white"
                         : "text-slate-400 hover:bg-dh-hover hover:text-slate-200"
                     }`}
@@ -2665,20 +2684,26 @@ export function TerminalPanel({
                   </button>
                   <span className="ml-1 text-[11px] text-dh-muted">历史视图会随窗口宽度自动排版</span>
                 </div>
-                <div className="min-h-0 flex-1">
-                  {historyMode === "history" ? (
+                <div className="relative min-h-0 flex-1">
+                  {showHistory && (
                     <SessionHistoryView key={`history-${detail.id}`} taskId={detail.id} />
-                  ) : detail.log_path ? (
-                    <TerminalView
-                      key={`terminal-${detail.id}`}
-                      taskId={detail.id}
-                      live={false}
-                      onSwipeTask={canSwitch && !editing ? switchBy : undefined}
-                      pager={phonePager}
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-dh-muted">
-                      该待执行任务还没有原始终端日志
+                  )}
+                  {/* 运行中保留连接与网格尺寸，翻历史不会重连、回放或把 PTY 压窄。 */}
+                  {(active || !showHistory) && (
+                    <div className={`absolute inset-0 ${showHistory ? "invisible pointer-events-none" : ""}`}>
+                      {active || detail.log_path ? (
+                        <TerminalView
+                          key={`terminal-${detail.id}`}
+                          taskId={detail.id}
+                          live={active}
+                          onSwipeTask={canSwitch && !editing ? switchBy : undefined}
+                          pager={phonePager}
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-xs text-dh-muted">
+                          该待执行任务还没有原始终端日志
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

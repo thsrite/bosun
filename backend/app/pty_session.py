@@ -26,6 +26,7 @@ from typing import Callable, NamedTuple
 from .config import IDLE_SECONDS
 from .pty_compat import PtyProcess
 from .terminal_log_compact import TerminalLogCompactor, compact_terminal_frames
+from .terminal_modes import TerminalModes
 
 # PTY logs contain every TUI repaint. A long Codex/Claude session can therefore
 # grow to tens of megabytes even though xterm only needs the latest screen and
@@ -89,24 +90,40 @@ def read_terminal_backlog(
     scan_bytes: int = MAX_TERMINAL_SCAN_BYTES,
 ) -> TerminalBacklog:
     """Read a bounded terminal tail without truncating the log stored on disk."""
+    modes = TerminalModes()
     try:
         with open(log_path, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
             window = min(size, max(scan_bytes, max_bytes))
-            f.seek(-window, 2)
+            # 被截掉的正文不回放，但必须保留它设置的鼠标/备用屏幕等模式。
+            # 分块扫描，内存仍有界；不能只读开头，因为中间可能关闭或重开模式。
+            f.seek(0)
+            remaining = size - window
+            while remaining:
+                chunk = f.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                modes.feed(chunk)
+                remaining -= len(chunk)
             data = f.read()
     except FileNotFoundError:
         return TerminalBacklog(b"", False)
 
     truncated = size > window
     if truncated:
-        data = _align_to_sequence_boundary(data)
+        aligned = _align_to_sequence_boundary(data)
+        modes.feed(data[:len(data) - len(aligned)])
+        data = aligned
     data = compress_terminal_repaints(data)
-    if len(data) > max_bytes:
+    if len(data) + len(modes.prefix()) > max_bytes:
         truncated = True
-        data = _align_to_sequence_boundary(data[-max_bytes:])
-    return TerminalBacklog(strip_terminal_queries(data), truncated)
+        # 最多 14 个模式，每个不足 10 字节；预留恢复指令的空间。
+        budget = max(1, max_bytes - 160)
+        tail = _align_to_sequence_boundary(data[-budget:])
+        modes.feed(data[:len(data) - len(tail)])
+        data = tail
+    return TerminalBacklog(modes.prefix() + strip_terminal_queries(data), truncated)
 
 # 去除 ANSI/OSC/光标形态等终端控制序列，便于文本匹配。
 # Codex 会在单词字符之间插入 `ESC [ 0 q` 这类 CSI 序列；若不清掉，

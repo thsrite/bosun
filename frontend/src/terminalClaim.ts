@@ -15,6 +15,12 @@ export interface TerminalGrid {
   cols: number;
 }
 
+/** 隐藏/过渡布局测得的两列只能放一个汉字，不能据此重排终端和远端 TUI。 */
+export function isUsableTerminalGrid(grid: TerminalGrid | undefined): grid is TerminalGrid {
+  return !!grid && Number.isInteger(grid.cols) && Number.isInteger(grid.rows)
+    && grid.cols >= 20 && grid.rows >= 2;
+}
+
 /** 尺寸没变时两次认领的最小间隔。连续打字每个按键都发控制帧没有意义，
  *  但间隔太长又会让「敲一下抢回来」变得迟钝；1s 下第一个按键即时生效。 */
 export const CLAIM_THROTTLE_MS = 1000;
@@ -37,7 +43,7 @@ export function shouldClaimViewport(
   now: number,
   throttleMs: number = CLAIM_THROTTLE_MS,
 ): boolean {
-  if (!(current.rows > 0 && current.cols > 0)) return false;
+  if (!isUsableTerminalGrid(current)) return false;
   if (last === null) return true;
   if (last.grid.rows !== current.rows || last.grid.cols !== current.cols) return true;
   return now - last.at >= throttleMs;

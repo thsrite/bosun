@@ -81,6 +81,8 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
   const [messages, setMessages] = useState<SessionHistoryMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +94,7 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
       .then((result) => {
         if (cancelled) return;
         setMessages(result.messages);
+        setTruncated(result.truncated);
       })
       .catch((reason: Error) => {
         if (!cancelled) setError(reason.message || "历史读取失败");
@@ -102,10 +105,15 @@ export function SessionHistoryView({ taskId }: { taskId: number }) {
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, revision]);
 
   return (
     <div className="h-full overflow-y-auto bg-[#131316] px-3 py-3 sm:px-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-dh-muted">
+        <span>{truncated ? "当前展示最近一部分对话" : "已保存的对话记录"}；运行中可刷新查看新内容</span>
+        <button type="button" disabled={loading} onClick={() => setRevision((value) => value + 1)}
+          className="shrink-0 rounded border border-dh-bsoft px-2 py-1 disabled:opacity-50">刷新历史</button>
+      </div>
       {loading && <div className="pt-8 text-center text-xs text-dh-muted">正在读取会话历史…</div>}
       {!loading && error && (
         <div className="pt-8 text-center text-xs text-rose-300">历史读取失败：{error}</div>

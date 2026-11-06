@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { CLAIM_THROTTLE_MS, shouldClaimViewport } from "../src/terminalClaim.ts";
+import { CLAIM_THROTTLE_MS, isUsableTerminalGrid, shouldClaimViewport } from "../src/terminalClaim.ts";
 
 const grid = (rows: number, cols: number) => ({ rows, cols });
 
@@ -34,4 +34,14 @@ test("节流窗口可配置", () => {
 test("非法网格不认领——xterm 首帧未就绪时 rows/cols 可能为 0", () => {
   assert.equal(shouldClaimViewport(null, grid(0, 100), 0), false);
   assert.equal(shouldClaimViewport(null, grid(30, 0), 0), false);
+});
+
+test("隐藏和过渡布局不能把远端压成一字一行，恢复手机宽度后立即认领", () => {
+  const last = { grid: grid(30, 100), at: 1000 };
+  for (const invalid of [grid(1, 2), grid(30, 2), grid(0, 60), grid(30, NaN), grid(30, Infinity)]) {
+    assert.equal(isUsableTerminalGrid(invalid), false);
+    assert.equal(shouldClaimViewport(last, invalid, 2000), false);
+  }
+  assert.equal(isUsableTerminalGrid(undefined), false);
+  assert.equal(shouldClaimViewport(last, grid(24, 50), 1001), true);
 });
