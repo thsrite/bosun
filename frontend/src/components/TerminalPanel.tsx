@@ -25,6 +25,7 @@ import { installHardWrappedWebLinkProvider } from "../terminalLinks";
 import { getTerminalSelectionText, installTerminalDragCopy } from "../terminalSelection";
 import type { ClaimState } from "../terminalClaim";
 import { isUsableTerminalGrid, shouldClaimViewport } from "../terminalClaim";
+import { createTerminalResizeScheduler } from "../terminalResize";
 import { hasAlternateScreenSequence, prepareTerminalReplay, terminalReplayColumns } from "../terminalReplay";
 import { extractPathAt } from "../terminalFilePaths";
 import {
@@ -664,8 +665,9 @@ function TerminalView({
     termRef.current = term;
     const disposeImeFix = isTouchDevice() ? installMobileImeInsertTextFix(term) : () => {};
     let replayingBacklog = false;
+    let resizeScheduler: ReturnType<typeof createTerminalResizeScheduler> | undefined;
     const fitVisibleTerminal = () => {
-      if (replayingBacklog) return false;
+      if (replayingBacklog || resizeScheduler?.pending) return false;
       if (!terminalHost.getClientRects().length || terminalHost.clientWidth === 0 || terminalHost.clientHeight === 0) return false;
       const grid = fit.proposeDimensions();
       if (!isUsableTerminalGrid(grid)) return false;
@@ -1598,16 +1600,27 @@ function TerminalView({
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
-    const onResize = () => {
+    let compactTypography = compactLayout.matches;
+    const applyResize = () => {
       const shouldRefocus =
         isDesktopLayout() && !!terminalHost.contains(document.activeElement);
-      term.options = compactLayout.matches ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY;
+      // 高度变化不需要重新设置字体；只在跨越移动/桌面布局时更新字形度量。
+      if (compactTypography !== compactLayout.matches) {
+        compactTypography = compactLayout.matches;
+        term.options = compactTypography ? TERMINAL_TOUCH_TYPOGRAPHY : TERMINAL_DESKTOP_TYPOGRAPHY;
+      }
       if (!fitVisibleTerminal()) return;
       if (shouldRefocus) term.focus();
       scheduleScrollToBottom();
       claimViewport();
     };
-    onResize();
+    resizeScheduler = createTerminalResizeScheduler(
+      (done) => term.write("", done),
+      applyResize,
+      touchDevice ? 180 : 0,
+    );
+    const onResize = () => resizeScheduler!.schedule();
+    applyResize();
     window.addEventListener("resize", onResize);
     compactLayout.addEventListener("change", onResize);
     // 容器高度变化（如折叠/展开上方详情面板）时也要 refit
@@ -1618,6 +1631,7 @@ function TerminalView({
     window.addEventListener("focus", claimViewport);
     return () => {
       disposed = true;
+      resizeScheduler?.dispose();
       window.removeEventListener("focus", claimViewport);
       stopFling();
       cancelLongPress();
