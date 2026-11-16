@@ -922,15 +922,21 @@ def complete(task_id: int) -> bool:
     task = db.query_one("SELECT report_result FROM task WHERE id=?", (task_id,))
     if orchestration_step is not None and (task is None or task["report_result"] != "done"):
         raise TaskTransitionError("编排步骤必须提交阶段产物并通过回报完成")
+    # 先记录人工完成，退出回调才不会把主动停止误判为失败。
+    changed = db.execute_rowcount(
+        "UPDATE task SET status='done', ended_at=?, paused_from_status=NULL, waiting_since=NULL "
+        "WHERE id=? AND status IN ('running','waiting_input','queued','interrupted','paused')",
+        (time.time(), task_id),
+    )
+    if not changed:
+        current = db.query_one("SELECT status FROM task WHERE id=?", (task_id,))
+        if current is not None and current["status"] == "done":
+            return True
+        raise TaskTransitionError("任务状态已变化，无法标记完成，请刷新后重试")
     session = _sessions.get(task_id)
     if session is not None:
         session.graceful_stop()  # 尽量让 claude/codex 落盘会话，便于日后 resume/分享
         _sessions.pop(task_id, None)
-    db.execute(
-        "UPDATE task SET status='done', ended_at=?, paused_from_status=NULL "
-        "WHERE id=? AND status IN ('running','waiting_input','queued','interrupted','paused')",
-        (time.time(), task_id),
-    )
     events.emit("task.status", {"task_id": task_id, "status": "done"})
     threading.Thread(target=_finalize_tokens, args=(task_id, 4.0), daemon=True).start()
     tick()
