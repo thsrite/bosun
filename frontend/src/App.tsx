@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   engine_enabled: {},
   engine_subagent_enabled: {},
   default_tab: "projects",
-  quota_enabled: true,
+  quota_enabled: false,
   status_badge_enabled: true,
   subtask_skill_enabled: false,
   subtask_max_children: 3,

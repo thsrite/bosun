@@ -25,7 +25,7 @@ class Settings(BaseModel):
     engine_enabled: dict[str, bool] | None = None
     engine_subagent_enabled: dict[str, bool] | None = None
     default_tab: str = DEFAULT_TAB
-    quota_enabled: bool = True
+    quota_enabled: bool = False
     status_badge_enabled: bool = True
     subtask_skill_enabled: bool = False
     # None = 不改动（旧前端不回传时保持原值）
@@ -197,7 +197,7 @@ def update_settings(body: Settings):
             db.set_setting(f"{key}:{engine}", "1" if value else "0")
     tab = body.default_tab.strip()
     db.set_setting("default_tab", tab if tab in TABS else DEFAULT_TAB)
-    db.set_setting("quota_enabled", "1" if body.quota_enabled else "0")
+    db.set_setting("quota_enabled", "0")
     db.set_setting("status_badge_enabled", "1" if body.status_badge_enabled else "0")
     db.set_setting("subtask_skill_enabled", "1" if body.subtask_skill_enabled else "0")
     db.set_setting("report_skill_enabled", "1" if body.report_skill_enabled else "0")

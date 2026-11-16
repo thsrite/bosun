@@ -24,7 +24,6 @@ type ProviderUsage = {
 type QuotaUsage = {
   claude?: ProviderUsage | null;
   codex?: ProviderUsage | null;
-  block_pct?: number | null;
 };
 
 type EngineToolState = {
@@ -642,11 +641,6 @@ export function QuotaBadge({
                 />
               ))}
             </div>
-            {usageProviders.length > 0 && (
-              <div className="rounded-lg bg-dh-soft px-3 py-2 text-xs text-dh-muted">
-                周用量执行保护阈值：{q?.block_pct ?? 90}%
-              </div>
-            )}
           </div>
         </Modal>
       )}

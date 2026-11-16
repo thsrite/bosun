@@ -26,7 +26,6 @@ def gather_data(days: int = 30) -> dict:
     )
     proposal_counts = _rows("SELECT status, COUNT(*) n FROM proposal GROUP BY status")
     settings = {
-        "quota_block_pct": db.get_setting("quota_block_pct", "90"),
         "mute_threshold": db.get_setting("mute_threshold", "3"),
         "max_concurrent": db.get_setting("max_concurrent", "3"),
     }
@@ -72,7 +71,7 @@ _PROMPT = """你是 Bosun（一个编排 Claude Code/Codex 的本地工具）的
 
 每条提案是一个对象 {{"title": "..", "rationale": "为什么(引用数据)", "action": <可选> }}。
 action 只能是以下白名单之一（拿不准就省略 action，表示纯建议）：
-- {{"type":"set_setting","key":"quota_block_pct|mute_threshold|max_concurrent","value":<整数>}}
+- {{"type":"set_setting","key":"mute_threshold|max_concurrent","value":<整数>}}
 - {{"type":"set_policy","policy_id":<id>,"field":"scope|scope_arg|interval_minutes|enabled","value":<值>}}
 - {{"type":"create_task","project_id":<projects 中的 id>,"engine":"claude|codex|omp|kimi","title":"..","prompt":"..","priority":1-10}}
 
@@ -158,13 +157,12 @@ def reflect(cwd: str, origin: str = "manual") -> int:
     return n
 
 
-_SETTING_KEYS = {"quota_block_pct", "mute_threshold", "max_concurrent"}
+_SETTING_KEYS = {"mute_threshold", "max_concurrent"}
 _POLICY_FIELDS = {"scope", "scope_arg", "interval_minutes", "enabled"}
 _TASK_ENGINES = {"claude", "codex", "omp", "kimi"}
 
 # 值域护栏: 自进化路径与 UI 侧同一套下限, 防 LLM 提的畸形值绕过护栏设成危险配置。
 _SETTING_BOUNDS = {
-    "quota_block_pct": (1, 100),   # 0=自锁死, >100=配额失效烧额度
     "mute_threshold": (1, 50),
     "max_concurrent": (1, 20),     # 无上限=一次性拉起海量会话
 }

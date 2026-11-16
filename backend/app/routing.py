@@ -3,7 +3,7 @@
 规则透明、无 ML：
 - 配额余量 = 100 - max(5 小时用量%, 周用量%)（越高越优先）；拿不到用量记 50(中性)
 - 成功率 = 该引擎 done/(done+failed)，无数据记 0.5(中性)
-- 分数 = 配额余量 + 成功率*40；高者胜。任一额度窗口达到阈值直接排除。
+- 分数 = 配额余量 + 成功率*40；高者胜。不按用量阈值排除引擎。
 """
 from __future__ import annotations
 
@@ -32,12 +32,6 @@ def _window_pcts(provider_usage: dict | None) -> dict[str, float]:
     return out
 
 
-def _blocked_window(usage: dict, engine: str, limit: float) -> tuple[str, float] | None:
-    pcts = _window_pcts(usage.get(_PROVIDER.get(engine, engine)) if usage else None)
-    blocked = [(key, pct) for key, pct in pcts.items() if pct >= limit]
-    return max(blocked, key=lambda item: item[1]) if blocked else None
-
-
 def _success_rate(engine: str) -> float:
     row = db.query_one(
         "SELECT SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) d, "
@@ -62,17 +56,9 @@ def pick_engine(*, subagent: bool = False) -> tuple[str, str]:
     if len(cands) == 1:
         return cands[0], f"只有 {cands[0]} 可用，直接选它"
     usage = quota.get_usage()
-    limit = float(usage.get("block_pct", 90))
-    # 任一窗口达到阈值的引擎排除(除非全部超限，交给启动守卫确认)
-    ok = [e for e in cands if _blocked_window(usage, e, limit) is None]
-    if not ok:
-        ok = cands
     scores = {}
-    for e in ok:
+    for e in cands:
         scores[e] = _headroom(usage, e) + _success_rate(e) * 40
-    best = max(ok, key=lambda e: scores[e])
-    if not any(_blocked_window(usage, e, limit) is None for e in cands):
-        reason = f"可用引擎均达到配额阈值，按配额余量+成功率暂选 {best}"
-    else:
-        reason = f"综合短时/周配额余量+成功率，选 {best}"
+    best = max(cands, key=lambda e: scores[e])
+    reason = f"综合短时/周配额余量+成功率，选 {best}"
     return best, reason

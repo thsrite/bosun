@@ -940,7 +940,7 @@ export function SettingsView({
       </SettingsGroup>
 
       <SettingsGroup label="运行与数据">
-        <Section title="运行" hint="控制任务并发与额度保护。">
+        <Section title="运行" hint="控制任务并发。">
           <Field label="并发上限">
             <input
               type="number"
@@ -949,19 +949,6 @@ export function SettingsView({
               value={settings.max_concurrent}
               onChange={(e) => void onChange({ max_concurrent: Number(e.target.value) })}
             />
-          </Field>
-          <Field
-            label="用量额度保护"
-            hint="默认开启；如不需要 Bosun 按用量阈值拦截任务，可在此关闭。"
-          >
-            <label className="flex items-center gap-2 text-sm text-dh-tsoft">
-              <input
-                type="checkbox"
-                checked={settings.quota_enabled}
-                onChange={(e) => void onChange({ quota_enabled: e.target.checked })}
-              />
-              {settings.quota_enabled ? "已开启" : "已关闭"}
-            </label>
           </Field>
           <Field
             label="顶栏状态徽标"

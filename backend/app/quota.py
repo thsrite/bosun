@@ -230,16 +230,9 @@ def _cached(provider: str, min_interval: int, fetch, refresh: bool = False) -> d
     return {**data, "cached_age": 0}
 
 
-def block_pct() -> int:
-    try:
-        return int(db.get_setting("quota_block_pct", 90))
-    except (TypeError, ValueError):
-        return 90
-
-
 def is_enabled() -> bool:
-    value = db.get_setting("quota_enabled", "1")
-    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+    """兼容旧客户端：用量仅供展示，不再限制执行。"""
+    return False
 
 
 def _provider_usage(provider: str, refresh: bool = False) -> dict:
@@ -269,34 +262,15 @@ def get_usage(engine: str | None = None, refresh: bool = False) -> dict:
         if provider:
             return {
                 provider: _provider_usage(provider, refresh),
-                "block_pct": block_pct(),
                 "enabled": is_enabled(),
             }
     return {
         "claude": _provider_usage("claude", refresh),
         "codex": _provider_usage("codex", refresh),
-        "block_pct": block_pct(),
         "enabled": is_enabled(),
     }
 
 
 def check_engine(engine: str) -> tuple[bool, float | None, str]:
-    """返回 (是否可执行, 最高窗口用量%, 原因)。用量拿不到时放行(不拦)。"""
-    if not is_enabled():
-        return True, None, "额度保护已关闭，放行"
-    provider = _ENGINE_PROVIDER.get(engine)
-    usage = _provider_usage(provider) if provider else None
-    if not usage or not usage.get("available"):
-        return True, None, "用量未知，放行"
-    limit = block_pct()
-    windows = [
-        ("5 小时", usage.get("five_hour_pct")),
-        ("周", usage.get("weekly_pct")),
-    ]
-    known = [(label, float(pct)) for label, pct in windows if isinstance(pct, (int, float))]
-    exceeded = [(label, pct) for label, pct in known if pct >= limit]
-    highest = max((pct for _, pct in known), default=None)
-    if exceeded:
-        detail = "、".join(f"{label}用量已 {pct:g}%" for label, pct in exceeded)
-        return False, highest, f"{engine} {detail}（≥{limit}% 阈值）"
-    return True, highest, "ok"
+    """保留调用接口；任务执行不再受订阅用量阈值限制。"""
+    return True, None, "额度保护已关闭，放行"

@@ -4,14 +4,34 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from backend.app import quota
+from backend.app import quota, routing
 from backend.app.routers import settings
 
 
 class QuotaToggleTest(unittest.TestCase):
-    def test_quota_protection_is_enabled_by_default(self):
-        with patch.object(quota.db, "get_setting", return_value=None):
-            self.assertTrue(quota.is_enabled())
+    def test_legacy_settings_cannot_enable_quota_protection(self):
+        for value in (None, "1", "0"):
+            with patch.object(quota.db, "get_setting", return_value=value):
+                self.assertFalse(quota.is_enabled())
+
+    def test_high_usage_does_not_block_execution(self):
+        with patch.object(quota, "_provider_usage", return_value={
+            "available": True, "five_hour_pct": 100, "weekly_pct": 100,
+        }):
+            self.assertTrue(quota.check_engine("claude")[0])
+            self.assertTrue(quota.check_engine("codex")[0])
+
+    def test_routing_keeps_high_usage_engine_eligible(self):
+        with (
+            patch.object(routing.engine_policy, "rejection", return_value=None),
+            patch.object(routing.engine_updates, "is_installed", side_effect=lambda e: e in {"claude", "codex"}),
+            patch.object(routing.quota, "get_usage", return_value={
+                "claude": {"available": True, "weekly_pct": 95},
+                "codex": {"available": True, "weekly_pct": 80},
+            }),
+            patch.object(routing, "_success_rate", side_effect=lambda e: 1 if e == "claude" else 0),
+        ):
+            self.assertEqual(routing.pick_engine()[0], "claude")
 
     def test_disabled_quota_protection_bypasses_usage_check(self):
         with (
@@ -38,7 +58,7 @@ class QuotaToggleTest(unittest.TestCase):
         ):
             result = settings.update_settings(settings.Settings(
                 max_concurrent=3,
-                quota_enabled=False,
+                quota_enabled=True,
                 subtask_skill_enabled=False,
                 report_skill_enabled=True,
                 skill_path_overrides={"codex": "/tmp/bosun-codex-skills"},
