@@ -6,6 +6,7 @@ import type { Engine } from "./types";
 export type InstalledEngines = Record<string, boolean> | null;
 
 export const InstalledEnginesContext = createContext<InstalledEngines>(null);
+export const EnabledEnginesContext = createContext<Partial<Record<Engine, boolean>>>({});
 
 /** 原始探测结果，需要区分「还没探测」与「没装」时用。 */
 export function useInstalledEngines(): InstalledEngines {
@@ -24,13 +25,15 @@ export function useEngineVisible(engine: string): boolean {
 /** 可展示、可选择的引擎列表，同样在探测出结果前按已安装处理。 */
 export function useAvailableEngines(): Engine[] {
   const installed = useInstalledEngines();
-  return ENGINE_ORDER.filter((engine) => !installed || installed[engine] !== false);
+  const enabled = useContext(EnabledEnginesContext);
+  return ENGINE_ORDER.filter((engine) => enabled[engine] !== false && (!installed || installed[engine] !== false));
 }
 
 /** 新建普通任务可选 Browser；其它编码工作流继续只使用 useAvailableEngines。 */
 export function useAvailableTaskEngines(): Engine[] {
   const installed = useInstalledEngines();
+  const enabled = useContext(EnabledEnginesContext);
   return TASK_ENGINE_ORDER.filter((engine) => (
-    engine === "browser" ? installed?.browser === true : !installed || installed[engine] !== false
+    enabled[engine] !== false && (engine === "browser" ? installed?.browser === true : !installed || installed[engine] !== false)
   ));
 }

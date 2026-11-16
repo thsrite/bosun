@@ -4,7 +4,7 @@ import { confirmDialog } from "./overlay";
 /** 执行前限额守卫：目标引擎任一用量窗口超阈值则弹确认。返回是否继续。engine 省略=查全部。 */
 export async function guardQuota(engine?: string): Promise<boolean> {
   // omp/kimi 自带 provider 凭据，Browser 走 API Key；都没有 CLI 订阅额度接口。
-  if (engine === "omp" || engine === "kimi" || engine === "browser") return true;
+  if (engine === "omp" || engine === "kimi" || engine === "agy" || engine === "browser") return true;
   try {
     const q = await api.quota(engine);
     if (q.enabled === false) return true;

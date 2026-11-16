@@ -6,11 +6,12 @@ const ENGINE_META: Record<Engine, { name: string; short: string; badge: string }
   codex: { name: "Codex", short: "Codex", badge: "bg-emerald-500/10 text-emerald-300" },
   omp: { name: "OMP", short: "OMP", badge: "bg-sky-500/10 text-sky-300" },
   kimi: { name: "Kimi Code", short: "Kimi", badge: "bg-amber-500/10 text-amber-300" },
+  agy: { name: "Antigravity", short: "AGY", badge: "bg-indigo-500/10 text-indigo-300" },
   browser: { name: "Browser", short: "Browser", badge: "bg-cyan-500/10 text-cyan-300" },
 };
 
 /** 编码工作流里的引擎顺序；Browser 不参与自动路由、接力或 Autopilot。 */
-export const ENGINE_ORDER: Engine[] = ["claude", "codex", "omp", "kimi"];
+export const ENGINE_ORDER: Engine[] = ["claude", "codex", "omp", "kimi", "agy"];
 export const TASK_ENGINE_ORDER: Engine[] = [...ENGINE_ORDER, "browser"];
 
 /** 各引擎的全权限运行参数，用于提示语。 */
@@ -19,6 +20,7 @@ export const AUTO_APPROVE_FLAG: Record<Engine, string> = {
   codex: "--dangerously-bypass-approvals-and-sandbox",
   omp: "--auto-approve",
   kimi: "--yolo",
+  agy: "--dangerously-skip-permissions",
   browser: "危险动作始终逐次确认",
 };
 

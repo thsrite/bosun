@@ -42,6 +42,10 @@ def _parse_tokens(engine: str, stdout: str) -> int:
     """从 headless 结构化输出解析 token 用量(input+output，不含 cache，全局口径一致)。"""
     import json
 
+    if engine == "agy":
+        from .agy import headless_result
+        usage = headless_result(stdout).get("usage") or {}
+        return sum(v for k, v in usage.items() if isinstance(v, int) and k in ("input_tokens", "output_tokens"))
     if engine == "claude":
         try:
             u = (json.loads(stdout) or {}).get("usage") or {}
@@ -203,6 +207,11 @@ def assistant_text(engine: str, stdout: str) -> str:
     对它做 PASS/FAIL 正则会读到别人的字。
     """
     import json
+
+    if engine == "agy":
+        from .agy import headless_result
+        response = headless_result(stdout).get("response")
+        return response if isinstance(response, str) else ""
 
     if engine == "claude":
         try:
@@ -418,6 +427,9 @@ def start(
     scope_arg: str | None = None,
     policy_id: int | None = None,
 ) -> dict:
+    from . import engine_policy
+    engine_policy.require(fix_engine)
+    engine_policy.require(review_engine)
     project = db.query_one("SELECT * FROM project WHERE id=?", (project_id,))
     if project is None:
         raise ValueError("项目不存在")

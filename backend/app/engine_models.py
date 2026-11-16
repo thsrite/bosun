@@ -33,6 +33,7 @@ _SETTING_KEYS = {
     "claude": "claude_model_options",
     "codex": "codex_model_options",
     "kimi": "kimi_model_options",
+    "agy": "agy_model_options",
 }
 
 
@@ -320,6 +321,22 @@ def discover_kimi_model_options() -> list[dict[str, str]]:
     return options
 
 
+def discover_agy_model_options(binary: str) -> list[dict[str, str]]:
+    result = _run([binary, "models"], timeout=30)
+    if result.returncode:
+        raise ModelDiscoveryError((result.stderr or result.stdout or "agy 模型查询失败")[-2000:])
+    options = [{"value": "", "label": "默认"}]
+    seen = set()
+    for line in _ANSI_RE.sub("", result.stdout).splitlines():
+        match = re.match(r"^\s*([a-z0-9][a-z0-9._/-]*)(?:\t+| {2,})(.+?)\s*$", line)
+        if match and match[1] not in seen:
+            options.append({"value": match[1], "label": match[2]})
+            seen.add(match[1])
+    if len(options) == 1:
+        raise ModelDiscoveryError("未读取到 agy 模型，请先在终端运行 agy 完成登录；也可直接填写模型 ID")
+    return options
+
+
 def refresh_model_options(engine: str, binary: str) -> list[dict[str, str]]:
     if engine == "claude":
         options = discover_claude_model_options(binary)
@@ -327,6 +344,8 @@ def refresh_model_options(engine: str, binary: str) -> list[dict[str, str]]:
         options = discover_codex_model_options(binary)
     elif engine == "kimi":
         options = discover_kimi_model_options()
+    elif engine == "agy":
+        options = discover_agy_model_options(binary)
     elif engine == "omp":
         # omp 的 --model 是跨 provider 的模糊匹配，没有可直接消费的目录接口；
         # 设置页可以直接填模型 ID，这里明确告知而不是抛未知引擎。

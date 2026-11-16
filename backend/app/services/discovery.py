@@ -185,6 +185,9 @@ def _repo_sig(path: str) -> str | None:
 
 
 def _audit(project_id: int, path: str, engine: str = "claude", scope: str = "full", scope_arg=None) -> None:
+    from .. import engine_policy
+    if not engine_policy.enabled(engine):
+        return
     sig = None
     if scope != "full":
         diff = _scope_diff(path, scope, scope_arg)

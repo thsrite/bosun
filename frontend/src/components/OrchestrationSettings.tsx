@@ -102,6 +102,7 @@ function modelConfig(settings: AppSettings, engine: CodingEngine): { value: stri
   if (engine === "claude") return { value: settings.claude_model, options: settings.claude_model_options };
   if (engine === "codex") return { value: settings.codex_model, options: settings.codex_model_options };
   if (engine === "omp") return { value: settings.omp_model, options: settings.omp_model_options };
+  if (engine === "agy") return { value: settings.agy_model, options: settings.agy_model_options };
   return { value: settings.kimi_model, options: settings.kimi_model_options };
 }
 
@@ -109,6 +110,7 @@ function reasoningConfig(settings: AppSettings, engine: CodingEngine) {
   if (engine === "claude") return { value: settings.claude_effort, options: settings.claude_effort_options };
   if (engine === "codex") return { value: settings.codex_effort, options: settings.codex_effort_options };
   if (engine === "omp") return { value: settings.omp_thinking, options: settings.omp_thinking_options };
+  if (engine === "agy") return { value: settings.agy_effort, options: settings.agy_effort_options };
   return null;
 }
 

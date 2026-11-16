@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from .. import db, scheduler
 from ..engines import CODING_ENGINES, normalize_engine_id
+from .. import engine_policy
 from ..services import discovery
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
@@ -93,6 +94,7 @@ def to_task(finding_id: int, body: ToTaskBody):
     engine = normalize_engine_id(body.engine)
     if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {body.engine}")
+    engine_policy.require(engine)
     tid = db.execute(
         "INSERT INTO task(project_id,engine,prompt,priority,auto_approve,kind,created_at) "
         "VALUES(?,?,?,?,?, 'repair', ?)",

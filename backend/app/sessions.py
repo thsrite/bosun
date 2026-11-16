@@ -646,6 +646,21 @@ def _session_meta(path: Path, engine: str, project_path: str | None = None) -> d
 def local_session_info(engine: str, cwd: str, uid: str) -> dict | None:
     if not _UUID_RE.fullmatch(uid or ""):
         return None
+    if engine == "agy":
+        from . import agy, db
+        path = agy.transcript_path(uid)
+        # agy transcript 不记录工作目录；采用任务独立日志认领后存下的项目关联。
+        rows = db.query(
+            "SELECT t.prompt,t.created_at,p.path FROM task t JOIN project p ON p.id=t.project_id "
+            "WHERE t.engine='agy' AND t.session_uid=? AND t.deleted=0", (uid,),
+        )
+        for row in rows:
+            if path.is_file() and Path(row["path"]).resolve() == Path(cwd).resolve():
+                return {"engine": engine, "session_uid": uid, "cwd": cwd,
+                        "prompt": row["prompt"], "title": _short_title(row["prompt"], f"AGY {uid[:8]}"),
+                        "path": str(path), "created_at": row["created_at"],
+                        "updated_at": path.stat().st_mtime, "size": path.stat().st_size, "turns": 0}
+        return None
     if engine == "claude":
         path = claude_session_path(cwd, uid)
         if not path.exists():
@@ -760,6 +775,9 @@ def capture_codex_session(
 
 
 def _session_path(engine: str, cwd: str, uid: str) -> Path | None:
+    if engine == "agy":
+        from .agy import transcript_path
+        return transcript_path(uid) if _UUID_RE.fullmatch(uid or "") else None
     if engine == "claude":
         return claude_session_path(cwd, uid)
     if engine == "omp":
@@ -875,6 +893,11 @@ def session_history(
                                     kimi_time = kimi_time or obj.get("time")
                         elif event.get("type") == "step.end":
                             flush_kimi()
+                    continue
+                if engine == "agy":
+                    from .agy import message
+                    role, text = message(obj)
+                    append(role, text, obj.get("created_at"))
                     continue
                 if engine == "claude":
                     if obj.get("type") not in {"user", "assistant"}:
@@ -1192,6 +1215,8 @@ def write_session(engine: str, cwd: str, uid: str, content: str) -> Path:
     # 安全: uid 必须是合法 UUID，防止路径穿越(如 ../../.zshenv)写任意文件
     if not _UUID_RE.fullmatch(uid or ""):
         raise ValueError(f"非法 session_uid: {uid!r}")
+    if engine == "agy":
+        raise ValueError("agy 的文本记录不包含完整会话状态，请在官方客户端导入会话后按会话 ID 恢复")
     if engine == "claude":
         p = claude_session_path(cwd, uid)
     elif engine == "omp":

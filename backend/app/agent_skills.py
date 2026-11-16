@@ -24,7 +24,7 @@ _SETTING_KEYS = {
     "subtask": "subtask_skill_enabled",
     "report": "report_skill_enabled",
 }
-ENGINES = ("claude", "codex", "omp", "kimi")
+ENGINES = ("claude", "codex", "omp", "kimi", "agy")
 _PATH_SETTING_PREFIX = "agent_skill_path:"
 
 
@@ -63,6 +63,8 @@ def skills_dir(engine: str) -> Path:
         )
     elif engine == "kimi":
         root = sessions.kimi_home()
+    elif engine == "agy":
+        root = Path.home() / ".gemini" / "config"
     else:
         raise ValueError(f"unknown engine: {engine}")
     return root / "skills"

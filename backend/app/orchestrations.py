@@ -57,6 +57,9 @@ def _normalize_runtime(engine: str, model: object, reasoning_effort: object) -> 
     elif engine == "omp":
         normalized_model = engine_settings.normalize_omp_model(model)
         normalized_reasoning = engine_settings.normalize_omp_thinking(raw_reasoning)
+    elif engine == "agy":
+        normalized_model = str(model or "").strip()
+        normalized_reasoning = engine_settings.normalize_agy_effort(raw_reasoning)
     else:
         normalized_model = engine_settings.normalize_kimi_model(model)
         normalized_reasoning = ""
@@ -379,6 +382,11 @@ def create_run(
     if not clean_prompt:
         raise OrchestrationError("任务指令不能为空")
     snapshot = _snapshot(template)
+    from . import engine_policy
+    for step in snapshot["steps"]:
+        reason = engine_policy.rejection(step["engine"])
+        if reason:
+            raise OrchestrationError(reason, 409)
     snapshot_text = json.dumps(snapshot, ensure_ascii=False)
     now = time.time()
     with db._lock:
@@ -415,6 +423,11 @@ def start_run(run_id: int) -> dict:
             if run["status"] != "draft":
                 raise OrchestrationError("只有待办编排可以启动", 409)
             snapshot = json.loads(run["definition_snapshot"])
+            from . import engine_policy
+            for step in snapshot["steps"]:
+                reason = engine_policy.rejection(step["engine"])
+                if reason:
+                    raise OrchestrationError(reason, 409)
             task_ids = _create_all_roles(conn, run, snapshot, now)
     if task_ids:
         _dispatch_roles(task_ids)
@@ -1481,6 +1494,10 @@ def resume_run(run_id: int) -> dict:
                     current_task_id = step["task_id"]
                     current_needs_input = step["result"] == "needs_input"
                 if not online.get(step["task_id"], False):
+                    from . import engine_policy
+                    reason = engine_policy.rejection(step["engine"])
+                    if reason:
+                        raise OrchestrationError(reason, 409)
                     conn.execute(
                         "UPDATE task SET status='queued',ended_at=NULL,exit_code=NULL,resume=CASE "
                         "WHEN session_uid IS NULL THEN 0 ELSE 1 END WHERE id=?",

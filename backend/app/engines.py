@@ -9,12 +9,12 @@ kimi = Kimi Code CLI (`kimi`)：-S session_<uuid> 恢复；交互模式不收位
 from __future__ import annotations
 
 from . import agent_skills, engine_settings
-from .config import CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
+from .config import AGY_BIN, CLAUDE_BIN, CODEX_BIN, KIMI_BIN, OMP_BIN
 from .directives import (  # noqa: F401  兼容既有 engines.REPORT_DIRECTIVE 引用
     REPORT_DIRECTIVE,
 )
 
-CODING_ENGINES = {"claude", "codex", "omp", "kimi"}
+CODING_ENGINES = {"claude", "codex", "omp", "kimi", "agy"}
 ENGINES = {*CODING_ENGINES, "browser"}
 
 _ENGINE_ALIASES = {
@@ -22,6 +22,7 @@ _ENGINE_ALIASES = {
     "claude": "claude",
     "claude-code": "claude",
     "claude code": "claude",
+    "antigravity": "agy",
 }
 
 
@@ -74,6 +75,13 @@ def build_argv(
 ) -> list[str]:
     """首次运行。会话 id 由引擎自行生成、运行后捕获(--session-id 不落盘，无法 resume)。"""
     prompt = with_report_directive(prompt, engine=engine, artifact_required=artifact_required)
+    if engine == "agy":
+        argv = engine_settings.with_agy_runtime_args([AGY_BIN], model_override, reasoning_override)
+        if auto_approve:
+            argv.append("--dangerously-skip-permissions")
+        if prompt:
+            argv += ["--prompt-interactive", prompt]
+        return argv
     if engine == "claude":
         argv = engine_settings.with_claude_runtime_args(
             [CLAUDE_BIN], model_override, reasoning_override
@@ -117,6 +125,10 @@ def build_resume_argv(
     reasoning_override: str | None = None,
 ) -> list[str]:
     """恢复已有会话继续。prompt 为空则只加载上下文等待输入。"""
+    if engine == "agy":
+        argv = build_argv(engine, prompt, auto_approve, artifact_required=artifact_required,
+                          model_override=model_override, reasoning_override=reasoning_override)
+        return [*argv, "--conversation", session_uid]
     prompt = with_report_directive(prompt, engine=engine, artifact_required=artifact_required)
     if engine == "claude":
         argv = engine_settings.with_claude_runtime_args(
@@ -159,6 +171,13 @@ def build_resume_argv(
 def build_headless_argv(engine: str, prompt: str, auto_approve: bool = True, json_out: bool = False) -> list[str]:
     """headless 一次性执行(跑完即退出)，用于自愈循环里的修复/复审。
     json_out=True 时请求结构化输出以便解析 token 用量。"""
+    if engine == "agy":
+        argv = engine_settings.with_agy_runtime_args([AGY_BIN])
+        if auto_approve:
+            argv.append("--dangerously-skip-permissions")
+        if json_out:
+            argv += ["--output-format", "json"]
+        return [*argv, "--print", prompt]
     if engine == "claude":
         argv = [CLAUDE_BIN, "-p"]
         if json_out:
@@ -198,6 +217,8 @@ def build_headless_argv(engine: str, prompt: str, auto_approve: bool = True, jso
 
 def build_audit_argv(engine: str, audit_prompt: str) -> list[str]:
     """整体分析用 headless 模式跑，拿结构化输出。"""
+    if engine == "agy":
+        return build_headless_argv(engine, audit_prompt, auto_approve=False)
     if engine == "claude":
         argv = engine_settings.with_claude_runtime_args([CLAUDE_BIN, "-p"])
         return [*argv, audit_prompt]

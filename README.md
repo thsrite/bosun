@@ -192,6 +192,12 @@ python3 backend/scripts/backfill_omp_sessions.py --apply
 
 在能访问原始数据库和 OMP 会话文件的环境执行；继承相同的 `BOSUN_DATA`、`PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR`。应用前先备份数据库。工具只回填已结束或已暂停、存在起止时间且不是恢复轮次的任务，要求项目、原始指令和创建时间匹配且双向唯一；活动任务、已认领会话和歧义候选不会被修改。Token 按任务起止时间补算 `input + output`，不含缓存读写；没有用量记录时不伪造数值。工具不重启服务、不重新运行任务、不修改会话文件，重复应用不会重复累计。
 
+### Antigravity CLI
+
+Bosun 可直接启动本机官方 `agy` 客户端，无需代理或模型接口密钥。先按 [官方说明](https://antigravity.google/docs/getting-started?tab=cli) 安装 CLI，并在终端运行 `agy` 完成登录；仅安装 Antigravity 桌面端不等于已安装 CLI。非标准路径可通过 `BOSUN_AGY_BIN` 指定。
+
+新建任务选择「Antigravity」，在「设置 → Antigravity」填写模型、刷新官方模型列表及选择推理强度。普通任务使用交互终端，支持权限确认、追问、停止和通过 `--conversation` 续跑；自动化修复和审查使用官方无交互模式。Bosun 从每轮独立的 CLI 日志捕获会话 ID，避免同目录并发任务互相认领；会话正文从官方 transcript 读取。文本导出不包含完整的官方会话状态，不能用来跨机器导入续跑；请通过官方客户端导入。交互任务的用量仅在官方日志提供时统计，不把文本长度当成精确 token。
+
 ### Browser Computer Use（MVP）
 
 Browser 是独立的任务引擎，用于验收本机正在运行的 Web 应用。任务指令必须包含 `http://localhost:端口`、`http://127.0.0.1:端口` 或其它回环地址；公网、局域网地址、文件上传下载、剪贴板和非 HTTP(S) 导航均会被阻止。提交、删除、支付、敏感字段填写等动作会暂停并等待人工确认。
@@ -207,6 +213,8 @@ OpenAI API Key 直接在「设置 → Browser Computer Use → API Key」里填�
 设置页显示 Browser「就绪」后，新建任务时才会出现该选项。MVP 默认使用 `gpt-5.6`，可用 `BOSUN_COMPUTER_MODEL` 覆盖；它不参与自动选引擎、Autopilot、子任务或 CLI 会话接续。二进制发行包会包含 Playwright 运行库，但 Chromium 仍需在运行机器上安装。
 
 ## ⚙️ 配置
+
+「设置 → 执行引擎」的各引擎卡片提供启用开关，以及编码引擎的「允许作为子代理」开关；关闭后配置区置灰且不可编辑。关闭引擎后不再接受新派发，已排队任务等待重新启用，运行中的会话不被取消；子代理开关只控制 Bosun 受控子任务，不限制手动任务。自动选择只从已安装、已启用且符合本次派发权限的引擎中选择，两项开关默认开启以兼容已有配置。
 
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |

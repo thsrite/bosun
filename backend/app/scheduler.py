@@ -249,7 +249,12 @@ def _capture_session(
                     (task_id,),
                 )
             }
-            if engine == "claude":
+            if engine == "agy":
+                from . import agy
+                uid = agy.capture_session(task_id, since)
+                if uid in claimed:
+                    uid = None
+            elif engine == "claude":
                 uid = sessions.capture_claude_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
             elif engine == "omp":
                 uid = sessions.capture_omp_session(cwd, before, since, exclude_uids=claimed, prompt=prompt)
@@ -533,6 +538,11 @@ def _fail_start(row, log_path: str, reason: str) -> None:
 
 def _start_task(row) -> None:
     assert _loop is not None
+    from . import engine_policy
+    reason = engine_policy.rejection(row["engine"], subagent=row["parent_task_id"] is not None)
+    if reason:
+        _fail_start(row, str(LOG_DIR / f"task-{row['id']}.log"), reason)
+        return
     project = db.query_one("SELECT * FROM project WHERE id=?", (row["project_id"],))
     if project is None:
         db.execute("UPDATE task SET status='failed' WHERE id=?", (row["id"],))
@@ -617,7 +627,9 @@ def _start_task(row) -> None:
                 model_override=model_override,
                 reasoning_override=reasoning_override,
             )
-            if engine == "claude":
+            if engine == "agy":
+                before = set()
+            elif engine == "claude":
                 before = sessions.snapshot_claude(project["path"])
             elif engine == "omp":
                 before = sessions.snapshot_omp(project["path"])
@@ -626,6 +638,9 @@ def _start_task(row) -> None:
             else:
                 before = sessions.snapshot_codex()
             capture = (before, run_started_at)
+        if engine == "agy":
+            from . import agy
+            argv += ["--log-file", str(agy.task_log(row["id"], run_started_at))]
         # kimi 交互模式不收位置参数 prompt：argv 不带 prompt，改由 PtySession 在
         # TUI 就绪后粘贴提交。Bosun 技能不会改写原始 prompt。
         initial_prompt = None
@@ -684,9 +699,19 @@ def tick() -> None:
         free = _max_concurrent() - _running_count()
         if free <= 0:
             return
+        from . import engine_policy
+        from .engines import ENGINES
+        enabled = [e for e in sorted(ENGINES) if engine_policy.enabled(e)]
+        if not enabled:
+            return
+        children = [e for e in enabled if engine_policy.subagent_allowed(e)]
+        slots = ",".join("?" for _ in enabled)
+        child_slots = ",".join("?" for _ in children) or "NULL"
         rows = db.query(
-            "SELECT * FROM task WHERE status='queued' AND deleted=0 ORDER BY priority DESC, created_at ASC LIMIT ?",
-            (free,),
+            f"SELECT * FROM task WHERE status='queued' AND deleted=0 AND engine IN ({slots}) "
+            f"AND (parent_task_id IS NULL OR engine IN ({child_slots})) "
+            "ORDER BY priority DESC, created_at ASC LIMIT ?",
+            (*enabled, *children, free),
         )
         for row in rows:
             _start_task(row)
@@ -981,6 +1006,10 @@ def resume_paused(task_id: int, extra_prompt: str = "") -> bool:
     if project is None:
         raise TaskTransitionError("任务所属项目不存在")
 
+    from . import engine_policy
+    reason = engine_policy.rejection(row["engine"], subagent=row["parent_task_id"] is not None)
+    if reason:
+        raise TaskTransitionError(reason)
     session_uid = row["session_uid"]
     if session_uid and row["engine"] == "claude":
         session_uid = follow_claude_fork(task_id) or session_uid

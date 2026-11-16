@@ -34,7 +34,7 @@ export type TaskStatus =
 export type TaskWaitingKind = "permission" | "choice" | "input" | "review";
 
 /** 可执行任务的引擎：Claude Code / Codex CLI / Oh My Pi / Kimi Code。 */
-export type Engine = "claude" | "codex" | "omp" | "kimi" | "browser";
+export type Engine = "claude" | "codex" | "omp" | "kimi" | "agy" | "browser";
 
 export interface Task {
   id: number;

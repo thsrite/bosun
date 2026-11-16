@@ -156,6 +156,15 @@ OMP_BIN = _resolve_bin(
         Path("/usr/local/bin/omp"),
     ],
 )
+AGY_BIN = _resolve_bin(
+    "BOSUN_AGY_BIN",
+    "agy",
+    [
+        Path.home() / ".local" / "bin" / "agy",
+        Path("/opt/homebrew/bin/agy"),
+        Path("/usr/local/bin/agy"),
+    ],
+)
 KIMI_BIN = _resolve_bin(
     "BOSUN_KIMI_BIN",
     "kimi",

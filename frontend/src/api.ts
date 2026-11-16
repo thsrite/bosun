@@ -18,6 +18,8 @@ export type TaskFilePayload = { kind: TaskFileKind; blob: Blob };
 
 export type AppSettings = {
   max_concurrent: number;
+  engine_enabled: Partial<Record<Engine, boolean>>;
+  engine_subagent_enabled: Partial<Record<Engine, boolean>>;
   /** 打开工作台（URL 无 hash）时进入的页面 */
   default_tab: Tab;
   quota_enabled: boolean;
@@ -47,6 +49,10 @@ export type AppSettings = {
   omp_thinking_options: { value: string; label: string }[];
   kimi_model: string;
   kimi_model_options: { value: string; label: string }[];
+  agy_model: string;
+  agy_model_options: { value: string; label: string }[];
+  agy_effort: string;
+  agy_effort_options: { value: string; label: string }[];
   browser: {
     available: boolean;
     missing: string[];
@@ -559,9 +565,9 @@ export const api = {
   getSettings: () => fetch("/api/settings").then((r) => j<AppSettings>(r)),
   setSettings: (settings: AppSettings) =>
     write<AppSettings>("PUT", "/api/settings", settings),
-  refreshModelOptions: (engine: "claude" | "codex" | "kimi") =>
+  refreshModelOptions: (engine: "claude" | "codex" | "kimi" | "agy") =>
     write<{
-      engine: "claude" | "codex" | "kimi";
+      engine: "claude" | "codex" | "kimi" | "agy";
       model_options: Array<{ value: string; label: string }>;
     }>("POST", `/api/settings/models/${engine}/refresh`),
   restartBackend: () =>

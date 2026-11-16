@@ -257,6 +257,38 @@ KIMI_MODEL_OPTIONS = [
 ]
 
 
+AGY_EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
+
+
+def agy_model() -> str:
+    return str(db.get_setting("agy_model", "") or "").strip()
+
+
+def agy_model_options() -> list[dict[str, str]]:
+    return _cached_model_options("agy_model_options", [{"value": "", "label": "默认"}])
+
+
+def normalize_agy_effort(value: object) -> str:
+    effort = str(value or "").strip().lower()
+    return effort if effort in AGY_EFFORTS else ""
+
+
+def agy_effort() -> str:
+    return normalize_agy_effort(db.get_setting("agy_effort", ""))
+
+
+def agy_effort_options() -> list[dict[str, str]]:
+    return [{"value": value, "label": value or "默认"} for value in AGY_EFFORTS]
+
+
+def with_agy_runtime_args(argv: list[str], model_override: str | None = None,
+                          reasoning_override: str | None = None) -> list[str]:
+    model = str(model_override).strip() if model_override else agy_model()
+    effort = normalize_agy_effort(reasoning_override) if reasoning_override else agy_effort()
+    args = (["--model", model] if model else []) + (["--effort", effort] if effort else [])
+    return [argv[0], *args, *argv[1:]]
+
+
 def normalize_kimi_model(value: object) -> str:
     return str(value or "").strip()
 

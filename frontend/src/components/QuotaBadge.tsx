@@ -51,6 +51,7 @@ const PROVIDERS: {
   { engine: "codex", label: "Codex", chip: "Codex", note: "Codex CLI", usageKey: "codex" },
   { engine: "omp", label: "omp", chip: "omp", note: "Oh My Pi" },
   { engine: "kimi", label: "Kimi Code", chip: "Kimi", note: "Kimi Code CLI" },
+  { engine: "agy", label: "Antigravity", chip: "AGY", note: "官方 agy CLI" },
 ];
 
 function dotColor(pct: number | null): string {
@@ -229,6 +230,9 @@ function packageText(tool: EngineToolInfo | null | undefined): string {
   if (!tool) return "读取中";
   if (tool.package_name) return tool.package_name;
   if (tool.package_manager === "claude") return "Claude CLI 自更新";
+  if (tool.package_manager === "agy") return "Antigravity CLI 自更新";
+  if (tool.package_manager === "omp") return "OMP 自更新";
+  if (tool.package_manager === "kimi") return "Kimi Code 自更新";
   return "未识别安装包";
 }
 
@@ -517,14 +521,14 @@ export function QuotaBadge({
   }, [setToolState]);
 
   const loadTools = useCallback(async () => {
-    for (const engine of ["claude", "codex", "omp", "kimi"]) setToolState(engine, { loading: true, error: null, result: null });
+    for (const engine of ["claude", "codex", "omp", "kimi", "agy"]) setToolState(engine, { loading: true, error: null, result: null });
     try {
       const info = await api.engineTools.list();
       setTools(info);
-      for (const engine of ["claude", "codex", "omp", "kimi"]) setToolState(engine, { loading: false });
+      for (const engine of ["claude", "codex", "omp", "kimi", "agy"]) setToolState(engine, { loading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      for (const engine of ["claude", "codex", "omp", "kimi"]) setToolState(engine, { loading: false, error: message });
+      for (const engine of ["claude", "codex", "omp", "kimi", "agy"]) setToolState(engine, { loading: false, error: message });
     }
   }, [setToolState]);
 

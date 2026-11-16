@@ -38,6 +38,13 @@ function parseExportedHistory(bundle: { engine?: string; jsonl?: string }) {
       continue;
     }
     const timestamp = item.timestamp;
+    if (bundle.engine === "agy") {
+      const role = item.type === "USER_INPUT" ? "user" : item.type === "AGENT_RESPONSE" ? "assistant" : null;
+      let text = contentText(item.content);
+      if (role === "user") text = text.match(/<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/)?.[1] ?? text;
+      append(role, text, item.created_at);
+      continue;
+    }
     if (bundle.engine === "claude") {
       if (item.type !== "user" && item.type !== "assistant") continue;
       const message = item.message as Record<string, unknown> | undefined;

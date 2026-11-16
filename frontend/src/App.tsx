@@ -10,7 +10,7 @@ import { LoginView } from "./components/LoginView";
 import { ProposalsDialog } from "./components/ProposalsDialog";
 import { QuotaBadge } from "./components/QuotaBadge";
 import { SettingsView } from "./components/SettingsView";
-import { InstalledEnginesContext, type InstalledEngines } from "./installedEngines";
+import { EnabledEnginesContext, InstalledEnginesContext, type InstalledEngines } from "./installedEngines";
 import { OverlayHost, confirmDialog, toast } from "./overlay";
 import { NAV, type Tab } from "./tabs";
 import type { Engine, Project } from "./types";
@@ -23,6 +23,8 @@ const DEFAULT_AUTH: AuthStatus = {
 };
 const DEFAULT_SETTINGS: AppSettings = {
   max_concurrent: 3,
+  engine_enabled: {},
+  engine_subagent_enabled: {},
   default_tab: "projects",
   quota_enabled: true,
   status_badge_enabled: true,
@@ -35,6 +37,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     codex: { path: "", override: "", installed: false },
     omp: { path: "", override: "", installed: false },
     kimi: { path: "", override: "", installed: false },
+    agy: { path: "", override: "", installed: false },
   },
   claude_invocation: "auto",
   claude_model: "",
@@ -51,6 +54,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   omp_thinking_options: [{ value: "", label: "默认" }],
   kimi_model: "",
   kimi_model_options: [{ value: "", label: "默认" }],
+  agy_model: "",
+  agy_model_options: [{ value: "", label: "默认" }],
+  agy_effort: "",
+  agy_effort_options: [{ value: "", label: "默认" }],
   browser: {
     available: false,
     missing: ["正在检测 Browser 运行条件"],
@@ -374,6 +381,7 @@ export default function App() {
 
   return (
     <InstalledEnginesContext.Provider value={installedEngines}>
+      <EnabledEnginesContext.Provider value={settings.engine_enabled}>
       <div className="dh-app-shell flex h-full min-w-0 flex-col">
         <header className="dh-app-header relative z-50 border-b border-dh-bsoft bg-dh-soft/95">
           {/* 手机上整个顶栏压成一行：logo 收起（与「项目」入口重复）、导航用短名、待输入与状态徽标并入同一行 */}
@@ -503,6 +511,7 @@ export default function App() {
         {showProposals && <ProposalsDialog onClose={() => setShowProposals(false)} />}
         <OverlayHost />
       </div>
+      </EnabledEnginesContext.Provider>
     </InstalledEnginesContext.Provider>
   );
 }

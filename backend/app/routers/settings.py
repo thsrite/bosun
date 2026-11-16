@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from .. import agent_skills, browser_computer, backend_control, config, db, engine_models, engine_settings, log_archive, quota, scheduler, subtasks
 from ..engines import normalize_engine_id
+from ..engines import CODING_ENGINES, ENGINES
+from .. import engine_policy
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -20,6 +22,8 @@ TABS = ("projects", "tasks", "claude", "stats", "delivery", "settings")
 
 class Settings(BaseModel):
     max_concurrent: int
+    engine_enabled: dict[str, bool] | None = None
+    engine_subagent_enabled: dict[str, bool] | None = None
     default_tab: str = DEFAULT_TAB
     quota_enabled: bool = True
     status_badge_enabled: bool = True
@@ -36,6 +40,8 @@ class Settings(BaseModel):
     omp_model: str = ""
     omp_thinking: str = ""
     kimi_model: str = ""
+    agy_model: str | None = None
+    agy_effort: str | None = None
     # None = 本次不改动（前端保存其它设置时不必回传密钥）；"" = 清除
     browser_api_key: str | None = None
 
@@ -56,6 +62,8 @@ def default_tab() -> str:
 def get_settings():
     return {
         "max_concurrent": int(db.get_setting("max_concurrent", 3)),
+        "engine_enabled": {engine: engine_policy.enabled(engine) for engine in ENGINES},
+        "engine_subagent_enabled": {engine: engine_policy.subagent_allowed(engine) for engine in CODING_ENGINES},
         "default_tab": default_tab(),
         "quota_enabled": quota.is_enabled(),
         "status_badge_enabled": status_badge_enabled(),
@@ -79,6 +87,10 @@ def get_settings():
         "omp_thinking_options": engine_settings.omp_thinking_options(),
         "kimi_model": engine_settings.kimi_model(),
         "kimi_model_options": engine_settings.kimi_model_options(),
+        "agy_model": engine_settings.agy_model(),
+        "agy_model_options": engine_settings.agy_model_options(),
+        "agy_effort": engine_settings.agy_effort(),
+        "agy_effort_options": engine_settings.agy_effort_options(),
         "browser": browser_computer.availability(),
     }
 
@@ -143,6 +155,7 @@ def refresh_model_options(engine: str):
         "codex": config.CODEX_BIN,
         "omp": config.OMP_BIN,
         "kimi": config.KIMI_BIN,
+        "agy": config.AGY_BIN,
     }
     binary = binaries.get(engine)
     if not binary:
@@ -166,6 +179,10 @@ def restart_backend(background_tasks: BackgroundTasks):
 
 @router.put("")
 def update_settings(body: Settings):
+    for values, supported in ((body.engine_enabled, ENGINES), (body.engine_subagent_enabled, CODING_ENGINES)):
+        unknown = set(values or {}) - supported
+        if unknown:
+            raise HTTPException(400, f"不支持的引擎: {', '.join(sorted(unknown))}")
     normalized_paths: dict[str, str] = {}
     unknown_engines = set(body.skill_path_overrides) - set(agent_skills.ENGINES)
     if unknown_engines:
@@ -175,6 +192,9 @@ def update_settings(body: Settings):
     old_roots = {engine: agent_skills.skills_dir(engine) for engine in agent_skills.ENGINES}
 
     db.set_setting("max_concurrent", max(1, body.max_concurrent))
+    for key in ("engine_enabled", "engine_subagent_enabled"):
+        for engine, value in (getattr(body, key) or {}).items():
+            db.set_setting(f"{key}:{engine}", "1" if value else "0")
     tab = body.default_tab.strip()
     db.set_setting("default_tab", tab if tab in TABS else DEFAULT_TAB)
     db.set_setting("quota_enabled", "1" if body.quota_enabled else "0")
@@ -196,6 +216,10 @@ def update_settings(body: Settings):
     db.set_setting("omp_model", engine_settings.normalize_omp_model(body.omp_model))
     db.set_setting("omp_thinking", engine_settings.normalize_omp_thinking(body.omp_thinking))
     db.set_setting("kimi_model", engine_settings.normalize_kimi_model(body.kimi_model))
+    if body.agy_model is not None:
+        db.set_setting("agy_model", body.agy_model.strip())
+    if body.agy_effort is not None:
+        db.set_setting("agy_effort", engine_settings.normalize_agy_effort(body.agy_effort))
     if body.browser_api_key is not None:
         db.set_setting(browser_computer.API_KEY_SETTING, body.browser_api_key.strip())
         browser_computer.invalidate_availability()

@@ -20,7 +20,7 @@ function readDetail(err: unknown): string {
   }
 }
 
-function Section({ title, hint, aside, children }: { title: string; hint?: string; aside?: React.ReactNode; children: React.ReactNode }) {
+function Section({ title, hint, aside, controls, disabled = false, children }: { title: string; hint?: string; aside?: React.ReactNode; controls?: React.ReactNode; disabled?: boolean; children: React.ReactNode }) {
   return (
     <section className="card h-full p-4 lg:p-5">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -28,7 +28,10 @@ function Section({ title, hint, aside, children }: { title: string; hint?: strin
         {aside}
       </div>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
-      <div className="mt-4 space-y-4">{children}</div>
+      {controls && <div className="mt-4 space-y-3">{controls}</div>}
+      <fieldset disabled={disabled} className={`mt-4 min-w-0 space-y-4 ${disabled ? "pointer-events-none opacity-40" : ""}`}>
+        {children}
+      </fieldset>
     </section>
   );
 }
@@ -450,7 +453,7 @@ function EngineVersionChip({ tool }: { tool: EngineToolInfo | undefined }) {
   );
 }
 
-const SKILL_ENGINES = ["claude", "codex", "omp", "kimi"] as const;
+const SKILL_ENGINES = ["claude", "codex", "omp", "kimi", "agy"] as const;
 type SkillEngine = typeof SKILL_ENGINES[number];
 
 const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
@@ -458,6 +461,7 @@ const ENGINE_INTRO: Record<Engine, { blurb: string; install: string }> = {
   codex: { blurb: "OpenAI 的 Codex CLI", install: "npm i -g @openai/codex" },
   omp: { blurb: "Oh My Pi，自带 provider 凭据", install: "npm i -g @oh-my-pi/pi-coding-agent" },
   kimi: { blurb: "Moonshot 的 Kimi Code CLI，自带 provider 凭据", install: "npm i -g @moonshot-ai/kimi-code" },
+  agy: { blurb: "直接调用本机官方 Antigravity CLI；安装后运行 agy 登录", install: "curl -fsSL https://antigravity.google/cli/install.sh | bash" },
   browser: { blurb: "OpenAI Computer Use + 隔离 Chromium", install: "playwright install chromium" },
 };
 
@@ -564,10 +568,52 @@ export function SettingsView({
   auth: AuthStatus;
   onAuthChanged: () => void;
 }) {
+  const [savingEnginePolicy, setSavingEnginePolicy] = useState(false);
+
+  async function changeEnginePolicy(key: "engine_enabled" | "engine_subagent_enabled", engine: Engine, enabled: boolean) {
+    setSavingEnginePolicy(true);
+    try {
+      await onChange({ [key]: { ...settings[key], [engine]: enabled } });
+    } catch (err) {
+      toast(`保存引擎设置失败：${readDetail(err)}`, "error");
+    } finally {
+      setSavingEnginePolicy(false);
+    }
+  }
+
+  function engineSection(engine: Engine) {
+    const disabled = settings.engine_enabled[engine] === false;
+    return {
+      disabled,
+      controls: <>
+        <Field label="启用引擎">
+          <label className="flex items-center gap-2 text-sm text-dh-tsoft">
+            <input type="checkbox" role="switch" aria-label={`启用 ${engineName(engine)}`}
+              checked={!disabled} disabled={savingEnginePolicy}
+              onChange={(e) => void changeEnginePolicy("engine_enabled", engine, e.target.checked)} />
+            {disabled ? "已关闭" : "已开启"}
+          </label>
+        </Field>
+        {engine !== "browser" && <fieldset disabled={disabled} className={disabled ? "opacity-40" : ""}>
+          <Field label="允许作为子代理">
+            <label className="flex items-center gap-2 text-sm text-dh-tsoft">
+              <input type="checkbox" role="switch" aria-label={`允许 ${engineName(engine)} 作为子代理`}
+                disabled={savingEnginePolicy}
+                checked={settings.engine_subagent_enabled[engine] !== false}
+                onChange={(e) => void changeEnginePolicy("engine_subagent_enabled", engine, e.target.checked)} />
+              {settings.engine_subagent_enabled[engine] !== false ? "允许" : "不允许"}
+            </label>
+          </Field>
+        </fieldset>}
+      </>,
+    };
+  }
+
   const [refreshingModels, setRefreshingModels] = useState({
     claude: false,
     codex: false,
     kimi: false,
+    agy: false,
   });
   const [restartingBackend, setRestartingBackend] = useState(false);
   // 没装的引擎不渲染设置表单，降级为灰态占位卡
@@ -575,6 +621,7 @@ export function SettingsView({
   const showCodex = useEngineVisible("codex");
   const showOmp = useEngineVisible("omp");
   const showKimi = useEngineVisible("kimi");
+  const showAgy = useEngineVisible("agy");
   // 引擎卡头的版本胶囊数据；探测失败不阻塞页面，胶囊留空即可
   const [engineTools, setEngineTools] = useState<Record<string, EngineToolInfo> | null>(null);
   useEffect(() => {
@@ -587,10 +634,10 @@ export function SettingsView({
   }, []);
   // omp 没有可消费的模型目录接口，设置页直接填模型 ID；kimi 的刷新读的是
   // ~/.kimi-code/config.toml 里的模型别名。
-  async function refreshModels(engine: "claude" | "codex" | "kimi") {
+  async function refreshModels(engine: "claude" | "codex" | "kimi" | "agy") {
     if (refreshingModels[engine]) return;
 
-    const engineLabel = engine === "claude" ? "Claude" : engine === "codex" ? "Codex" : "Kimi";
+    const engineLabel = engineName(engine);
     setRefreshingModels((current) => ({ ...current, [engine]: true }));
     try {
       const result = await api.refreshModelOptions(engine);
@@ -598,6 +645,8 @@ export function SettingsView({
         onSettingsPatch({ claude_model_options: result.model_options });
       } else if (engine === "codex") {
         onSettingsPatch({ codex_model_options: result.model_options });
+      } else if (engine === "agy") {
+        onSettingsPatch({ agy_model_options: result.model_options });
       } else {
         onSettingsPatch({ kimi_model_options: result.model_options });
       }
@@ -676,7 +725,7 @@ export function SettingsView({
       <SettingsGroup label="执行引擎">
       {!showClaude && <UninstalledEngineCard engine="claude" />}
       {showClaude && (
-        <Section title="Claude" hint="调用方式、模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.claude} />}>
+        <Section {...engineSection("claude")} title="Claude" hint="调用方式、模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.claude} />}>
           <Field label="调用方式">
             <select
               className="w-28"
@@ -726,7 +775,7 @@ export function SettingsView({
 
       {!showCodex && <UninstalledEngineCard engine="codex" />}
       {showCodex && (
-        <Section title="Codex" hint="模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.codex} />}>
+        <Section {...engineSection("codex")} title="Codex" hint="模型与推理档位。" aside={<EngineVersionChip tool={engineTools?.codex} />}>
           <Field label="模型">
             <div className="flex items-center gap-2">
               <ModelCombobox
@@ -768,7 +817,7 @@ export function SettingsView({
 
       {!showOmp && <UninstalledEngineCard engine="omp" />}
       {showOmp && (
-        <Section title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。" aside={<EngineVersionChip tool={engineTools?.omp} />}>
+        <Section {...engineSection("omp")} title="Oh My Pi" hint="模型与思考档位。omp 的模型名跨 provider 模糊匹配，可直接填写。" aside={<EngineVersionChip tool={engineTools?.omp} />}>
           <Field label="模型">
             <ModelCombobox
               id="omp-model"
@@ -794,9 +843,40 @@ export function SettingsView({
         </Section>
       )}
 
+      {!showAgy && <UninstalledEngineCard engine="agy" />}
+      {showAgy && (
+        <Section {...engineSection("agy")} title="Antigravity" hint="直接调用本机 agy，使用官方客户端登录态；留空沿用客户端默认模型。" aside={<EngineVersionChip tool={engineTools?.agy} />}>
+          <Field label="模型">
+            <div className="flex items-center gap-2">
+              <ModelCombobox
+                id="agy-model"
+                value={settings.agy_model}
+                options={settings.agy_model_options}
+                onChange={(value) => onSettingsPatch({ agy_model: value })}
+                onCommit={(value) => void onChange({ agy_model: value })}
+              />
+              <button type="button" disabled={refreshingModels.agy}
+                aria-label="刷新 Antigravity 模型列表"
+                onClick={() => void refreshModels("agy")}
+                className="shrink-0 rounded-md border border-dh-bsoft px-3 py-1 text-sm text-dh-tsoft disabled:opacity-50">
+                {refreshingModels.agy ? "刷新中…" : "刷新"}
+              </button>
+            </div>
+          </Field>
+          <Field label="推理强度" hint="实际支持的档位以所选模型为准。">
+            <select className="w-28" value={settings.agy_effort}
+              onChange={(e) => void onChange({ agy_effort: e.target.value })}>
+              {settings.agy_effort_options.map((option) => (
+                <option key={option.value || "default"} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </Field>
+        </Section>
+      )}
+
       {!showKimi && <UninstalledEngineCard engine="kimi" />}
       {showKimi && (
-        <Section title="Kimi Code" hint="模型别名来自 ~/.kimi-code/config.toml；留空用 default_model。" aside={<EngineVersionChip tool={engineTools?.kimi} />}>
+        <Section {...engineSection("kimi")} title="Kimi Code" hint="模型别名来自 ~/.kimi-code/config.toml；留空用 default_model。" aside={<EngineVersionChip tool={engineTools?.kimi} />}>
           <Field label="模型">
             <div className="flex items-center gap-2">
               <ModelCombobox
@@ -821,6 +901,7 @@ export function SettingsView({
       )}
 
       <Section
+        {...engineSection("browser")}
         title="Browser Computer Use"
         hint="驱动隔离 Chromium 验收本地 Web 应用；仅允许 localhost / 回环地址。"
         aside={(

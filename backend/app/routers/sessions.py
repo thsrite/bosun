@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db, sessions
+from .. import engine_policy
 from ..engines import CODING_ENGINES, normalize_engine_id
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -41,6 +42,7 @@ def _existing_task(project_id: int, engine: str, session_uid: str):
 
 
 def _create_resume_task(project_id: int, engine: str, session_uid: str, title: str, prompt: str, kind: str):
+    engine_policy.require(engine)
     existing = _existing_task(project_id, engine, session_uid)
     if existing is not None:
         return {"task_id": existing["id"], "created": False, "status": existing["status"]}
@@ -68,6 +70,8 @@ def import_session(body: ImportBody):
     engine = normalize_engine_id(b.engine)
     if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {b.engine}")
+    if engine == "agy":
+        raise HTTPException(400, "Antigravity 文本记录不能还原完整会话，请使用官方客户端的会话导入功能")
     project = db.query_one("SELECT * FROM project WHERE id=?", (body.project_id,))
     if project is None:
         raise HTTPException(404, "目标项目不存在")

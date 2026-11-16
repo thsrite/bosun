@@ -39,6 +39,13 @@ class NpmPackage:
 
 
 _SPECS: dict[str, ToolSpec] = {
+    "agy": ToolSpec(
+        engine="agy",
+        label="Antigravity CLI",
+        binary=lambda: config.AGY_BIN,
+        npm_packages=(),
+        cli_update_args=("update",),
+    ),
     "claude": ToolSpec(
         engine="claude",
         label="Claude Code",
@@ -271,7 +278,7 @@ def version_info(engine: str) -> dict:
         "version": effective_version,
         "cli_version": cli_version,
         "version_raw": raw_version,
-        "package_manager": "npm" if package_name else ("claude" if cli_update_supported else None),
+        "package_manager": "npm" if package_name else (engine if cli_update_supported else None),
         "package_name": package_name,
         "package_version": package_version,
         "latest_package_name": latest_package_name,

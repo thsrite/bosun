@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, quota, routing, scheduler, sessions, subtasks, task_files, uploads
 from ..directives import REPORT_DIRECTIVE
 from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
+from .. import engine_policy
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -93,6 +94,7 @@ def create_task(body: CreateTask):
         engine, reason = routing.pick_engine()
     if engine not in ENGINES:
         raise HTTPException(400, f"未知引擎: {engine}")
+    engine_policy.require(engine)
     if engine == "browser":
         try:
             browser_computer.extract_start_url(body.prompt)
@@ -139,6 +141,7 @@ def update_task(task_id: int, body: UpdateTask):
         engine = normalize_engine_id(body.engine)
         if engine not in ENGINES:
             raise HTTPException(400, f"未知引擎: {body.engine}")
+        engine_policy.require(engine)
         if t["status"] != "draft":
             raise HTTPException(409, "已启动任务不能直接改引擎，请使用接力")
         fields["engine"] = engine
@@ -166,9 +169,10 @@ def reorder(body: Reorder):
 @router.post("/{task_id}/start")
 def start_task(task_id: int):
     """把单个 draft 任务排入执行（draft → queued），交给调度器。"""
-    task = db.query_one("SELECT engine,prompt FROM task WHERE id=? AND deleted=0", (task_id,))
+    task = db.query_one("SELECT engine,prompt,parent_task_id FROM task WHERE id=? AND deleted=0", (task_id,))
     if task is None:
         raise HTTPException(404, "任务不存在")
+    engine_policy.require(task["engine"], subagent=task["parent_task_id"] is not None)
     if task["engine"] == "browser":
         info = browser_computer.availability()
         if not info["available"]:
@@ -290,6 +294,7 @@ def handoff_task(task_id: int, body: HandoffBody):
     engine = normalize_engine_id(body.engine)
     if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {body.engine}")
+    engine_policy.require(engine)
     if engine == t["engine"]:
         raise HTTPException(400, "接力引擎必须与当前引擎不同")
     allowed, _, reason = quota.check_engine(engine)
@@ -356,6 +361,9 @@ def continue_task(task_id: int, body: ContinueBody):
         raise HTTPException(404, "任务不存在")
     if not t["session_uid"]:
         raise HTTPException(400, "该任务没有可恢复的会话 id（可能从未运行或运行时未捕获）")
+    engine_policy.require(t["engine"], subagent=t["parent_task_id"] is not None)
+    if t["engine"] == "agy" and body.compact:
+        raise HTTPException(400, "agy 由官方客户端自动管理上下文，请使用继续会话")
     if t["status"] in ("running", "queued", "waiting_input"):
         raise HTTPException(409, "任务仍在运行/待输入，请先到终端处理或取消后再继续，避免重复运行同一会话")
     proj = db.query_one("SELECT path FROM project WHERE id=?", (t["project_id"],))
@@ -404,6 +412,7 @@ def rerun_task(task_id: int):
     t = db.query_one("SELECT * FROM task WHERE id=?", (task_id,))
     if t is None:
         raise HTTPException(404, "任务不存在")
+    engine_policy.require(t["engine"])
     # 继续过会话的任务，prompt 里只剩追加指令(甚至为空)，重跑必须用原始提示词
     origin = t["original_prompt"] or t["prompt"]
     title = t["title"] or derive_title(origin)
@@ -686,9 +695,10 @@ def spawn_subtask(task_id: int, body: SpawnBody, request: Request = None):
 
     engine = normalize_engine_id(body.engine)
     if engine == "auto":
-        engine, _ = routing.pick_engine()
+        engine, _ = routing.pick_engine(subagent=True)
     if engine not in CODING_ENGINES:
         raise HTTPException(400, f"未知引擎: {engine}")
+    engine_policy.require(engine, subagent=True)
     allowed, _, reason = quota.check_engine(engine)
     if not allowed:
         raise HTTPException(429, reason)
