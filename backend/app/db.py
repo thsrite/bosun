@@ -14,6 +14,18 @@ _conn: sqlite3.Connection | None = None
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS delivery_check (
+    id INTEGER PRIMARY KEY,
+    step_id INTEGER NOT NULL REFERENCES orchestration_step_run(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL,
+    version TEXT NOT NULL,
+    items TEXT NOT NULL,
+    host TEXT NOT NULL,
+    command TEXT NOT NULL,
+    state TEXT NOT NULL,
+    detail TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS delivery_check_step ON delivery_check(step_id, attempt, version);
 CREATE TABLE IF NOT EXISTS project (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -257,6 +269,10 @@ def _ensure_table_columns(conn, table: str, adds: dict) -> set[str]:
 def _ensure_columns() -> None:
     """兼容已有库：缺列则补(SQLite 逐列 ALTER)。"""
     conn = get_conn()
+    _ensure_table_columns(conn, "orchestration", {
+        "acceptance_gate": "INTEGER NOT NULL DEFAULT 0", "remote_checks": "INTEGER NOT NULL DEFAULT 0",
+    })
+    _ensure_table_columns(conn, "orchestration_step_run", {"verified_merge": "TEXT"})
     _ensure_table_columns(conn, "task", {
         "session_uid": "TEXT",
         "resume": "INTEGER NOT NULL DEFAULT 0",

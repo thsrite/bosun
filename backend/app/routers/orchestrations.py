@@ -25,6 +25,11 @@ class TemplateBody(BaseModel):
     steps: list[StepBody]
 
 
+class AcceptanceSetting(BaseModel):
+    enabled: bool
+    remote_checks: bool | None = None
+
+
 class RunBody(BaseModel):
     orchestration_id: int
     project_id: int
@@ -33,6 +38,7 @@ class RunBody(BaseModel):
     priority: int = 5
     auto_approve: bool = False
     start: bool = False
+    on_demand: bool = True
 
 
 def _call(fn, *args, **kwargs):
@@ -74,6 +80,17 @@ def delete_template(template_id: int):
     return {"ok": True}
 
 
+@router.put("/api/orchestrations/{template_id}/acceptance")
+def configure_acceptance(template_id: int, body: AcceptanceSetting):
+    with db._lock:
+        template = _call(orchestrations.get_template, template_id)
+        if body.enabled and len(template["steps"]) != 3:
+            raise HTTPException(409, "验收表适用需求、开发、质量三角色模板")
+        db.execute("UPDATE orchestration SET acceptance_gate=?, remote_checks=COALESCE(?,remote_checks), updated_at=? WHERE id=?",
+                   (int(body.enabled), body.remote_checks, time.time(), template_id))
+    return orchestrations.get_template(template_id)
+
+
 @router.get("/api/orchestration-runs")
 def list_runs(project_id: int | None = None):
     return orchestrations.list_runs(project_id)
@@ -90,6 +107,7 @@ def create_run(body: RunBody):
         body.priority,
         body.auto_approve,
         body.start,
+        on_demand=body.on_demand,
     )
 
 

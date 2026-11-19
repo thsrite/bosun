@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sqlite3
+from pathlib import Path
 import time
 from typing import Any
 
-from . import db, engine_settings, events, scheduler
+from . import acceptance, db, delivery_checks, engine_settings, events, scheduler
 from .engines import CODING_ENGINES, normalize_engine_id
 
 MIN_STEPS = 2
@@ -159,7 +161,8 @@ def create_template(name: str, steps: list[dict[str, Any]], enabled: bool = True
 
 
 def update_template(template_id: int, name: str, steps: list[dict[str, Any]], enabled: bool = True) -> dict:
-    get_template(template_id)
+    if get_template(template_id).get("acceptance_gate") and len(steps) != 3:
+        raise OrchestrationError("启用交付验收表的模板须保留需求、开发、质量三个步骤")
     clean_name = (name or "").strip()
     if not clean_name:
         raise OrchestrationError("编排名称不能为空")
@@ -226,7 +229,33 @@ def _snapshot(template: dict) -> dict:
             "role_prompt": REPORT_ROLE_PROMPT,
             "role_kind": "report",
         })
-    return {"id": template["id"], "name": template["name"], "steps": steps}
+    gated = bool(template.get("acceptance_gate"))
+    if gated:
+        if len(template["steps"]) != 3:
+            raise OrchestrationError("验收表要求需求、开发、质量三个步骤")
+        for step, guide in zip(steps, acceptance.GUIDES):
+            step["role_prompt"] += "\n\n【Bosun 验收表】\n" + guide
+    remote_checks = bool(gated and template.get("remote_checks"))
+    if remote_checks:
+        steps[0]["role_prompt"] += (
+            "\n任务单 JSON 增加 kind：新需求 feature，缺陷 bug，明确的文档、调查、已有能力或模拟演练用 noncode 并写 reason。"
+            "真实开发修复不能按演练处理。逐项写清用户在哪个入口做什么、能看到什么。"
+            "缺陷用 reproduction 字段记录修前表现、触发条件及同条件复测方法。"
+        )
+        runner = shlex.quote(str(Path(__file__).resolve().parents[1] / "run_delivery_check.py"))
+        for step in steps[1:3]:
+            step["role_prompt"] += (
+                "\n代码单必须实际运行本角色的远程测试。先将本项目候选版本提交在任务分支，"
+                "在项目指定的测试机准备本轮独立、干净的 Git 副本及测试依赖，确认当前提交和本地 SHA 相同。"
+                "按项目约定避开占用的构建机。用 Bosun 所在机器的任务环境执行 "
+                f"python3 {runner} --host 测试机 --dir 远程用例工作目录 --version 完整SHA --item A1 -- 测试程序 参数。"
+                "多个验收项只有同一命令确实覆盖时才可重复 --item。选实际业务断言，如 pytest 指定用例或 Playwright 的页面测试。"
+                "测试子进程在远端运行；保留日志、截图或结果说明并把回执号写入阶段产物。"
+                "开发失败先自行修复；独立复验发现实现问题立即回报 rework 到第2位，写明检查项、实际结果及回执号。"
+                "环境不可用先排查，仍不可用时记录原因并 needs_input。测试结束清理本轮临时副本。"
+            )
+    return {"id": template["id"], "name": template["name"], "steps": steps, "acceptance_gate": gated,
+            "remote_checks": remote_checks}
 
 
 def _roster(snapshot: dict) -> str:
@@ -303,6 +332,8 @@ def _insert_step(conn, run, snapshot: dict, position: int, now: float) -> int:
         (run["id"], position),
     ).fetchall()
     prompt, input_artifact = _render_prompt(run, snapshot, step, previous)
+    if position == 1:
+        input_artifact = run["original_prompt"]
     title = f"{run['title'] or run['original_prompt'][:40]} · {step['name']}"
     task_cur = conn.execute(
         "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,created_at) "
@@ -325,12 +356,8 @@ def _insert_step(conn, run, snapshot: dict, position: int, now: float) -> int:
     return task_id
 
 
-def _create_all_roles(conn, run, snapshot: dict, now: float) -> list[int]:
-    """一次性把班组全员建出来：接力棒落在第 1 位，其余角色以待命身份启动。
-
-    全员同时在线是「互相发消息」的前提；分批拉起会互锁——先起的角色在等还没被创建的
-    角色答话。已存在的位置跳过，保证重入幂等（恢复路径会重跑本函数）。
-    """
+def _create_initial_roles(conn, run, snapshot: dict, now: float) -> list[int]:
+    """新运行只创建持棒角色；旧快照继续沿用常驻班组。"""
     conn.execute(
         "UPDATE orchestration_run SET status='running',current_position=COALESCE(current_position,1),"
         "started_at=COALESCE(started_at,?),updated_at=?,ended_at=NULL WHERE id=?",
@@ -343,7 +370,8 @@ def _create_all_roles(conn, run, snapshot: dict, now: float) -> list[int]:
         )
     }
     task_ids = []
-    for position in range(1, len(snapshot["steps"]) + 1):
+    positions = [run["current_position"]] if snapshot.get("on_demand") else range(1, len(snapshot["steps"]) + 1)
+    for position in positions:
         if position in existing:
             continue
         task_ids.append(_insert_step(conn, run, snapshot, position, now))
@@ -372,6 +400,7 @@ def create_run(
     priority: int,
     auto_approve: bool,
     start: bool = False,
+    on_demand: bool = False,
 ) -> dict:
     template = get_template(template_id)
     if not template["enabled"]:
@@ -382,6 +411,7 @@ def create_run(
     if not clean_prompt:
         raise OrchestrationError("任务指令不能为空")
     snapshot = _snapshot(template)
+    snapshot["on_demand"] = on_demand
     from . import engine_policy
     for step in snapshot["steps"]:
         reason = engine_policy.rejection(step["engine"])
@@ -404,7 +434,7 @@ def create_run(
             task_ids = []
             if start:
                 run = conn.execute("SELECT * FROM orchestration_run WHERE id=?", (run_id,)).fetchone()
-                task_ids = _create_all_roles(conn, run, snapshot, now)
+                task_ids = _create_initial_roles(conn, run, snapshot, now)
     if start:
         _dispatch_roles(task_ids)
     events.emit("orchestration.run", {"run_id": run_id, "status": "running" if start else "draft"})
@@ -428,7 +458,7 @@ def start_run(run_id: int) -> dict:
                 reason = engine_policy.rejection(step["engine"])
                 if reason:
                     raise OrchestrationError(reason, 409)
-            task_ids = _create_all_roles(conn, run, snapshot, now)
+            task_ids = _create_initial_roles(conn, run, snapshot, now)
     if task_ids:
         _dispatch_roles(task_ids)
         events.emit("orchestration.run", {"run_id": run_id, "status": "running"})
@@ -447,6 +477,36 @@ def _run_dict(row) -> dict:
                 item["task_status"] = task["status"]
         steps.append(item)
     out["steps"] = steps
+    if json.loads(out["definition_snapshot"]).get("acceptance_gate"):
+        out["acceptance"] = acceptance.display(steps)
+        if json.loads(out["definition_snapshot"]).get("remote_checks"):
+            try:
+                spec = acceptance.record(steps[0]["output_artifact"])
+                if spec.get("kind") in ("feature", "bug"):
+                    acceptance.plan(spec)
+                    version = out["acceptance"]["version"]
+                    for step in steps[1:3]:
+                        if not version:
+                            latest = db.query_one("SELECT version FROM delivery_check WHERE step_id=? AND attempt=? ORDER BY id DESC LIMIT 1",
+                                                  (step["id"], step["attempt"]))
+                            if not latest:
+                                continue
+                            candidate = latest["version"]
+                        else:
+                            candidate = version
+                        checks = delivery_checks.results(step, spec, candidate)
+                        out["acceptance"]["rows"].extend(checks)
+                        if any(row["status"] != "通过" for row in checks) and out["acceptance"]["message"] == "验收通过":
+                            out["acceptance"]["message"] = "等待当前候选的远程检查通过"
+            except (ValueError, IndexError):
+                pass  # 阶段产物允许分次保存，完整性在交棒时检查。
+        if out["rework_total"]:
+            previous = db.query_one(
+                "SELECT a.output_artifact FROM orchestration_step_artifact a JOIN orchestration_step_run s "
+                "ON s.id=a.step_run_id WHERE s.run_id=? AND s.position=3 ORDER BY a.id DESC LIMIT 1", (out["id"],)
+            )
+            if previous:
+                out["acceptance"]["previous_review"] = previous["output_artifact"]
     return out
 
 
@@ -494,6 +554,7 @@ def save_task_artifact(task_id: int, artifact: str) -> dict:
     )
     if changed == 0:
         raise OrchestrationError("当前编排步骤已结束，不能再提交产物", 409)
+    events.emit("orchestration.run", {"run_id": step["run_id"]})
     return {"ok": True, "bytes": size}
 
 
@@ -506,6 +567,92 @@ def validate_task_report(task_id: int, result: str, artifact: str | None) -> boo
     if result == "done" and not (artifact or "").strip() and not (step["output_artifact"] or "").strip():
         raise OrchestrationError("编排步骤完成前必须提交完整阶段产物")
     return True
+
+
+def acceptance_verdict(task_id: int, artifact: str | None = None) -> dict | None:
+    """按本次快照判断是否启用；仅使用本轮需求、开发和质量各自提交的产物。"""
+    step = _step_for_task(task_id)
+    if step is None:
+        return None
+    run = db.query_one("SELECT * FROM orchestration_run WHERE id=?", (step["run_id"],))
+    snapshot = json.loads(run["definition_snapshot"])
+    if not snapshot.get("acceptance_gate") or step["role_kind"] == "report":
+        return None
+    if run["current_position"] != step["position"] or run["status"] in TERMINAL_RUN_STATUSES:
+        raise OrchestrationError("当前任务未持棒或编排已结束", 409)
+    saved = step["output_artifact"] if artifact is None else artifact
+    try:
+        data = acceptance.record(saved)
+        if step["position"] == 1:
+            acceptance.plan(data)
+            if snapshot.get("remote_checks"):
+                if data.get("kind") == "noncode":
+                    acceptance.required(data, "reason")
+                elif data.get("kind") == "bug":
+                    acceptance.required(data, "reproduction")
+                elif data.get("kind") != "feature":
+                    raise ValueError("任务单须标明 feature、bug 或 noncode")
+        elif step["position"] == 2:
+            version = acceptance.candidate(data)
+            if snapshot.get("remote_checks"):
+                source = db.query_one("SELECT output_artifact FROM orchestration_step_run WHERE run_id=? AND position=1", (run["id"],))
+                spec = acceptance.record(source[0])
+                if spec["kind"] != "noncode":
+                    missing = [row for row in delivery_checks.results(step, spec, version) if row["status"] != "通过"]
+                    if missing:
+                        raise ValueError("尚未通过本轮远程自测：" + "、".join(row["id"] for row in missing))
+        else:
+            upstream = db.query(
+                "SELECT output_artifact FROM orchestration_step_run WHERE run_id=? AND position<3 ORDER BY position",
+                (run["id"],),
+            )
+            spec = acceptance.record(upstream[0][0])
+            verdict = acceptance.evaluate(spec, acceptance.record(upstream[1][0]), data)
+            if snapshot.get("remote_checks") and spec["kind"] != "noncode":
+                checks = delivery_checks.results(step, spec, verdict["version"])
+                verdict["rows"].extend(checks)
+                if any(row["status"] == "失败" for row in checks):
+                    verdict["action"] = "rework"
+                elif verdict["passed"] and any(row["status"] == "未测" for row in checks):
+                    verdict["action"] = "needs_input"
+                verdict["passed"] = verdict["action"] == "done"
+            if verdict["delivery"] == "merge":
+                verdict["base"] = spec["base"]
+                verdict["pr"] = data["merge"].get("pr")
+                verdict["merge_receipt"] = json.loads(step["verified_merge"] or "null")
+            return verdict
+    except ValueError as exc:
+        raise OrchestrationError(f"验收表未通过：{exc}", 409) from exc
+    return {"action":"done", "passed":True}
+
+
+def route_quality_report(task_id, result, summary, artifact, target_position):
+    if result != "done":
+        return result, summary, artifact, target_position
+    step = _step_for_task(task_id)
+    if step is None or step["status"] in TERMINAL_STEP_STATUSES:
+        return result, summary, artifact, target_position
+    saved = step["output_artifact"] if artifact is None else artifact
+    verdict = acceptance_verdict(task_id, saved)
+    if verdict is None:
+        return result, summary, artifact, target_position
+    action = verdict["action"]
+    if action != "done":
+        issues = [
+            f"{row['id']}（{row['status']}）：{row['actual']}" + (f"；证据 {row['evidence']}" if row["evidence"] else "")
+            for row in verdict["rows"] if row["status"] != "通过"
+        ]
+        note = "\n".join(issues)
+        if action == "rework" and any(row["id"].startswith("独立复测 · ") for row in verdict["rows"]):
+            saved += "\n\n本轮返工依据\n" + note
+        return action, note, saved, 2 if action == "rework" else None
+    if verdict.get("delivery") == "merge":
+        receipt = verdict.get("merge_receipt")
+        if not receipt or (receipt["headRefOid"], receipt["number"], receipt["baseRefName"]) != (
+            verdict["version"], verdict["pr"], verdict["base"]
+        ):
+            return "needs_input", "验收通过，等待当前候选版本的实际合并回执", saved, None
+    return result, summary, saved, target_position
 
 
 def _queue_message(conn, run_id: int, from_position: int | None, to_position: int,
@@ -568,7 +715,7 @@ def _handoff_body(step, snapshot: dict, output: str | None) -> str:
 
 
 def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, int | None, str | None]:
-    """交棒：不再新建下一步（全员早已在线），只移动接力棒并把产物投给下一位。
+    """交棒时复用已有角色或创建下一位，把产物投递给它。
 
     返回 (下一位 task_id, 消息 id, 待投递消息)；最后一位返回三个 None。
     """
@@ -585,7 +732,7 @@ def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, int | 
         "SELECT * FROM orchestration_step_run WHERE run_id=? AND position=?",
         (run["id"], next_position),
     ).fetchone()
-    if nxt is None:  # 老 run（逐步创建的）恢复过来：缺谁补谁
+    if nxt is None:  # 创建时注入已完成的上游产物，随后可靠投递交棒通知。
         _insert_step(conn, run, snapshot, next_position, now)
         nxt = conn.execute(
             "SELECT * FROM orchestration_step_run WHERE run_id=? AND position=?",
@@ -606,9 +753,9 @@ def _advance_after_done(conn, run, step, now: float) -> tuple[int | None, int | 
         return None, None, None
     _set_baton(conn, run["id"], next_position, now)
     conn.execute(
-        "UPDATE orchestration_step_run SET status='queued',updated_at=? "
+        "UPDATE orchestration_step_run SET status='queued',input_artifact=?,updated_at=? "
         "WHERE id=?",
-        (now, nxt["id"]),
+        (step["output_artifact"], now, nxt["id"]),
     )
     return nxt["task_id"], message_id, body
 
@@ -652,12 +799,20 @@ def _apply_rework(conn, run, step, target_position: int, note: str, now: float
     )
     body = _message_body(conn, message_id)
     conn.execute(
-        "UPDATE orchestration_step_run SET status='queued',result=NULL,output_artifact=NULL,summary=NULL,"
+        "UPDATE orchestration_step_run SET status='queued',result=NULL,input_artifact=?,output_artifact=NULL,summary=NULL,"
         "attempt=attempt+1,rework_count=rework_count+1,nudge_count=0,recovery_count=0,"
         "last_nudged_at=NULL,updated_at=?,ended_at=NULL WHERE id=?",
-        (now, target["id"]),
+        (f"原阶段输入：\n{target['input_artifact'] or run['original_prompt']}\n\n本轮返工意见：\n{note}", now, target["id"]),
     )
     # 打回点之后的角色（含发起者）回到待执行：它们的结论建立在被推翻的产物上
+    if json.loads(run["definition_snapshot"]).get("acceptance_gate"):
+        for old in conn.execute(
+            "SELECT * FROM orchestration_step_run WHERE run_id=? AND position>? AND "
+            "(output_artifact IS NOT NULL OR EXISTS (SELECT 1 FROM delivery_check WHERE step_id=orchestration_step_run.id AND attempt=orchestration_step_run.attempt))",
+            (run["id"], target_position),
+        ).fetchall():
+            _archive_artifact(conn, old, now)
+            conn.execute("UPDATE orchestration_step_run SET output_artifact=NULL, verified_merge=NULL, attempt=attempt+1 WHERE id=?", (old["id"],))
     conn.execute(
         "UPDATE orchestration_step_run SET status='queued',result=NULL,nudge_count=0,recovery_count=0,"
         "last_nudged_at=NULL,updated_at=? "
@@ -711,6 +866,7 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                 (now, run_id, step["position"]),
             )
             output = artifact if artifact is not None else step["output_artifact"]
+            result, summary, output, target_position = route_quality_report(task_id, result, summary, output, target_position)
             if result == "done":
                 conn.execute(
                     "UPDATE orchestration_step_run SET status='done',result='done',summary=?,output_artifact=?,"
@@ -722,6 +878,8 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                 if next_task_id and message_id and body:
                     pending = (next_task_id, message_id, body)
             elif result == "rework":
+                if output:
+                    conn.execute("UPDATE orchestration_step_run SET output_artifact=? WHERE id=?", (output, step["id"]))
                 target_task_id, message_id, body, _tripped = _apply_rework(
                     conn, run, step, int(target_position or 0), summary or "", now,
                 )
@@ -747,6 +905,8 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                     "UPDATE orchestration_run SET status='failed',updated_at=?,ended_at=? WHERE id=?",
                     (now, now, run_id),
                 )
+    if pending and json.loads(run["definition_snapshot"]).get("on_demand"):
+        scheduler.finish_orchestration_step(task_id)
     if pending:
         _hand_over(run_id, task_id, *pending)
     # 回收的判据是 run 真的落了终态，而不是「某一步结束了」——交棒受阻时 run 还活着
@@ -922,7 +1082,8 @@ def send_message(task_id: int, to_position: int, body: str, kind: str = "ask") -
         "SELECT * FROM orchestration_step_run WHERE run_id=? AND position=?",
         (step["run_id"], to_position),
     )
-    if target is None:
+    snapshot = json.loads(run["definition_snapshot"])
+    if target is None and not (snapshot.get("on_demand") and 1 <= to_position <= len(snapshot["steps"])):
         raise OrchestrationError(f"班组里没有第 {to_position} 位角色", 404)
     total = db.query_one(
         "SELECT COUNT(*) AS n FROM orchestration_message WHERE run_id=?", (step["run_id"],)
@@ -944,11 +1105,21 @@ def send_message(task_id: int, to_position: int, body: str, kind: str = "ask") -
     now = time.time()
     content = (
         f"来自第 {step['position']} 位 · {step['name']}：\n{text}\n"
-        f"（如需回复，用发消息功能回给第 {step['position']} 位；不要替对方做决定）"
+        f"（如需回复，用 kind=answer 回给第 {step['position']} 位；不要替对方做决定）"
     )
     with db._lock:
         conn = db.get_conn()
         with conn:
+            if target is None:
+                run = conn.execute("SELECT * FROM orchestration_run WHERE id=?", (step["run_id"],)).fetchone()
+                if run["status"] in TERMINAL_RUN_STATUSES:
+                    raise OrchestrationError("编排已结束，不能再发消息", 409)
+                target = conn.execute(
+                    "SELECT task_id FROM orchestration_step_run WHERE run_id=? AND position=?",
+                    (run["id"], to_position),
+                ).fetchone()
+                if target is None:
+                    target = {"task_id": _insert_step(conn, run, snapshot, to_position, now)}
             message_id = _queue_message(
                 conn, step["run_id"], step["position"], to_position, kind, content, now,
             )
@@ -964,6 +1135,19 @@ def send_message(task_id: int, to_position: int, body: str, kind: str = "ask") -
         "run_id": step["run_id"], "from_position": step["position"],
         "to_position": to_position, "kind": kind, "delivered": delivered,
     })
+    if kind == "answer" and snapshot.get("on_demand"):
+        # 答完临时咨询即可释放；并行提问或刚接棒时仍需保留会话。
+        current = db.query_one("SELECT current_position FROM orchestration_run WHERE id=?", (run["id"],))
+        unanswered = db.query_one(
+            "SELECT 1 FROM orchestration_message q WHERE q.run_id=? AND q.to_position=? AND q.kind='ask' "
+            "AND NOT EXISTS (SELECT 1 FROM orchestration_message a WHERE a.run_id=q.run_id AND a.id>q.id "
+            "AND a.kind='answer' AND a.from_position=q.to_position AND a.to_position=q.from_position) LIMIT 1",
+            (run["id"], step["position"]),
+        )
+        if current and current["current_position"] != step["position"] and not unanswered:
+            if _step_for_task(task_id)["status"] == "done":
+                db.execute("UPDATE task SET report_result='done' WHERE id=?", (task_id,))
+            scheduler.finish_orchestration_step(task_id)
     return {"ok": True, "id": message_id, "delivered": delivered}
 
 
@@ -1565,7 +1749,7 @@ def reconcile_on_startup() -> int:
                     (run["id"],),
                 ).fetchall()
                 if not steps:
-                    _create_all_roles(conn, run, snapshot, now)
+                    _create_initial_roles(conn, run, snapshot, now)
                     changed += 1
                     continue
                 baton_down = False

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from .. import auth, browser_computer, db, events, log_archive, nesting, orchestrations, quota, routing, scheduler, sessions, subtasks, task_files, uploads
 from ..directives import REPORT_DIRECTIVE
 from ..engines import CODING_ENGINES, ENGINES, normalize_engine_id
-from .. import engine_policy
+from .. import acceptance, engine_policy
 from ..pty_session import remove_terminal_log_files, script_log_path_for
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -530,6 +530,45 @@ async def _read_artifact_body(request: Request) -> str:
         raise HTTPException(status_code=400, detail="阶段产物必须是 UTF-8 文本") from exc
 
 
+@router.get("/{task_id}/acceptance-check")
+@router.post("/{task_id}/acceptance-check")
+def check_before_merge(task_id: int, version: str, request: Request):
+    if not _report_authorized(task_id, request):
+        raise HTTPException(401, "回报凭证无效")
+    try:
+        verdict = orchestrations.acceptance_verdict(task_id)
+    except orchestrations.OrchestrationError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    if not verdict or verdict.get("delivery") != "merge" or verdict.get("version") != version:
+        raise HTTPException(409, "当前步骤、交付目标或候选版本不符合合并条件")
+    if not verdict["passed"]:
+        return verdict
+    step = db.query_one(
+        "SELECT s.id,s.attempt,p.path FROM orchestration_step_run s JOIN orchestration_run r ON r.id=s.run_id "
+        "JOIN project p ON p.id=r.project_id WHERE s.task_id=?", (task_id,)
+    )
+    try:
+        pr = acceptance.read_pull_request(step["path"], verdict["pr"])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if (pr["headRefOid"], pr["number"], pr["baseRefName"]) != (version, verdict["pr"], verdict["base"]):
+        raise HTTPException(409, "GitHub 返回的候选版本、PR 或目标分支已变化，需重新核对")
+    if request.method == "POST":
+        if pr["state"] != "MERGED" or not (pr.get("mergeCommit") or {}).get("oid"):
+            raise HTTPException(409, "GitHub 尚无已合并回执")
+        changed = db.execute_rowcount(
+            "UPDATE orchestration_step_run SET verified_merge=? WHERE id=? AND attempt=? "
+            "AND status IN ('running','waiting_input','queued')",
+            (json.dumps(pr), step["id"], step["attempt"]),
+        )
+        if not changed:
+            raise HTTPException(409, "验收轮次已结束，请核对运行状态")
+        verdict["merge_receipt"] = pr
+    elif pr["state"] != "OPEN" or pr["isDraft"] or pr["reviewDecision"] in {"CHANGES_REQUESTED", "REVIEW_REQUIRED"} or pr["mergeStateStatus"] in {"BEHIND", "DIRTY", "BLOCKED", "UNKNOWN"}:
+        raise HTTPException(409, "GitHub 当前不允许直接合并，请检查评审、分支保护或合并队列状态")
+    return verdict
+
+
 @router.post("/{task_id}/report")
 def report_task(task_id: int, body: ReportBody, request: Request = None):
     """任务收尾时的权威状态回调（agent 按收尾约定直接 HTTP POST）。"""
@@ -547,6 +586,10 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
         raise HTTPException(status_code=409, detail="嵌套 agent 不能代替父任务回报状态")
     try:
         is_orchestration_step = orchestrations.validate_task_report(task_id, body.result, body.artifact)
+        if is_orchestration_step:
+            body.result, body.summary, body.artifact, body.target_position = orchestrations.route_quality_report(
+                task_id, body.result, body.summary, body.artifact, body.target_position,
+            )
     except orchestrations.OrchestrationError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
     session = scheduler.get_session(task_id)

@@ -124,6 +124,12 @@ export interface OrchestrationMessage {
 }
 
 export interface OrchestrationRun {
+  acceptance?: {
+    version: string;
+    message: string;
+    rows: { id: string; input?: string; expected?: string; status: string; actual: string; evidence: string }[];
+    previous_review?: string;
+  };
   id: number;
   orchestration_id: number | null;
   definition_snapshot: string;

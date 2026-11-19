@@ -151,6 +151,20 @@ export function OrchestrationRunList({ runs, onChanged }: { runs: OrchestrationR
               {ACTIVE.has(item.status) && <button type="button" disabled={busy} onClick={(event) => { event.preventDefault(); void cancel(item); }} className="rounded-md border border-rose-500/30 px-2.5 py-1 text-xs text-rose-400 disabled:opacity-50">取消编排</button>}
             </summary>
             <div className="mt-3 space-y-2 border-t border-dh-bsoft pt-3">
+              {item.acceptance && (
+                <section aria-label="验收表" className="rounded-lg border border-dh-bsoft p-3 text-xs">
+                  <h3 className="font-semibold text-dh-text">验收表 · {item.acceptance.message}</h3>
+                  {item.acceptance.version && <p className="mt-1 break-all text-dh-muted">候选版本　{item.acceptance.version}</p>}
+                  {item.acceptance.rows.length > 0 && <div className="mt-2 overflow-x-auto"><table className="w-full text-left">
+                    <thead><tr>{["必验项", "输入与预期", "结论", "实际结果", "证据"].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead>
+                    <tbody>{item.acceptance.rows.map((row, index) => <tr key={index} className="border-t border-dh-bsoft align-top">
+                      <td className="p-2">{row.id}</td><td className="p-2">{[row.input, row.expected].filter(Boolean).join(" → ") || "—"}</td>
+                      <td className="whitespace-nowrap p-2">{row.status}</td><td className="p-2">{row.actual || "—"}</td><td className="break-all p-2">{row.evidence || "—"}</td>
+                    </tr>)}</tbody></table></div>}
+                  {item.acceptance.previous_review && <details className="mt-2"><summary className="cursor-pointer">查看上一轮质量记录</summary>
+                    <pre className="mt-2 whitespace-pre-wrap break-words">{item.acceptance.previous_review}</pre></details>}
+                </section>
+              )}
               {item.steps.map((step) => {
                 const state = roleState(step, item);
                 return (
