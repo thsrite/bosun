@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db, orchestrations, uploads
@@ -28,6 +29,7 @@ class TemplateBody(BaseModel):
 class AcceptanceSetting(BaseModel):
     enabled: bool
     remote_checks: bool | None = None
+    specialist_checks: bool | None = None
 
 
 class RunBody(BaseModel):
@@ -86,8 +88,9 @@ def configure_acceptance(template_id: int, body: AcceptanceSetting):
         template = _call(orchestrations.get_template, template_id)
         if body.enabled and len(template["steps"]) != 3:
             raise HTTPException(409, "验收表适用需求、开发、质量三角色模板")
-        db.execute("UPDATE orchestration SET acceptance_gate=?, remote_checks=COALESCE(?,remote_checks), updated_at=? WHERE id=?",
-                   (int(body.enabled), body.remote_checks, time.time(), template_id))
+        db.execute("UPDATE orchestration SET acceptance_gate=?, remote_checks=COALESCE(?,remote_checks), "
+                   "specialist_checks=COALESCE(?,specialist_checks), updated_at=? WHERE id=?",
+                   (int(body.enabled), body.remote_checks, body.specialist_checks, time.time(), template_id))
     return orchestrations.get_template(template_id)
 
 
@@ -136,6 +139,18 @@ def resume_run(run_id: int):
 def list_messages(run_id: int):
     _call(orchestrations.get_run, run_id)
     return _call(orchestrations.list_messages, run_id)
+
+
+@router.get("/api/orchestration-runs/{run_id}/receipts/{receipt}/archive")
+def download_report(run_id: int, receipt: int):
+    row = db.query_one("SELECT r.archive FROM delivery_report r JOIN delivery_check c ON c.id=r.receipt "
+                       "JOIN orchestration_step_run s ON s.id=c.step_id WHERE s.run_id=? AND r.receipt=?",
+                       (run_id, receipt))
+    if row is None:
+        raise HTTPException(404, "本次运行没有这份证据包")
+    return Response(row[0], media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="receipt-{receipt}.zip"', "Cache-Control": "no-store",
+    })
 
 
 @router.post("/api/orchestration-runs/{run_id}/upload-file")

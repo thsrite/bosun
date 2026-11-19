@@ -7,8 +7,9 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import zipfile
 
-from app import acceptance, db
+from app import acceptance, check_reports, db
 
 # 标记写入独立的最后一行。SSH 掉线、版本漂移和环境问题均不能产生通过回执。
 REMOTE = r"""
@@ -34,7 +35,7 @@ printf '\nBOSUN_TEST_EXIT=%s\n' "$code"
 """
 
 
-def run(task_id, host, directory, version, items, command):
+def run(task_id, host, directory, version, items, command, collector_python="python3"):
     step = db.query_one(
         "SELECT s.*,r.status run_status,r.current_position,r.definition_snapshot,p.path "
         "FROM orchestration_step_run s JOIN orchestration_run r ON r.id=s.run_id "
@@ -65,6 +66,25 @@ def run(task_id, host, directory, version, items, command):
         if not cursor.rowcount:
             raise ValueError("本次交接或返工已发生，请使用当前角色和轮次")
         receipt = cursor.lastrowid
+    if json.loads(step["definition_snapshot"]).get("specialist_checks"):
+        definitions = acceptance.plan(spec)
+        selected = {key: definitions[key] for key in items}
+        try:
+            outcomes, archive = check_reports.collect(host, directory, version, selected, step["position"], command,
+                                                      collector_python)
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+            db.execute("UPDATE delivery_check SET state='error',detail=? WHERE id=?", (str(exc), receipt))
+            raise ValueError(f"回执 #{receipt} 未完成：{exc}") from exc
+        states = {status for status, _ in outcomes.values()}
+        state = "failed" if "failed" in states else "passed" if states == {"passed"} else "error"
+        labels = {"passed": "通过", "failed": "失败", "error": "未测"}
+        detail = "\n".join(f"{key}（{labels[status]}）：{message}" for key, (status, message) in outcomes.items())
+        with db._lock, db.get_conn() as conn:
+            conn.execute("INSERT INTO delivery_report(receipt,outcomes,archive) VALUES(?,?,?)",
+                         (receipt, json.dumps(outcomes, ensure_ascii=False), archive))
+            conn.execute("UPDATE delivery_check SET state=?,detail=? WHERE id=?", (state, detail, receipt))
+        print(f"回执 #{receipt}\n{detail}")
+        return 0 if state == "passed" else 1
     # 本机只接收文本。限制保存的日志长度，避免把大输出留在编排数据库。
     state, detail = "error", "执行中断"
     try:
@@ -95,10 +115,12 @@ if __name__ == "__main__":
     parser.add_argument("--dir", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--item", action="append", required=True)
+    parser.add_argument("--collector-python", default="python3", help="远端证据收集解释器；视觉比对需 Pillow")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     try:
-        sys.exit(run(int(os.environ["BOSUN_TASK_ID"]), args.host, args.dir, args.version, args.item, command))
+        sys.exit(run(int(os.environ["BOSUN_TASK_ID"]), args.host, args.dir, args.version, args.item, command,
+                     args.collector_python))
     except (KeyError, ValueError, OSError, subprocess.SubprocessError) as exc:
         sys.exit(str(exc))

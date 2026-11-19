@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from . import acceptance, db, delivery_checks, engine_settings, events, scheduler
+from . import acceptance, db, delivery_checks, engine_settings, events, scheduler, specialist
 from .engines import CODING_ENGINES, normalize_engine_id
 
 MIN_STEPS = 2
@@ -254,8 +254,13 @@ def _snapshot(template: dict) -> dict:
                 "开发失败先自行修复；独立复验发现实现问题立即回报 rework 到第2位，写明检查项、实际结果及回执号。"
                 "环境不可用先排查，仍不可用时记录原因并 needs_input。测试结束清理本轮临时副本。"
             )
+    specialist_checks = bool(remote_checks and template.get("specialist_checks"))
+    if specialist_checks:
+        steps[0]["role_prompt"] += "\n" + specialist.GUIDES[0]
+        for step in steps[1:3]:
+            step["role_prompt"] += "\n" + specialist.GUIDES[1]
     return {"id": template["id"], "name": template["name"], "steps": steps, "acceptance_gate": gated,
-            "remote_checks": remote_checks}
+            "remote_checks": remote_checks, "specialist_checks": specialist_checks}
 
 
 def _roster(snapshot: dict) -> str:
@@ -477,9 +482,10 @@ def _run_dict(row) -> dict:
                 item["task_status"] = task["status"]
         steps.append(item)
     out["steps"] = steps
-    if json.loads(out["definition_snapshot"]).get("acceptance_gate"):
+    definition = json.loads(out["definition_snapshot"])
+    if definition.get("acceptance_gate"):
         out["acceptance"] = acceptance.display(steps)
-        if json.loads(out["definition_snapshot"]).get("remote_checks"):
+        if definition.get("remote_checks"):
             try:
                 spec = acceptance.record(steps[0]["output_artifact"])
                 if spec.get("kind") in ("feature", "bug"):
@@ -494,7 +500,7 @@ def _run_dict(row) -> dict:
                             candidate = latest["version"]
                         else:
                             candidate = version
-                        checks = delivery_checks.results(step, spec, candidate)
+                        checks = delivery_checks.results(step, spec, candidate, definition.get("specialist_checks"))
                         out["acceptance"]["rows"].extend(checks)
                         if any(row["status"] != "通过" for row in checks) and out["acceptance"]["message"] == "验收通过":
                             out["acceptance"]["message"] = "等待当前候选的远程检查通过"
@@ -592,13 +598,22 @@ def acceptance_verdict(task_id: int, artifact: str | None = None) -> dict | None
                     acceptance.required(data, "reproduction")
                 elif data.get("kind") != "feature":
                     raise ValueError("任务单须标明 feature、bug 或 noncode")
+                if snapshot.get("specialist_checks") and data["kind"] != "noncode":
+                    specialist.validate(data)
+                    project = db.query_one("SELECT path FROM project WHERE id=?", (run["project_id"],))
+                    if specialist.git(project["path"], "cat-file", "-e", data["baseline"] + "^{commit}").returncode:
+                        raise ValueError("项目中找不到任务单的开工基线提交")
         elif step["position"] == 2:
             version = acceptance.candidate(data)
             if snapshot.get("remote_checks"):
                 source = db.query_one("SELECT output_artifact FROM orchestration_step_run WHERE run_id=? AND position=1", (run["id"],))
                 spec = acceptance.record(source[0])
                 if spec["kind"] != "noncode":
-                    missing = [row for row in delivery_checks.results(step, spec, version) if row["status"] != "通过"]
+                    if snapshot.get("specialist_checks"):
+                        project = db.query_one("SELECT path FROM project WHERE id=?", (run["project_id"],))
+                        specialist.check_scope(project["path"], spec, version, data)
+                    checks = delivery_checks.results(step, spec, version, snapshot.get("specialist_checks"))
+                    missing = [row for row in checks if row["status"] != "通过"]
                     if missing:
                         raise ValueError("尚未通过本轮远程自测：" + "、".join(row["id"] for row in missing))
         else:
@@ -609,7 +624,10 @@ def acceptance_verdict(task_id: int, artifact: str | None = None) -> dict | None
             spec = acceptance.record(upstream[0][0])
             verdict = acceptance.evaluate(spec, acceptance.record(upstream[1][0]), data)
             if snapshot.get("remote_checks") and spec["kind"] != "noncode":
-                checks = delivery_checks.results(step, spec, verdict["version"])
+                if snapshot.get("specialist_checks") and verdict["passed"]:
+                    project = db.query_one("SELECT path FROM project WHERE id=?", (run["project_id"],))
+                    specialist.check_scope(project["path"], spec, verdict["version"], data)
+                checks = delivery_checks.results(step, spec, verdict["version"], snapshot.get("specialist_checks"))
                 verdict["rows"].extend(checks)
                 if any(row["status"] == "失败" for row in checks):
                     verdict["action"] = "rework"

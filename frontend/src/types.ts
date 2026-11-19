@@ -127,7 +127,7 @@ export interface OrchestrationRun {
   acceptance?: {
     version: string;
     message: string;
-    rows: { id: string; input?: string; expected?: string; status: string; actual: string; evidence: string }[];
+    rows: { id: string; input?: string; expected?: string; status: string; actual: string; evidence: string; receipt_id?: number }[];
     previous_review?: string;
   };
   id: number;

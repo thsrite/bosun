@@ -20,6 +20,11 @@ a = Analysis(
     datas=[
         (str(dist_dir), "frontend/dist"),
         (str(ROOT / "bosun_skills"), "bosun_skills"),
+        # 任务进程用独立 Python 调用 CLI，远端收集器也需可读的源码。
+        (str(ROOT / "backend" / "run_delivery_check.py"), "."),
+        (str(ROOT / "backend" / "collect_delivery_report.py"), "."),
+        *((str(ROOT / "backend" / "app" / (name + ".py")), "app")
+          for name in ("__init__", "db", "config", "acceptance", "specialist", "check_reports")),
         *collect_data_files("claude_agent_sdk"),
         *collect_data_files("certifi"),
         *playwright_datas,

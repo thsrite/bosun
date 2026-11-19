@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS delivery_check (
     detail TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS delivery_check_step ON delivery_check(step_id, attempt, version);
+CREATE TABLE IF NOT EXISTS delivery_report (
+    receipt INTEGER PRIMARY KEY REFERENCES delivery_check(id) ON DELETE CASCADE,
+    outcomes TEXT NOT NULL,
+    archive BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS project (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -271,6 +276,7 @@ def _ensure_columns() -> None:
     conn = get_conn()
     _ensure_table_columns(conn, "orchestration", {
         "acceptance_gate": "INTEGER NOT NULL DEFAULT 0", "remote_checks": "INTEGER NOT NULL DEFAULT 0",
+        "specialist_checks": "INTEGER NOT NULL DEFAULT 0",
     })
     _ensure_table_columns(conn, "orchestration_step_run", {"verified_merge": "TEXT"})
     _ensure_table_columns(conn, "task", {

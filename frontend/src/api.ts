@@ -359,6 +359,11 @@ export const api = {
       blob: await res.blob(),
     };
   },
+  deliveryArchive: async (runId: number, receipt: number) => {
+    const res = await fetch(`/api/orchestration-runs/${runId}/receipts/${receipt}/archive`);
+    if (!res.ok) throw new Error(await detail(res));
+    return res.blob();
+  },
   updateTask: (id: number, body: { title?: string; prompt?: string; engine?: Engine }) =>
     write<Task>("PUT", `/api/tasks/${id}`, body),
   getLog: (id: number, source: "auto" | "terminal" | "script" = "auto") =>

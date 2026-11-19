@@ -8,6 +8,19 @@ import { useSingleFlight } from "../useSingleFlight";
 
 const ACTIVE = new Set(["queued", "running", "waiting_input"]);
 
+async function downloadEvidence(runId: number, receipt: number) {
+  try {
+    const url = URL.createObjectURL(await api.deliveryArchive(runId, receipt));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `回执-${receipt}.zip`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    toast(`下载证据失败：${String(error)}`, "error");
+  }
+}
+
 const MESSAGE_KIND_LABEL: Record<OrchestrationMessage["kind"], string> = {
   handoff: "交棒",
   rework: "打回",
@@ -159,7 +172,9 @@ export function OrchestrationRunList({ runs, onChanged }: { runs: OrchestrationR
                     <thead><tr>{["必验项", "输入与预期", "结论", "实际结果", "证据"].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead>
                     <tbody>{item.acceptance.rows.map((row, index) => <tr key={index} className="border-t border-dh-bsoft align-top">
                       <td className="p-2">{row.id}</td><td className="p-2">{[row.input, row.expected].filter(Boolean).join(" → ") || "—"}</td>
-                      <td className="whitespace-nowrap p-2">{row.status}</td><td className="p-2">{row.actual || "—"}</td><td className="break-all p-2">{row.evidence || "—"}</td>
+                      <td className="whitespace-nowrap p-2">{row.status}</td><td className="p-2">{row.actual || "—"}</td><td className="break-all p-2">{row.evidence || "—"}
+                        {row.receipt_id && <button type="button" className="block underline" onClick={() => void downloadEvidence(item.id, row.receipt_id!)}>下载检查报告与证据</button>}
+                      </td>
                     </tr>)}</tbody></table></div>}
                   {item.acceptance.previous_review && <details className="mt-2"><summary className="cursor-pointer">查看上一轮质量记录</summary>
                     <pre className="mt-2 whitespace-pre-wrap break-words">{item.acceptance.previous_review}</pre></details>}
