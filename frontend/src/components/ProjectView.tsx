@@ -221,7 +221,7 @@ export function ProjectView({
         onChanged={changed}
       />
 
-      <OrchestrationRunList runs={orchestrationRuns} onChanged={changed} />
+      <OrchestrationRunList runs={orchestrationRuns} onChanged={changed} onOpenTask={setOpenTerminal} />
 
       {currentTerminalTask && (
         <TerminalPanel

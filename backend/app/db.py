@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS delivery_check (
     detail TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS delivery_check_step ON delivery_check(step_id, attempt, version);
+CREATE TABLE IF NOT EXISTS orchestration_decision (
+    id INTEGER PRIMARY KEY,
+    step_id INTEGER NOT NULL REFERENCES orchestration_step_run(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL, created_at REAL NOT NULL,
+    requested TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, receipts TEXT NOT NULL,
+    basis TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS orchestration_decision_step ON orchestration_decision(step_id, attempt);
 CREATE TABLE IF NOT EXISTS delivery_report (
     receipt INTEGER PRIMARY KEY REFERENCES delivery_check(id) ON DELETE CASCADE,
     outcomes TEXT NOT NULL,
@@ -279,6 +287,7 @@ def _ensure_columns() -> None:
         "specialist_checks": "INTEGER NOT NULL DEFAULT 0",
     })
     _ensure_table_columns(conn, "orchestration_step_run", {"verified_merge": "TEXT"})
+    _ensure_table_columns(conn, "orchestration_step_artifact", {"input_artifact": "TEXT"})
     _ensure_table_columns(conn, "task", {
         "session_uid": "TEXT",
         "resume": "INTEGER NOT NULL DEFAULT 0",

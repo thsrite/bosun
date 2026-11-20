@@ -141,6 +141,11 @@ def list_messages(run_id: int):
     return _call(orchestrations.list_messages, run_id)
 
 
+@router.get("/api/orchestration-runs/{run_id}/trace")
+def trace_run(run_id: int):
+    return _call(orchestrations.run_trace, run_id)
+
+
 @router.get("/api/orchestration-runs/{run_id}/receipts/{receipt}/archive")
 def download_report(run_id: int, receipt: int):
     row = db.query_one("SELECT r.archive FROM delivery_report r JOIN delivery_check c ON c.id=r.receipt "

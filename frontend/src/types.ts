@@ -147,6 +147,15 @@ export interface OrchestrationRun {
   steps: OrchestrationStepRun[];
 }
 
+export interface RunTrace {
+  run: OrchestrationRun;
+  messages: (OrchestrationMessage & { acknowledged_at: number | null })[];
+  archives: { id: number; position: number; attempt: number; created_at: number; input_artifact: string | null; output_artifact: string | null }[];
+  decisions: { id: number; position: number; attempt: number; created_at: number; requested: string; result: string; reason: string; receipts: number[]; basis: string }[];
+  checks: { id: number; position: number; attempt: number; version: string; host: string; command: string; state: string; detail: string;
+    items: string[]; outcomes: Record<string, [string, string]> | null }[];
+}
+
 export interface SessionHistoryMessage {
   role: "user" | "assistant";
   text: string;

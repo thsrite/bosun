@@ -359,6 +359,7 @@ export const api = {
       blob: await res.blob(),
     };
   },
+  runTrace: (id: number) => fetch(`/api/orchestration-runs/${id}/trace`).then(r => j<import("./types").RunTrace>(r)),
   deliveryArchive: async (runId: number, receipt: number) => {
     const res = await fetch(`/api/orchestration-runs/${runId}/receipts/${receipt}/archive`);
     if (!res.ok) throw new Error(await detail(res));

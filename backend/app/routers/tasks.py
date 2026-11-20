@@ -584,6 +584,7 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
     # skill 脚本里：后端不受 agent 沙箱限制，读得到完整进程表。
     if nesting.is_nested_report(body.reporter_pid):
         raise HTTPException(status_code=409, detail="嵌套 agent 不能代替父任务回报状态")
+    requested = body.result
     try:
         is_orchestration_step = orchestrations.validate_task_report(task_id, body.result, body.artifact)
         if is_orchestration_step:
@@ -591,6 +592,7 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
                 task_id, body.result, body.summary, body.artifact, body.target_position,
             )
     except orchestrations.OrchestrationError as exc:
+        orchestrations.record_rejection(task_id, requested, exc)
         raise HTTPException(exc.status_code, str(exc)) from exc
     session = scheduler.get_session(task_id)
     status = _REPORT_STATUS[body.result]
@@ -625,9 +627,13 @@ def report_task(task_id: int, body: ReportBody, request: Request = None):
         ),
     })
     if is_orchestration_step:
-        orchestrations.handle_task_report(
-            task_id, body.result, summary, body.artifact, body.target_position,
-        )
+        try:
+            orchestrations.handle_task_report(
+                task_id, body.result, summary, body.artifact, body.target_position, requested=requested,
+            )
+        except orchestrations.OrchestrationError as exc:
+            orchestrations.record_rejection(task_id, requested, exc)
+            raise HTTPException(exc.status_code, str(exc)) from exc
         # 班组编排里角色跑完不能收会话：它还要留在线上等交棒、返工和别人的提问。
         # 回收统一由 orchestrations 在 run 收口时做（release_run_sessions）。
         if body.result == "failed":

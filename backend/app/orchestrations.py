@@ -235,6 +235,8 @@ def _snapshot(template: dict) -> dict:
             raise OrchestrationError("验收表要求需求、开发、质量三个步骤")
         for step, guide in zip(steps, acceptance.GUIDES):
             step["role_prompt"] += "\n\n【Bosun 验收表】\n" + guide
+            step["role_prompt"] += ("\n在查证、实现或复测得到关键结果时更新阶段产物。用可核对的事实说明采用了什么做法、"
+                                    "依据是哪条需求、代码或回执，以及下一步做什么。遇到阻塞写明缺什么和谁能解除。")
     remote_checks = bool(gated and template.get("remote_checks"))
     if remote_checks:
         steps[0]["role_prompt"] += (
@@ -538,6 +540,29 @@ def _step_for_task(task_id: int):
     return db.query_one("SELECT * FROM orchestration_step_run WHERE task_id=?", (task_id,))
 
 
+def run_trace(run_id: int) -> dict:
+    run = get_run(run_id)
+    join = " JOIN orchestration_step_run s ON s.id="
+    decisions = db.query("SELECT d.*,s.position FROM orchestration_decision d" + join +
+                         "d.step_id WHERE s.run_id=? ORDER BY d.id", (run_id,))
+    archives = db.query("SELECT a.*,s.position FROM orchestration_step_artifact a" + join +
+                        "a.step_run_id WHERE s.run_id=? ORDER BY s.position,a.attempt", (run_id,))
+    checks = db.query("SELECT c.*,s.position,r.outcomes FROM delivery_check c" + join +
+                      "c.step_id LEFT JOIN delivery_report r ON r.receipt=c.id WHERE s.run_id=? ORDER BY c.id DESC", (run_id,))
+    return {"run": run, "messages": list_messages(run_id),
+            "decisions": [dict(d, receipts=json.loads(d["receipts"])) for d in decisions],
+            "archives": [dict(a) for a in archives],
+            "checks": [dict(c, items=json.loads(c["items"]), outcomes=json.loads(c["outcomes"] or "null")) for c in checks]}
+
+
+def record_rejection(task_id, requested, reason):
+    db.execute(
+        "INSERT INTO orchestration_decision(step_id,attempt,created_at,requested,result,reason,receipts,basis) "
+        "SELECT id,attempt,?,?,'rejected',?,'[]','交接校验返回错误' FROM orchestration_step_run WHERE task_id=?",
+        (time.time(), requested, str(reason), task_id),
+    )
+
+
 def save_task_artifact(task_id: int, artifact: str) -> dict:
     step = _step_for_task(task_id)
     if step is None:
@@ -710,8 +735,8 @@ def _archive_artifact(conn, step, now: float) -> None:
         return
     conn.execute(
         "INSERT OR IGNORE INTO orchestration_step_artifact"
-        "(step_run_id,attempt,output_artifact,summary,created_at) VALUES(?,?,?,?,?)",
-        (step["id"], step["attempt"], step["output_artifact"], step["summary"], now),
+        "(step_run_id,attempt,output_artifact,summary,created_at,input_artifact) VALUES(?,?,?,?,?,?)",
+        (step["id"], step["attempt"], step["output_artifact"], step["summary"], now, step["input_artifact"]),
     )
 
 
@@ -854,7 +879,7 @@ def _apply_rework(conn, run, step, target_position: int, note: str, now: float
 
 
 def handle_task_report(task_id: int, result: str, summary: str, artifact: str | None,
-                       target_position: int | None = None) -> dict | None:
+                       target_position: int | None = None, requested: str | None = None) -> dict | None:
     validate_task_report(task_id, result, artifact)
     now = time.time()
     run_id = None
@@ -884,7 +909,23 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                 (now, run_id, step["position"]),
             )
             output = artifact if artifact is not None else step["output_artifact"]
+            requested = requested or result
             result, summary, output, target_position = route_quality_report(task_id, result, summary, output, target_position)
+            receipt_ids = []
+            gated = json.loads(run["definition_snapshot"]).get("acceptance_gate")
+            basis = "角色阶段回报"
+            if requested == "done" and gated and step["role_kind"] != "report":
+                basis = {1: "按本次快照校验任务单与验收项",
+                         2: "核对候选版本和开发自测材料",
+                         3: "逐项核对任务单、候选版本、独立复测和评审结论"}[step["position"]]
+            if step["position"] in (2, 3) and json.loads(run["definition_snapshot"]).get("remote_checks"):
+                try:
+                    version = acceptance.record(output).get("version")
+                except ValueError:
+                    version = None
+                if isinstance(version, str):
+                    receipt_ids = sorted({c["id"] for c in delivery_checks.recent(step, version).values()})
+            decision, reason = result, summary or ""
             if result == "done":
                 conn.execute(
                     "UPDATE orchestration_step_run SET status='done',result='done',summary=?,output_artifact=?,"
@@ -901,6 +942,8 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                 target_task_id, message_id, body, _tripped = _apply_rework(
                     conn, run, step, int(target_position or 0), summary or "", now,
                 )
+                if _tripped:
+                    decision, reason = "needs_input", f"返工次数已达上限（{MAX_REWORK_TOTAL} 次），等待裁决。"
                 if target_task_id and message_id and body:
                     pending = (target_task_id, message_id, body)
             elif result == "needs_input":
@@ -923,6 +966,9 @@ def handle_task_report(task_id: int, result: str, summary: str, artifact: str | 
                     "UPDATE orchestration_run SET status='failed',updated_at=?,ended_at=? WHERE id=?",
                     (now, now, run_id),
                 )
+            conn.execute("INSERT INTO orchestration_decision(step_id,attempt,created_at,requested,result,reason,receipts,basis) "
+                         "VALUES(?,?,?,?,?,?,?,?)", (step["id"], step["attempt"], now, requested, decision,
+                                                   reason, json.dumps(receipt_ids), basis))
     if pending and json.loads(run["definition_snapshot"]).get("on_demand"):
         scheduler.finish_orchestration_step(task_id)
     if pending:
