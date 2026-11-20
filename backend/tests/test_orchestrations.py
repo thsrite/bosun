@@ -77,6 +77,50 @@ class OrchestrationTest(unittest.TestCase):
         )
         self.assertIn("方案正文", handoff["body"])
 
+    def test_on_demand_releases_completed_tasks_and_reuses_them_on_rework(self) -> None:
+        template = orchestrations.create_template("按需接力", self.steps())
+        online = set()
+        with patch.object(scheduler, "start_orchestration_role", side_effect=online.add), patch.object(
+            scheduler, "role_online", side_effect=online.__contains__
+        ), patch.object(scheduler, "deliver_message", side_effect=lambda task, _: task in online), patch.object(
+            scheduler, "finish_orchestration_step", side_effect=online.discard
+        ), patch.object(scheduler, "finish_subtask", side_effect=online.discard):
+            run = orchestrations.create_run(template["id"], self.project_id, "需求", None, 5, True, True, on_demand=True)
+            first, = run["steps"]
+            first_id = first["task_id"]
+            self.assertEqual(online, {first_id})
+            result = orchestrations.handle_task_report(first_id, "done", "交付", "任务单甲")
+            self.assertEqual(len(result["steps"]), 2)
+            second = result["steps"][1]
+            self.assertIn("任务单甲", second["input_artifact"])
+            self.assertEqual(online, {second["task_id"]})
+            orchestrations.handle_task_report(second["task_id"], "rework", "补样本", None, 1)
+            self.assertEqual(online, {first_id})
+            result = orchestrations.handle_task_report(first_id, "done", "重交", "任务单乙")
+            self.assertEqual(result["steps"][1]["task_id"], second["task_id"])
+            result = orchestrations.handle_task_report(second["task_id"], "done", "实施", "证据")
+            reporter = result["steps"][-1]["task_id"]
+            self.assertEqual(online, {reporter})
+            result = orchestrations.handle_task_report(reporter, "done", "汇报", "结论")
+            self.assertEqual(result["status"], "done")
+            self.assertFalse(online)
+
+    def test_on_demand_consult_creates_only_requested_role(self) -> None:
+        template = orchestrations.create_template("提前咨询", self.steps())
+        with patch.object(orchestrations, "_dispatch_roles"), patch.object(orchestrations, "_revive_role"), patch.object(
+            scheduler, "finish_orchestration_step"
+        ) as finish:
+            run = orchestrations.create_run(template["id"], self.project_id, "咨询", None, 5, True, True, on_demand=True)
+            first = run["steps"][0]["task_id"]
+            orchestrations.send_message(first, 3, "请核对收口格式")
+            orchestrations.send_message(first, 3, "补充上下文")
+            third = orchestrations.get_run(run["id"])["steps"][1]["task_id"]
+            orchestrations.send_message(third, 1, "收口格式已确认", "answer")
+            finish.assert_called_once_with(third)
+        updated = orchestrations.get_run(run["id"])
+        self.assertEqual([step["position"] for step in updated["steps"]], [1, 3])
+        self.assertEqual(updated["current_position"], 1)
+
     def _handoff(self) -> tuple[dict, sqlite3.Row, sqlite3.Row, sqlite3.Row]:
         run = self.create_run()
         first = db.query_one(

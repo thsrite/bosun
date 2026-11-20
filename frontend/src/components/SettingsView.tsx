@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfUpdateInfo, type SelfUpdateResult, type StorageInfo } from "../api";
+import { api, showHiddenProjects, setShowHiddenProjects, type AppSettings, type AuthStatus, type EngineToolInfo, type SelfUpdateInfo, type SelfUpdateResult, type StorageInfo } from "../api";
 import { setToken } from "../auth";
 import { engineName } from "../engines";
 import { useEngineVisible } from "../installedEngines";
@@ -561,13 +561,17 @@ export function SettingsView({
   onSettingsPatch,
   auth,
   onAuthChanged,
+  onProjectVisibilityChanged,
 }: {
   settings: AppSettings;
   onChange: (patch: Partial<AppSettings>) => Promise<void>;
   onSettingsPatch: (patch: Partial<AppSettings>) => void;
   auth: AuthStatus;
   onAuthChanged: () => void;
+  onProjectVisibilityChanged: () => Promise<void>;
 }) {
+  const [showHidden, setShowHidden] = useState(showHiddenProjects);
+  const [changingVisibility, setChangingVisibility] = useState(false);
   const [savingEnginePolicy, setSavingEnginePolicy] = useState(false);
 
   async function changeEnginePolicy(key: "engine_enabled" | "engine_subagent_enabled", engine: Engine, enabled: boolean) {
@@ -607,6 +611,19 @@ export function SettingsView({
         </fieldset>}
       </>,
     };
+  }
+
+  async function changeProjectVisibility(enabled: boolean) {
+    setChangingVisibility(true);
+    try {
+      setShowHiddenProjects(enabled);
+      setShowHidden(enabled);
+      await onProjectVisibilityChanged();
+    } catch (err) {
+      toast(`切换显示隐藏项目失败：${readDetail(err)}`, "error");
+    } finally {
+      setChangingVisibility(false);
+    }
   }
 
   const [refreshingModels, setRefreshingModels] = useState({
@@ -978,6 +995,22 @@ export function SettingsView({
                 </option>
               ))}
             </select>
+          </Field>
+          <Field
+            label="显示隐藏项目"
+            hint="显示已隐藏的项目及其任务，并可取消隐藏；仅保存在当前浏览器或 PWA，关闭后已有任务继续运行。"
+          >
+            <label className="flex items-center gap-2 text-sm text-dh-tsoft">
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="显示隐藏项目"
+                checked={showHidden}
+                disabled={changingVisibility}
+                onChange={(e) => void changeProjectVisibility(e.target.checked)}
+              />
+              {showHidden ? "已开启" : "已隐藏"}
+            </label>
           </Field>
           <Field
             label="受控子任务技能"

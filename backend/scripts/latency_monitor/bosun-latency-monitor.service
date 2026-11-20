@@ -1,0 +1,31 @@
+[Unit]
+Description=Read-only Bosun OMP CPA latency monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bosun-monitor
+Group=bosun-monitor
+WorkingDirectory=/opt/bosun-latency-monitor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/bosun-latency-monitor/monitor.py --host 10.0.0.49 --port 18785 --interval 10
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/bosun-latency-monitor
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=256M
+CPUQuota=30%
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

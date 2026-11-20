@@ -216,6 +216,8 @@ OpenAI API Key 直接在「设置 → Browser Computer Use → API Key」里填�
 
 「设置 → 执行引擎」的各引擎卡片提供启用开关，以及编码引擎的「允许作为子代理」开关；关闭后配置区置灰且不可编辑。关闭引擎后不再接受新派发，已排队任务等待重新启用，运行中的会话不被取消；子代理开关只控制 Bosun 受控子任务，不限制手动任务。自动选择只从已安装、已启用且符合本次派发权限的引擎中选择，两项开关默认开启以兼容已有配置。
 
+「设置 → 运行 → 显示隐藏项目」可切换隐藏项目及其任务的显示，无需修改地址，PWA 也可使用。选择保存在当前浏览器或 PWA，重新打开后仍生效；关闭显示不会停止已有任务。旧的 `?show_hidden=1` 链接仍可使用，在设置中切换后以新选择为准。
+
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `BOSUN_DATA` | `~/.bosun` | SQLite 数据库与运行日志目录 |
@@ -234,6 +236,23 @@ OpenAI API Key 直接在「设置 → Browser Computer Use → API Key」里填�
 | `BOSUN_COMPUTER_MAX_ACTIONS` | `100` | 单个 Browser 任务最多执行的浏览器动作数 |
 
 默认数据保存在 `~/.bosun/`。升级或迁移前，建议先备份该目录。
+
+### OMP / CPA 只读延迟监控
+
+`backend/scripts/latency_monitor/` 提供独立的 Python 标准库监控服务，不依赖或改写 Bosun、OMP、CPA 的运行配置。当前内网部署在 `10.0.0.49:18785`，每 10 秒采集一次，自动发现活动 OMP 任务；已纳入的任务结束后继续保留最近观测。页面及 `/api/status` 仅接受 `10.0.0.0/24` 或回环来源，没有登录认证，**不要做公网端口转发**。
+
+- 来源主机仅运行 `source_reader.sh` 的固定 SQLite 只读查询和限定目录的增量读取。专用 SSH 密钥需在来源 `authorized_keys` 中同时设置 `from`、`restrict` 和强制命令；不允许任意远程命令、PTY 或端口转发。`mac` 角色读取当前用户的 Bosun/OMP 数据，`cpa` 角色的路径对应当前 CLIProxyAPI 部署。
+- 原始会话、代码和日志正文仅在采集过程中经过内存，不落盘。持久化字段为任务/调用标识、时间、Token、匿名账号及错误分类；账号使用本监控独立盐值的 HMAC。每任务保留最近 250 轮，CPA 用量及日志保留 24 小时内的有限窗口。
+- OMP/CPA 关联要求模型、Token、时间特征唯一匹配；多候选与缺测保留“未知”。输出速率是首 Token 后平均值的估计；首 Token 指标在两端的口径可能不同，不能据此断定上游生成或网络根因。未完成调用只有基于会话最后事件的等待推断，没有逐块流式遥测。
+- 49 的服务为 `bosun-latency-monitor.service`，程序位于 `/opt/bosun-latency-monitor`，受保护的数据、游标及专用 SSH 配置位于 `/var/lib/bosun-latency-monitor`。监控以独立系统用户运行，内存上限 256 MiB、CPU 配额 30%，不会自动重启任务或重放模型请求。
+
+```bash
+ssh root@10.0.0.49 'systemctl status bosun-latency-monitor --no-pager'
+ssh root@10.0.0.49 'journalctl -u bosun-latency-monitor -n 20 --no-pager'
+ssh root@10.0.0.49 'systemctl disable --now bosun-latency-monitor'  # 停止并取消自启
+```
+
+更新时同步该目录中的 `monitor.py`、`analytics.py`、`index.html` 到 49 的程序目录，再重启**监控自身**。完全撤销访问时，删除两台来源主机 `authorized_keys` 中注释为 `bosun-latency-readonly` 的那一行，保留其他密钥。边界回归测试在 49 执行 `python3 -m unittest discover -s /opt/bosun-latency-monitor -p test_analytics.py`。
 
 ## 🔄 更新
 

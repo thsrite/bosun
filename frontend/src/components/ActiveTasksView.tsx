@@ -70,6 +70,73 @@ function SubtaskBadge({ task }: { task: Task }) {
   );
 }
 
+function InlineSubtaskBar({
+  subtasks,
+  onOpenSubtask,
+}: {
+  subtasks?: Task[];
+  onOpenSubtask: (id: number) => void;
+}) {
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  if (!subtasks || subtasks.length === 0) return null;
+
+  const doneCount = subtasks.filter((k) => k.status === "done").length;
+  const activeCount = subtasks.filter((k) => ACTIVE_STATUSES.has(k.status)).length;
+  const failedCount = subtasks.filter((k) => k.status === "failed").length;
+  const expanded = manualOpen ?? (activeCount > 0 || failedCount > 0 || subtasks.length <= 3);
+
+  return (
+    <div
+      className="border-t border-dh-bsoft/60 bg-dh-soft/55 px-3 py-1.5 text-xs md:pl-10"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setManualOpen(!expanded)}
+          className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-dh-muted hover:text-dh-text"
+        >
+          <span>{expanded ? "▾" : "▸"}</span>
+          <span>子任务 {doneCount}/{subtasks.length}</span>
+          {activeCount > 0 && (
+            <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-400">
+              {activeCount} 活跃
+            </span>
+          )}
+          {failedCount > 0 && (
+            <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-400">
+              {failedCount} 失败
+            </span>
+          )}
+        </button>
+
+        {expanded && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {subtasks.map((sub) => {
+              const st = STATUS_STYLE[statusKey(sub)] ?? STATUS_STYLE.done;
+              return (
+                <button
+                  key={sub.id}
+                  type="button"
+                  onClick={() => onOpenSubtask(sub.id)}
+                  title={`#${sub.id} ${sub.title || taskPromptText(sub)} (${st.label})`}
+                  className="inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-dh-bsoft bg-dh-surface px-2 py-0.5 text-[11px] text-dh-tsoft transition hover:border-dh-accent hover:text-dh-text"
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot} ${st.pulse ? "animate-pulse" : ""}`} />
+                  <span className="shrink-0 font-mono text-[10px] text-dh-muted">#{sub.id}</span>
+                  <span className="shrink-0 rounded bg-dh-s2 px-1 text-[9px] uppercase text-dh-muted">{sub.engine}</span>
+                  <span className="min-w-0 flex-1 truncate">{sub.title || taskPromptText(sub)}</span>
+                  <span className={`shrink-0 text-[10px] font-medium ${st.text}`}>{st.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EditableTaskTitle({
   task,
   fallback,
@@ -202,6 +269,18 @@ function fmtDur(start: number | null, end: number | null, accum = 0): string {
   return m < 60 ? `${m}m${secs % 60}s` : `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
+/** 仅在任务运行中局部跳秒，避免每秒触发整页 2000+ 条归档任务与终端面板重渲染。 */
+function LiveDuration({ start, end, accum = 0 }: { start: number | null; end: number | null; accum?: number }) {
+  const [, setNowTick] = useState(0);
+  const ticking = Boolean(start && !end);
+  useEffect(() => {
+    if (!ticking) return;
+    const id = setInterval(() => setNowTick((x) => x + 1), 1000);
+    return () => clearInterval(id);
+  }, [ticking]);
+  return <>{fmtDur(start, end, accum)}</>;
+}
+
 // 移动端任务卡片：窄屏放不下桌面端的多列表格，压成三行——标题+项目、一行摘要、
 // 状态·时长·执行器与操作。一屏能看到更多任务。桌面端(md+)仍走原网格。
 function MobileTaskCard({
@@ -258,7 +337,7 @@ function MobileTaskCard({
       {line && <div className="truncate pl-4 text-xs text-slate-400">{line}</div>}
       <div className="flex min-h-[28px] items-center gap-2.5 pl-4 text-[11px] tabular-nums text-slate-400">
         <span className={`shrink-0 font-medium ${statusTextClass}`}>{statusLabel}</span>
-        <span className="shrink-0">⏱ {fmtDur(task.started_at, task.ended_at, task.elapsed_accum)}</span>
+        <span className="shrink-0">⏱ <LiveDuration start={task.started_at} end={task.ended_at} accum={task.elapsed_accum} /></span>
         {task.tokens != null && <span className="shrink-0">◈ {task.tokens.toLocaleString()}</span>}
         <EngineBadge engine={task.engine} />
         <SubtaskBadge task={task} />
@@ -554,7 +633,6 @@ export function ActiveTasksView({
   const [archiveProjectId, setArchiveProjectId] = useState("");
   const [completingTaskId, setCompletingTaskId] = useState<number | null>(null);
   const [transitioningTaskId, setTransitioningTaskId] = useState<number | null>(null);
-  const [, setTick] = useState(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -567,17 +645,34 @@ export function ActiveTasksView({
     load();
   }, [load, reloadKey]);
 
+  // 父子任务收敛索引：只要父任务仍在全量列表中，子任务统一挂到主任务行下方，不再平铺占主列表行
+  const { childrenByParent, nestedSubtaskIds } = useMemo(() => {
+    const allIds = new Set(tasks.map((t) => t.id));
+    const map = new Map<number, Task[]>();
+    const nested = new Set<number>();
+    for (const t of tasks) {
+      if (t.parent_task_id != null && allIds.has(t.parent_task_id)) {
+        const list = map.get(t.parent_task_id) ?? [];
+        list.push(t);
+        map.set(t.parent_task_id, list);
+        nested.add(t.id);
+      }
+    }
+    for (const list of map.values()) list.sort((a, b) => a.id - b.id);
+    return { childrenByParent: map, nestedSubtaskIds: nested };
+  }, [tasks]);
+
   const activeTasks = useMemo(
-    () => tasks.filter(isActiveTask).sort(byCreationOrder),
-    [tasks],
+    () => tasks.filter((t) => isActiveTask(t) && !nestedSubtaskIds.has(t.id)).sort(byCreationOrder),
+    [tasks, nestedSubtaskIds],
   );
   const pausedTasks = useMemo(
-    () => tasks.filter((task) => task.status === "paused").sort((a, b) => b.id - a.id),
-    [tasks],
+    () => tasks.filter((task) => task.status === "paused" && !nestedSubtaskIds.has(task.id)).sort((a, b) => b.id - a.id),
+    [tasks, nestedSubtaskIds],
   );
   const archivedTasks = useMemo(() => tasks
-    .filter((task) => ARCHIVED_STATUSES.has(task.status))
-    .sort((a, b) => archiveTimestamp(b) - archiveTimestamp(a) || b.id - a.id), [tasks]);
+    .filter((task) => ARCHIVED_STATUSES.has(task.status) && !nestedSubtaskIds.has(task.id))
+    .sort((a, b) => archiveTimestamp(b) - archiveTimestamp(a) || b.id - a.id), [tasks, nestedSubtaskIds]);
   const archivedProjects = useMemo(() => {
     const projectIds = new Set(archivedTasks.map((task) => task.project_id));
     return projects
@@ -622,16 +717,27 @@ export function ActiveTasksView({
   const toggleArchiveDate = (date: string, index: number) =>
     setArchiveDateOverrides((prev) => ({ ...prev, [date]: !isArchiveDateOpen(date, index) }));
   const totalArchivedCount = archivedTasks.length;
-  const attentionTasks = activeTasks.filter((t) => t.status === "waiting_input");
+  // 顶部「需要处理」提醒条保留所有 waiting_input（含子任务），确保急需人工确认时不会漏掉
+  const attentionTasks = useMemo(
+    () => tasks.filter((t) => t.status === "waiting_input").sort(byCreationOrder),
+    [tasks],
+  );
   // 当前工作台已打开的任务（用于面板内切换/可加入列表）
   const activeTaskIds = activeWorkspace?.taskIds ?? [];
-  const openTasks = activeTaskIds
-    .map((id) => tasks.find((t) => t.id === id))
-    .filter((t): t is Task => !!t);
-  const switchTasks = [
-    ...activeTasks,
-    ...openTasks.filter((t) => !activeTasks.some((a) => a.id === t.id)),
-  ];
+  const openTasks = useMemo(
+    () =>
+      activeTaskIds
+        .map((id) => tasks.find((t) => t.id === id))
+        .filter((t): t is Task => !!t),
+    [activeTaskIds, tasks],
+  );
+  const switchTasks = useMemo(
+    () => [
+      ...activeTasks,
+      ...openTasks.filter((t) => !activeTasks.some((a) => a.id === t.id)),
+    ],
+    [activeTasks, openTasks],
+  );
   const queued = activeTasks.filter((t) => t.status === "queued").length;
   const running = activeTasks.filter((t) => t.status === "running").length;
   const review = activeTasks.filter((t) => statusKey(t) === "waiting_review").length;
@@ -639,12 +745,6 @@ export function ActiveTasksView({
     const key = statusKey(t);
     return key === "waiting_input" || key === "waiting_choice" || key === "waiting_perm";
   }).length;
-
-  useEffect(() => {
-    if (activeTasks.length === 0) return;
-    const id = setInterval(() => setTick((x) => x + 1), 1000);
-    return () => clearInterval(id);
-  }, [activeTasks.length]);
 
   const changed = () => {
     load();
@@ -957,7 +1057,7 @@ export function ActiveTasksView({
                     </div>
                   </div>
                   <div className="text-xs tabular-nums text-dh-muted">
-                    {fmtDur(t.started_at, t.ended_at, t.elapsed_accum)}
+                    <LiveDuration start={t.started_at} end={t.ended_at} accum={t.elapsed_accum} />
                   </div>
                   <div className="hidden text-xs tabular-nums text-dh-muted lg:block">
                     {t.tokens != null ? t.tokens.toLocaleString() : "—"}
@@ -966,6 +1066,7 @@ export function ActiveTasksView({
                     {actions}
                   </div>
                 </div>
+                <InlineSubtaskBar subtasks={childrenByParent.get(t.id)} onOpenSubtask={setOpenTaskId} />
                 </DraggableTaskRow>
               );
             })}
@@ -1095,6 +1196,7 @@ export function ActiveTasksView({
                       {actions}
                     </div>
                   </div>
+                  <InlineSubtaskBar subtasks={childrenByParent.get(task.id)} onOpenSubtask={setOpenTaskId} />
                   </div>
                 );
               })}
@@ -1245,6 +1347,7 @@ export function ActiveTasksView({
                             {actions}
                           </div>
                         </div>
+                        <InlineSubtaskBar subtasks={childrenByParent.get(task.id)} onOpenSubtask={setOpenTaskId} />
                         </DraggableTaskRow>
                       );
                     })}

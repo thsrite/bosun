@@ -72,18 +72,41 @@ def _annotate_waiting(out: dict) -> dict:
 
 
 @router.get("")
-def list_tasks(project_id: int | None = None):
-    if project_id is not None:
-        rows = db.query(
-            "SELECT * FROM task WHERE project_id=? AND deleted=0 ORDER BY priority DESC, created_at ASC",
-            (project_id,),
-        )
-    else:
-        rows = db.query("SELECT * FROM task WHERE deleted=0 ORDER BY priority DESC, created_at ASC")
+def list_tasks(project_id: int | None = None, show_hidden: bool = False):
+    rows = db.query(
+        "SELECT t.* FROM task t JOIN project p ON p.id=t.project_id "
+        "WHERE t.deleted=0 AND (? OR p.hidden=0) AND (? IS NULL OR t.project_id=?) "
+        "ORDER BY t.priority DESC, t.created_at ASC",
+        (show_hidden, project_id, project_id),
+    )
     out = [dict(r) for r in rows]
     for r in out:
         _annotate_waiting(r)
     return out
+
+
+@router.get("/{task_id}/family")
+def get_task_family(task_id: int):
+    """仅返回当前任务所属的父任务与同级子任务，避免终端页全量拉取项目历史任务。"""
+    current = db.query_one("SELECT * FROM task WHERE id=? AND deleted=0", (task_id,))
+    if current is None:
+        raise HTTPException(404, "任务不存在")
+    root_id = current["parent_task_id"] if current["parent_task_id"] is not None else current["id"]
+    rows = db.query(
+        "SELECT * FROM task WHERE deleted=0 AND (id=? OR parent_task_id=?) ORDER BY id ASC",
+        (root_id, root_id),
+    )
+    out = [dict(r) for r in rows]
+    for r in out:
+        _annotate_waiting(r)
+    parent = next((r for r in out if r["id"] == root_id), None)
+    subtasks = [r for r in out if r["parent_task_id"] == root_id]
+    run_id = current["orchestration_run_id"] if "orchestration_run_id" in current.keys() else None
+    if run_id is None:
+        step_row = db.query_one("SELECT run_id FROM orchestration_step_run WHERE task_id=?", (task_id,))
+        if step_row is not None:
+            run_id = step_row["run_id"]
+    return {"parent": parent, "subtasks": subtasks, "orchestration_run_id": run_id}
 
 
 @router.post("")

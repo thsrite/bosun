@@ -104,7 +104,7 @@ async def session_ws(ws: WebSocket, task_id: int):
 
         row = db.query_one("SELECT log_path FROM task WHERE id=?", (task_id,))
         if row and row["log_path"]:
-            backlog = read_terminal_backlog(row["log_path"])
+            backlog = await asyncio.to_thread(read_terminal_backlog, row["log_path"])
             if backlog.truncated:
                 await ws.send_text(BACKLOG_TRUNCATED_META)
             if backlog.data:
@@ -113,8 +113,8 @@ async def session_ws(ws: WebSocket, task_id: int):
         await ws.close()
         return
 
-    # 回放 backlog
-    backlog = session.read_backlog()
+    # 回放 backlog（放线程池读取，避免大日志扫描阻塞 uvicorn 事件循环）
+    backlog = await asyncio.to_thread(session.read_backlog)
     if backlog.truncated:
         await ws.send_text(BACKLOG_TRUNCATED_META)
     if backlog.data:

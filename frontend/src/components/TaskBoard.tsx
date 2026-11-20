@@ -13,6 +13,7 @@ import { api } from "../api";
 import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
 import type { Task } from "../types";
+import { STATUS_STYLE, taskStatusStyleKey } from "../theme";
 import { useSingleFlight } from "../useSingleFlight";
 import { TaskCard } from "./TaskCard";
 import { taskPromptText } from "../taskText";
@@ -186,6 +187,9 @@ export function TaskBoard({
   const [, setTick] = useState(0);
   // 手机分段切换选中的列；null = 自动（有执行中就看执行中，否则看第一个非空列）
   const [phoneCol, setPhoneCol] = useState<ColKey | null>(null);
+  // 默认把子任务收敛挂载到所属主任务下方；排障时可一键平铺显示
+  const [flattenSubtasks, setFlattenSubtasks] = useState(false);
+  const [expandedParents, setExpandedParents] = useState<Record<number, boolean>>({});
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const boardTasks = tasks.filter((task) => task.status !== "paused");
@@ -204,20 +208,21 @@ export function TaskBoard({
     return () => clearInterval(id);
   }, [hasActive]);
 
-  // 受控子任务在看板上作为父任务的子行渲染：先按父任务归拢，再把「与父任务同列」的
-  // 子任务从顶层列表里摘掉（它们由父卡片负责渲染）。父子不同列时（例如父仍在执行、
-  // 子已完成归档）子任务照常独立显示，否则会凭空消失。
-  const colByTaskId = new Map<number, ColKey>();
-  for (const t of visibleTasks) colByTaskId.set(t.id, colOf(t.status));
+  // 只要父任务在当前可见列表中，无论子任务处于哪一列，默认全部收敛挂载到主任务下方；
+  // 只有开启「平铺子任务」或父任务不在当前搜索结果里时，子任务才独立显示在看板列中。
+  const visibleIds = new Set(visibleTasks.map((t) => t.id));
+  const hasAnySubtasks = visibleTasks.some((t) => t.parent_task_id != null && visibleIds.has(t.parent_task_id));
   const childrenByParent = new Map<number, Task[]>();
-  for (const t of visibleTasks) {
-    const pid = t.parent_task_id;
-    if (pid == null || colByTaskId.get(pid) !== colOf(t.status)) continue;
-    const list = childrenByParent.get(pid) ?? [];
-    list.push(t);
-    childrenByParent.set(pid, list);
+  if (!flattenSubtasks) {
+    for (const t of visibleTasks) {
+      const pid = t.parent_task_id;
+      if (pid == null || !visibleIds.has(pid)) continue;
+      const list = childrenByParent.get(pid) ?? [];
+      list.push(t);
+      childrenByParent.set(pid, list);
+    }
+    for (const list of childrenByParent.values()) list.sort((a, b) => a.id - b.id);
   }
-  for (const list of childrenByParent.values()) list.sort((a, b) => a.id - b.id);
   const nestedIds = new Set([...childrenByParent.values()].flat().map((t) => t.id));
 
   const grouped: Record<ColKey, Task[]> = { backlog: [], active: [], done: [] };
@@ -284,12 +289,70 @@ export function TaskBoard({
     const kids = childrenByParent.get(t.id);
     const card = renderSingleTaskCard(t);
     if (!kids?.length) return card;
+
+    const doneCount = kids.filter((k) => k.status === "done").length;
+    const runningCount = kids.filter((k) => k.status === "running" || k.status === "queued").length;
+    const waitingCount = kids.filter((k) => k.status === "waiting_input").length;
+    const failedCount = kids.filter((k) => k.status === "failed").length;
+    const hasUrgentOrLive = runningCount > 0 || waitingCount > 0 || failedCount > 0;
+    const isOpen = expandedParents[t.id] ?? hasUrgentOrLive;
+
     return (
-      <div key={`grp-${t.id}`} className="flex flex-col gap-1.5">
+      <div key={`grp-${t.id}`} className="flex flex-col">
         {card}
-        <div className="ml-3 flex flex-col gap-1.5 border-l border-dh-bsoft pl-2.5">
-          <div className="text-[11px] text-slate-500">派生的子任务 {kids.length}</div>
-          {kids.map((k) => renderSingleTaskCard(k, true))}
+        <div className="mx-1.5 -mt-1.5 rounded-b-xl border border-t-0 border-dh-bsoft bg-dh-soft/80 px-2.5 pb-2 pt-2.5">
+          <button
+            type="button"
+            onClick={() => setExpandedParents((prev) => ({ ...prev, [t.id]: !isOpen }))}
+            className="flex w-full items-center gap-1.5 text-left text-[11px] text-dh-muted hover:text-dh-text"
+          >
+            <span className="text-[10px]">{isOpen ? "▾" : "▸"}</span>
+            <span className="font-medium text-dh-tsoft">
+              子任务 {doneCount}/{kids.length}
+            </span>
+            {runningCount > 0 && (
+              <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-400">
+                {runningCount} 运行中
+              </span>
+            )}
+            {waitingCount > 0 && (
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                {waitingCount} 待处理
+              </span>
+            )}
+            {failedCount > 0 && (
+              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-medium text-rose-400">
+                {failedCount} 失败
+              </span>
+            )}
+            <span className="ml-auto text-[10px] text-dh-muted">{isOpen ? "收起" : "展开"}</span>
+          </button>
+
+          {isOpen && (
+            <div className="mt-2 space-y-1">
+              {kids.map((k) => {
+                const st = STATUS_STYLE[taskStatusStyleKey(k)] ?? STATUS_STYLE.draft;
+                return (
+                  <button
+                    key={k.id}
+                    type="button"
+                    onClick={() => onOpenTerminal(k)}
+                    title={taskPromptText(k)}
+                    className="flex w-full items-center gap-1.5 rounded-lg border border-dh-bsoft bg-dh-surface px-2 py-1.5 text-left text-xs transition hover:border-dh-accent"
+                  >
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot} ${st.pulse ? "animate-pulse" : ""}`} />
+                    <span className="shrink-0 font-mono text-[10px] text-dh-muted">#{k.id}</span>
+                    <span className="shrink-0 rounded bg-dh-s2 px-1 text-[10px] uppercase text-dh-muted">{k.engine}</span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-dh-text">
+                      {k.title || taskPromptText(k)}
+                    </span>
+                    <span className={`shrink-0 text-[10px] font-medium ${st.text}`}>{st.label}</span>
+                    <span className="shrink-0 text-[10px] text-dh-muted">↗</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -355,6 +418,21 @@ export function TaskBoard({
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={onDragEnd}>
+      {hasAnySubtasks && (
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setFlattenSubtasks((v) => !v)}
+            className={`rounded-lg border px-2.5 py-1 text-[11px] transition ${
+              flattenSubtasks
+                ? "border-dh-accent bg-dh-accent/15 text-dh-accent"
+                : "border-dh-bsoft bg-dh-surface text-dh-muted hover:text-dh-text"
+            }`}
+          >
+            {flattenSubtasks ? "已平铺子任务（点击收敛到主任务下）" : "子任务已收敛到主任务下 · 平铺查看"}
+          </button>
+        </div>
+      )}
       {/* 手机：分段切换代替横滑看板，避免一进来先看到一整屏空的「待办」列 */}
       <div className="mb-2 grid grid-cols-3 gap-1 rounded-xl border border-dh-bsoft bg-dh-soft p-1 sm:hidden">
         {COLUMNS.map((col) => {

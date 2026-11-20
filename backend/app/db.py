@@ -39,6 +39,24 @@ CREATE TABLE IF NOT EXISTS delivery_report (
     outcomes TEXT NOT NULL,
     archive BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS orchestration_signoff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES orchestration_run(id) ON DELETE CASCADE,
+    commit_sha TEXT NOT NULL DEFAULT '',
+    decision TEXT NOT NULL,              -- approved | rejected_impl | rejected_spec
+    signer TEXT NOT NULL DEFAULT '产品负责人',
+    comment TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS orchestration_signoff_run ON orchestration_signoff(run_id, id DESC);
+CREATE TABLE IF NOT EXISTS orchestration_policy (
+    project_id INTEGER PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+    trust_level INTEGER NOT NULL DEFAULT 1,    -- 0=观察 1=协助 2=提审 3=有限合并 4=授权域自治
+    diff_integrity_gate INTEGER NOT NULL DEFAULT 1,
+    require_product_signoff INTEGER NOT NULL DEFAULT 1,
+    auto_merge_globs TEXT NOT NULL DEFAULT '[]',
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS project (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -282,9 +300,13 @@ def _ensure_table_columns(conn, table: str, adds: dict) -> set[str]:
 def _ensure_columns() -> None:
     """兼容已有库：缺列则补(SQLite 逐列 ALTER)。"""
     conn = get_conn()
+    _ensure_table_columns(conn, "project", {"hidden": "INTEGER NOT NULL DEFAULT 0"})
     _ensure_table_columns(conn, "orchestration", {
         "acceptance_gate": "INTEGER NOT NULL DEFAULT 0", "remote_checks": "INTEGER NOT NULL DEFAULT 0",
         "specialist_checks": "INTEGER NOT NULL DEFAULT 0",
+    })
+    _ensure_table_columns(conn, "orchestration_run", {
+        "root_task_id": "INTEGER REFERENCES task(id) ON DELETE SET NULL",
     })
     _ensure_table_columns(conn, "orchestration_step_run", {"verified_merge": "TEXT"})
     _ensure_table_columns(conn, "orchestration_step_artifact", {"input_artifact": "TEXT"})
@@ -306,7 +328,18 @@ def _ensure_columns() -> None:
         # 受控子任务的父任务 id。SET NULL 而非 CASCADE：父任务被硬删时子任务的
         # 统计历史不该跟着消失（与 task 表既有的软删除取向一致）。
         "parent_task_id": "INTEGER REFERENCES task(id) ON DELETE SET NULL",
+        "orchestration_run_id": "INTEGER REFERENCES orchestration_run(id) ON DELETE SET NULL",
     })
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS trg_orch_run_sync_root_task "
+        "AFTER UPDATE OF status, started_at, ended_at, title ON orchestration_run "
+        "WHEN NEW.root_task_id IS NOT NULL "
+        "BEGIN "
+        "UPDATE task SET status=NEW.status, started_at=COALESCE(NEW.started_at, started_at), "
+        "ended_at=NEW.ended_at, title=COALESCE(NEW.title, title) WHERE id=NEW.root_task_id; "
+        "END"
+    )
+    conn.commit()
     _ensure_table_columns(conn, "finding", {
         "origin": "TEXT NOT NULL DEFAULT 'manual'",  # manual | autopilot
     })

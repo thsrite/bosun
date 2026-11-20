@@ -1,13 +1,17 @@
 """可配置编排模板与运行 API。"""
 from __future__ import annotations
 
+import io
+import mimetypes
+from pathlib import PurePosixPath
 import time
+import zipfile
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from .. import db, orchestrations, uploads
+from .. import db, orchestrations, uploads, workflow_policy
 
 router = APIRouter(tags=["orchestrations"])
 
@@ -41,6 +45,19 @@ class RunBody(BaseModel):
     auto_approve: bool = False
     start: bool = False
     on_demand: bool = True
+
+
+class SignoffBody(BaseModel):
+    decision: str
+    signer: str = "产品负责人"
+    comment: str = ""
+
+
+class WorkflowPolicyBody(BaseModel):
+    trust_level: int | None = None
+    diff_integrity_gate: bool | None = None
+    require_product_signoff: bool | None = None
+    auto_merge_globs: list[str] | None = None
 
 
 def _call(fn, *args, **kwargs):
@@ -95,8 +112,12 @@ def configure_acceptance(template_id: int, body: AcceptanceSetting):
 
 
 @router.get("/api/orchestration-runs")
-def list_runs(project_id: int | None = None):
-    return orchestrations.list_runs(project_id)
+def list_runs(project_id: int | None = None, show_hidden: bool = False):
+    runs = orchestrations.list_runs(project_id)
+    if show_hidden:
+        return runs
+    visible_ids = {r["id"] for r in db.query("SELECT id FROM project WHERE hidden=0")}
+    return [run for run in runs if run["project_id"] in visible_ids]
 
 
 @router.post("/api/orchestration-runs")
@@ -156,6 +177,87 @@ def download_report(run_id: int, receipt: int):
     return Response(row[0], media_type="application/zip", headers={
         "Content-Disposition": f'attachment; filename="receipt-{receipt}.zip"', "Cache-Control": "no-store",
     })
+
+
+def _load_receipt_archive(run_id: int, receipt: int) -> bytes:
+    row = db.query_one(
+        "SELECT r.archive FROM delivery_report r JOIN delivery_check c ON c.id=r.receipt "
+        "JOIN orchestration_step_run s ON s.id=c.step_id WHERE s.run_id=? AND r.receipt=?",
+        (run_id, receipt),
+    )
+    if row is None:
+        raise HTTPException(404, "本次运行没有这份证据包")
+    return bytes(row[0])
+
+
+@router.get("/api/orchestration-runs/{run_id}/receipts/{receipt}/files")
+def list_receipt_files(run_id: int, receipt: int):
+    raw = _load_receipt_archive(run_id, receipt)
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            items = []
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                name = info.filename
+                suffix = PurePosixPath(name).suffix.lower()
+                kind = "image" if suffix in (".png", ".jpg", ".jpeg", ".webp") else (
+                    "json" if suffix == ".json" else "text"
+                )
+                items.append({"name": name, "size": info.file_size, "kind": kind})
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(500, "证据包已损坏") from exc
+    return {"receipt": receipt, "files": items}
+
+
+@router.get("/api/orchestration-runs/{run_id}/receipts/{receipt}/file/{file_path:path}")
+def read_receipt_file(run_id: int, receipt: int, file_path: str):
+    norm = PurePosixPath(file_path)
+    if norm.is_absolute() or ".." in norm.parts:
+        raise HTTPException(400, "非法文件路径")
+    raw = _load_receipt_archive(run_id, receipt)
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            target = str(norm)
+            if target not in zf.namelist():
+                raise HTTPException(404, "证据包中不存在该文件")
+            data = zf.read(target)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(500, "证据包已损坏") from exc
+    media_type, _ = mimetypes.guess_type(target)
+    return Response(
+        data,
+        media_type=media_type or "application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/api/orchestration-runs/{run_id}/signoff")
+def signoff_run(run_id: int, body: SignoffBody):
+    return _call(orchestrations.record_signoff, run_id, body.decision, body.signer, body.comment)
+
+
+@router.get("/api/projects/{project_id}/workflow-policy")
+def get_workflow_policy(project_id: int):
+    if db.query_one("SELECT id FROM project WHERE id=?", (project_id,)) is None:
+        raise HTTPException(404, "项目不存在")
+    return workflow_policy.get_project_policy(project_id)
+
+
+@router.put("/api/projects/{project_id}/workflow-policy")
+def put_workflow_policy(project_id: int, body: WorkflowPolicyBody):
+    if db.query_one("SELECT id FROM project WHERE id=?", (project_id,)) is None:
+        raise HTTPException(404, "项目不存在")
+    try:
+        return workflow_policy.update_project_policy(
+            project_id,
+            trust_level=body.trust_level,
+            diff_integrity_gate=body.diff_integrity_gate,
+            require_product_signoff=body.require_product_signoff,
+            auto_merge_globs=body.auto_merge_globs,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/api/orchestration-runs/{run_id}/upload-file")

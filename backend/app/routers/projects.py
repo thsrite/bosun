@@ -17,6 +17,10 @@ class AddProject(BaseModel):
     name: str | None = None
 
 
+class VisibilityBody(BaseModel):
+    hidden: bool
+
+
 class ScanRoot(BaseModel):
     root: str
     max_depth: int = 3
@@ -65,6 +69,7 @@ def _project_dict(row) -> dict:
         "id": row["id"],
         "name": row["name"],
         "path": row["path"],
+        "hidden": bool(row["hidden"]),
         "task_total": total,
         "running": running,
         "by_status": by_status,
@@ -80,9 +85,18 @@ def _project_dict(row) -> dict:
 
 
 @router.get("")
-def list_projects():
-    rows = db.query("SELECT * FROM project ORDER BY created_at ASC")
+def list_projects(show_hidden: bool = False):
+    rows = db.query("SELECT * FROM project WHERE (? OR hidden=0) ORDER BY created_at ASC", (show_hidden,))
     return [_project_dict(r) for r in rows]
+
+
+@router.put("/{project_id}/visibility")
+def set_visibility(project_id: int, body: VisibilityBody):
+    if db.query_one("SELECT id FROM project WHERE id=?", (project_id,)) is None:
+        raise HTTPException(404, "项目不存在")
+    db.execute("UPDATE project SET hidden=? WHERE id=?", (int(body.hidden), project_id))
+    events.emit("project.visibility", {"project_id": project_id, "hidden": body.hidden})
+    return {"ok": True, "hidden": body.hidden}
 
 
 def _add(path: str, name: str | None) -> int:

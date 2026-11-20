@@ -221,6 +221,8 @@ export function TerminalWorkspace({
   // 放大的格子：盖满整个工作台，其余格子保持尺寸只是隐藏（终端不重排、PTY 不被压小）
   const [maximizedId, setMaximizedId] = useState<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  // 每个格子的局部子任务钻取态：点主任务顶部的子任务胶囊时在当前格内原地查看（含已完成子任务），不改动外层 taskIds
+  const [drilledBySlotTask, setDrilledBySlotTask] = useState<Record<number, Task>>({});
   // 拖出 6px 才算拖动，避免点把手时误触发
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const openTasks = taskIds
@@ -315,11 +317,13 @@ export function TerminalWorkspace({
           onDragCancel={() => setDraggingId(null)}
         >
         <div className="relative grid min-h-0 flex-1 gap-1.5 bg-dh-soft p-1.5" style={gridStyle}>
-          {slots.map((t, i) =>
-            t ? (
+          {slots.map((t, i) => {
+            const drilled = t ? drilledBySlotTask[t.id] : undefined;
+            const shownTask = drilled ? (tasks.find((x) => x.id === drilled.id) ?? drilled) : t;
+            return t && shownTask ? (
               <TaskCell
                 key={`cell-${t.id}`}
-                task={t}
+                task={shownTask}
                 slot={i}
                 style={cellStyle(i)}
                 maximized={maximized === t.id}
@@ -329,9 +333,28 @@ export function TerminalWorkspace({
                 {(accessory) => (
                   <TerminalPanel
                     embedded
-                    task={t}
+                    task={shownTask}
+                    switchTasks={tasks}
+                    onSwitchTask={(next) => {
+                      setDrilledBySlotTask((prev) => {
+                        if (next.id === t.id) {
+                          const copy = { ...prev };
+                          delete copy[t.id];
+                          return copy;
+                        }
+                        return { ...prev, [t.id]: next };
+                      });
+                    }}
                     getProjectName={getProjectName}
-                    onClose={() => onCloseTask(t.id)}
+                    onClose={() => {
+                      setDrilledBySlotTask((prev) => {
+                        if (!(t.id in prev)) return prev;
+                        const copy = { ...prev };
+                        delete copy[t.id];
+                        return copy;
+                      });
+                      onCloseTask(t.id);
+                    }}
                     onChanged={onChanged}
                     headerAccessory={
                       <>
@@ -412,8 +435,8 @@ export function TerminalWorkspace({
                   {draggingId !== null ? "松开放到这里" : "＋ 点击选择任务加入"}
                 </button>
               </EmptySlot>
-            ),
-          )}
+            );
+          })}
         </div>
         <DragOverlay dropAnimation={null}>
           {draggingTask && (

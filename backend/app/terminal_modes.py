@@ -13,7 +13,17 @@ class TerminalModes:
         self._values: dict[int, bytes] = {}
         self._carry = b""
 
+    def clone(self) -> "TerminalModes":
+        copy = TerminalModes()
+        copy._values = dict(self._values)
+        copy._carry = self._carry
+        return copy
+
     def feed(self, data: bytes) -> None:
+        if not data:
+            return
+        if not self._carry and b"\x1b" not in data:
+            return
         data = self._carry + data
         self._carry = b""
         for match in _TOKEN.finditer(data):

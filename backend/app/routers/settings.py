@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 DEFAULT_TAB = "projects"
 # 前端顶栏一级导航，见 frontend/src/tabs.ts
-TABS = ("projects", "tasks", "claude", "stats", "delivery", "settings")
+TABS = ("projects", "tasks", "claude", "settings")
 
 
 class Settings(BaseModel):

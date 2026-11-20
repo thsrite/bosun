@@ -17,6 +17,7 @@ import { api } from "../api";
 import { WS_UNAUTHORIZED, setToken, wsProtocols } from "../auth";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { ChatView } from "./ChatView";
+import { OrchestrationTrace } from "./OrchestrationTrace";
 import { SessionHistoryView } from "./SessionHistoryView";
 import { confirmDialog, promptDialog, toast } from "../overlay";
 import { guardQuota } from "../quota";
@@ -631,7 +632,7 @@ function TerminalView({
       theme: TERMINAL_THEME,
       cursorBlink: true,
       convertEol: true,
-      scrollback: 100000,
+      scrollback: 15000,
     });
     const fit = new FitAddon();
     // Claude/Codex TUIs copy application-managed mouse selections via OSC 52. Without this
@@ -1895,6 +1896,43 @@ export function TerminalPanel({
   const [perm, setPerm] = useState<{ tool: string; input: string } | null>(null);
   const [, bumpAttention] = useReducer((n: number) => n + 1, 0);
   const [showSwitcher, setShowSwitcher] = useState(false);
+  const [familyState, setFamilyState] = useState<{ parent: Task | null; subtasks: Task[]; orchestration_run_id?: number | null } | null>(null);
+  const [workflowOverlay, setWorkflowOverlay] = useState(false);
+
+  useEffect(() => {
+    setWorkflowOverlay(false);
+  }, [detail.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.taskFamily(detail.id)
+      .then((res) => {
+        if (!cancelled) setFamilyState(res);
+      })
+      .catch(() => {
+        // 静默回退到 switchTasks
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail.id, detail.parent_task_id, detail.status]);
+
+  const orchestrationRunId = detail.orchestration_run_id ?? familyState?.orchestration_run_id ?? null;
+  const isOrchestrationRoot = Boolean(orchestrationRunId && detail.parent_task_id == null && detail.kind === "orchestration");
+  const showWorkflowStage = Boolean(orchestrationRunId && (isOrchestrationRoot || workflowOverlay));
+
+  const parentTask =
+    detail.parent_task_id != null
+      ? familyState?.parent ?? switchTasks.find((t) => t.id === detail.parent_task_id) ?? null
+      : null;
+  const familyParentId = detail.parent_task_id ?? detail.id;
+  const relatedSubtasks = familyState
+    ? familyState.subtasks
+    : switchTasks.filter((t) => t.parent_task_id === familyParentId).sort((a, b) => a.id - b.id);
+  const showFamilyBar = Boolean(
+    (onSwitchTask && (parentTask || detail.parent_task_id != null || relatedSubtasks.length > 0)) ||
+    orchestrationRunId != null,
+  );
   // 本次挂载里已弹出的提醒：弹出即记为已看过（换任务、刷新都不再弹），但在关闭前保持显示
   const shownAttention = useRef(new Set<string>());
   const [historyMode, setHistoryMode] = useState<"history" | "terminal" | null>(null);
@@ -2465,6 +2503,78 @@ export function TerminalPanel({
           </div>
         </div>
 
+        {/* 父子任务双向导航栏：在主任务下看子任务进度并钻取，在子任务中一键回主任务或切兄弟子任务 */}
+        {showFamilyBar && (
+          <div className="dh-scrollbar-none flex items-center gap-2 overflow-x-auto border-b border-dh-bsoft bg-dh-soft/75 px-4 py-1.5 text-xs">
+            {detail.parent_task_id != null ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (parentTask) {
+                    switchToTask(parentTask);
+                  } else {
+                    void api.getTask(detail.parent_task_id!).then(switchToTask).catch((e) => toast(String(e), "error"));
+                  }
+                }}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-dh-accent/40 bg-dh-accent/10 px-2 py-0.5 font-medium text-dh-accent hover:bg-dh-accent/20"
+              >
+                <span>← 返回主任务 #{detail.parent_task_id}</span>
+                {parentTask && (
+                  <span className="max-w-[140px] truncate text-[11px] opacity-85">
+                    {parentTask.title || taskPromptText(parentTask)}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <span className="shrink-0 font-medium text-dh-muted">
+                子任务 {relatedSubtasks.filter((t) => t.status === "done").length}/{relatedSubtasks.length}
+              </span>
+            )}
+
+            {relatedSubtasks.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                {detail.parent_task_id != null && <span className="text-dh-bsoft">|</span>}
+                {relatedSubtasks.map((sub) => {
+                  const st = STATUS_STYLE[taskStatusStyleKey(sub)] ?? STATUS_STYLE.draft;
+                  const isCurrent = sub.id === detail.id;
+                  return (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      onClick={() => switchToTask(sub)}
+                      title={`#${sub.id} ${sub.title || taskPromptText(sub)} (${st.label})`}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition ${
+                        isCurrent
+                          ? "border-dh-accent bg-dh-accent/15 font-semibold text-dh-text"
+                          : "border-dh-bsoft bg-dh-surface text-dh-tsoft hover:border-dh-accent"
+                      }`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${st.pulse ? "animate-pulse" : ""}`} />
+                      <span className="font-mono text-[10px] text-dh-muted">#{sub.id}</span>
+                      <span className="max-w-[120px] truncate">{sub.title || taskPromptText(sub)}</span>
+                      <span className={`text-[10px] ${st.text}`}>{st.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {orchestrationRunId != null && !isOrchestrationRoot && (
+              <button
+                type="button"
+                onClick={() => setWorkflowOverlay((v) => !v)}
+                className={`ml-auto shrink-0 rounded-md border px-2.5 py-0.5 text-[11px] font-medium transition ${
+                  workflowOverlay
+                    ? "border-dh-accent bg-dh-accent text-dh-accfg"
+                    : "border-dh-accent/40 bg-dh-accent/10 text-dh-accent hover:bg-dh-accent/20"
+                }`}
+              >
+                {workflowOverlay ? "← 返回子任务终端" : `🔀 查看编排工作流 #${orchestrationRunId}`}
+              </button>
+            )}
+          </div>
+        )}
+
         {showTaskStrip && (
           <TaskStrip
             tasks={switchableTasks}
@@ -2651,18 +2761,30 @@ export function TerminalPanel({
           </div>
         )}
 
-        {/* 终端(pty) / 对话面板(SDK) / 占位 */}
+        {/* 编排工作流主视图 / 终端(pty) / 对话面板(SDK) / 占位 */}
         <div
-          className={`min-h-0 flex-1 overflow-hidden bg-[#0b0f17] ${
-            isChat
-              ? ""
-              : active
-                ? // 移动端运行中：底部安全区由输入条承担；键盘弹出时会收回留白。
-                  // 桌面端(md)无输入条，保留 8px 底距。
-                  "dh-terminal-viewport p-2 pb-0 md:pb-2"
-                : "dh-terminal-viewport dh-safe-bottom-pad p-2"
+          className={`relative min-h-0 flex-1 overflow-hidden ${
+            showWorkflowStage
+              ? "bg-dh-surface"
+              : isChat
+                ? "bg-[#0b0f17]"
+                : active
+                  ? "dh-terminal-viewport bg-[#0b0f17] p-2 pb-0 md:pb-2"
+                  : "dh-terminal-viewport dh-safe-bottom-pad bg-[#0b0f17] p-2"
           }`}
         >
+          {showWorkflowStage && orchestrationRunId != null && (
+            <div className="h-full overflow-y-auto p-4">
+              <OrchestrationTrace
+                runId={orchestrationRunId}
+                onOpenTask={(next) => {
+                  setWorkflowOverlay(false);
+                  if (onSwitchTask) onSwitchTask(next);
+                }}
+              />
+            </div>
+          )}
+          <div className={`h-full min-h-0 flex flex-col ${showWorkflowStage ? "hidden" : ""}`}>
           {hasSession ? (
             isChat ? (
               <ChatView
@@ -2745,6 +2867,7 @@ export function TerminalPanel({
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
   );

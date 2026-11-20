@@ -31,10 +31,15 @@ from .terminal_modes import TerminalModes
 # PTY logs contain every TUI repaint. A long Codex/Claude session can therefore
 # grow to tens of megabytes even though xterm only needs the latest screen and
 # useful recent scrollback when a panel is opened or reconnected.
-MAX_TERMINAL_BACKLOG_BYTES = 2 * 1024 * 1024
-# 压缩前先扫描更大的窗口，只消除可证明被覆盖的帧，再按回放预算截尾。
-# Codex 的局部差分帧通常不能安全合并，长会话仍可能仅保留最近一段。
-MAX_TERMINAL_SCAN_BYTES = 16 * 1024 * 1024
+# 384 KiB 足以覆盖数十～上百屏最近输出，同时把浏览器 xterm.js 首帧渲染控制在 ~30ms 内。
+MAX_TERMINAL_BACKLOG_BYTES = 384 * 1024
+# 落盘时 TerminalLogCompactor 已做过实时帧压缩，回放只需扫描最近 1 MiB 即可。
+MAX_TERMINAL_SCAN_BYTES = 1 * 1024 * 1024
+
+_MODES_CACHE_LOCK = threading.Lock()
+_MODES_CACHE_MAX = 128
+# log_path -> (st_ino, scanned_offset, TerminalModes)
+_MODES_CACHE: dict[str, tuple[int, int, TerminalModes]] = {}
 
 
 class TerminalBacklog(NamedTuple):
@@ -93,19 +98,44 @@ def read_terminal_backlog(
     modes = TerminalModes()
     try:
         with open(log_path, "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
+            st = os.fstat(f.fileno())
+            size = st.st_size
+            inode = st.st_ino
             window = min(size, max(scan_bytes, max_bytes))
-            # 被截掉的正文不回放，但必须保留它设置的鼠标/备用屏幕等模式。
-            # 分块扫描，内存仍有界；不能只读开头，因为中间可能关闭或重开模式。
-            f.seek(0)
-            remaining = size - window
-            while remaining:
-                chunk = f.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    break
-                modes.feed(chunk)
-                remaining -= len(chunk)
+            prefix_end = size - window
+            start_offset = 0
+
+            # 复用该日志已扫描过的 TerminalModes 前缀，避免大文件每次重连都从 byte 0 全扫
+            if prefix_end > 0:
+                with _MODES_CACHE_LOCK:
+                    cached = _MODES_CACHE.get(log_path)
+                    if cached and cached[0] == inode and cached[1] <= prefix_end:
+                        start_offset = cached[1]
+                        modes = cached[2].clone()
+
+            if prefix_end > start_offset:
+                gap = prefix_end - start_offset
+                # 冷启动遇到超大历史日志（如 >16 MiB）时，扫开头 256 KiB（启动模式）+ 尾部 4 MiB，
+                # 避免首次打开终端卡顿数秒；后续重连走增量缓存，几乎零开销。
+                if start_offset == 0 and gap > 16 * 1024 * 1024:
+                    f.seek(0)
+                    modes.feed(f.read(256 * 1024))
+                    start_offset = prefix_end - 4 * 1024 * 1024
+                f.seek(start_offset)
+                remaining = prefix_end - start_offset
+                while remaining:
+                    chunk = f.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        break
+                    modes.feed(chunk)
+                    remaining -= len(chunk)
+                with _MODES_CACHE_LOCK:
+                    if len(_MODES_CACHE) >= _MODES_CACHE_MAX and log_path not in _MODES_CACHE:
+                        _MODES_CACHE.pop(next(iter(_MODES_CACHE)))
+                    _MODES_CACHE[log_path] = (inode, prefix_end, modes.clone())
+            else:
+                f.seek(prefix_end)
+
             data = f.read()
     except FileNotFoundError:
         return TerminalBacklog(b"", False)

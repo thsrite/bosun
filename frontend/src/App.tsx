@@ -109,13 +109,17 @@ export default function App() {
   // 从 URL hash 恢复视图(刷新后不回首页)
   const applyHash = useCallback(() => {
     const h = location.hash.replace(/^#\/?/, "");
+    if (h === "stats" || h === "delivery") {
+      setTab("projects");
+      setView("home");
+      location.replace("#projects");
+      return;
+    }
     if (h.startsWith("project/")) {
       const id = Number(h.slice(8));
       if (id) return setView(id);
     }
     if (
-      h === "stats" ||
-      h === "delivery" ||
       h === "projects" ||
       h === "tasks" ||
       h === "claude" ||
@@ -175,6 +179,9 @@ export default function App() {
     window.addEventListener("hashchange", applyHash);
     api.getSettings().then((s) => {
       const merged = { ...DEFAULT_SETTINGS, ...s }; // 兜底: 后端漏返回的字段用默认, 防 .map 崩
+      if (merged.default_tab === "stats" || merged.default_tab === "delivery") {
+        merged.default_tab = "projects";
+      }
       setSettings(merged);
       // 只在没有 hash（首次打开）时套用默认页面；带 hash 说明是刷新或直达链接，不能覆盖
       if (!location.hash && merged.default_tab !== "projects") {
@@ -197,6 +204,10 @@ export default function App() {
           // 状态变化直接刷新任务视图；任务列表是运行监控面板，不能要求用户手动刷新
           // 才知道某一轮已经完成或正在等人介入。
           if (msg.type === "task.status" || msg.type === "task.tokens") {
+            setReloadKey((k) => k + 1);
+          }
+          if (msg.type === "project.visibility") {
+            void load();
             setReloadKey((k) => k + 1);
           }
         } catch {
@@ -345,6 +356,18 @@ export default function App() {
     location.hash = "#" + tab;
   }
 
+  async function toggleProjectHidden(project: Project) {
+    try {
+      await api.setProjectHidden(project.id, !project.hidden);
+      await loadProjectsAndClearPending();
+      setReloadKey((k) => k + 1);
+      if (!project.hidden && view === project.id) backHome();
+      toast(project.hidden ? `已取消隐藏「${project.name}」` : `已隐藏「${project.name}」，可在设置中开启“显示隐藏项目”查看并恢复`, "success");
+    } catch (err) {
+      toast(`操作失败：${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  }
+
   async function deleteProject(project: Project) {
     const active = project.running + (project.by_status?.queued ?? 0);
     const suffix = active > 0 ? `\n\n当前有 ${active} 个运行中/排队任务，删除会先终止并清理这些任务。` : "";
@@ -474,6 +497,7 @@ export default function App() {
               onBack={backHome}
               onDataChanged={loadProjectsAndClearPending}
               onDeleteProject={deleteProject}
+              onToggleProjectHidden={toggleProjectHidden}
             />
           ) : tab === "tasks" ? (
             <ActiveTasksView
@@ -494,6 +518,7 @@ export default function App() {
               onSettingsPatch={(patch) => setSettings((current) => ({ ...current, ...patch }))}
               auth={auth}
               onAuthChanged={refreshAuth}
+              onProjectVisibilityChanged={refreshAll}
             />
           ) : (
             <HomeView
@@ -503,6 +528,7 @@ export default function App() {
               onAddProject={() => setShowAdd(true)}
               onProposals={() => setShowProposals(true)}
               onDeleteProject={deleteProject}
+              onToggleProjectHidden={toggleProjectHidden}
             />
           )}
         </main>

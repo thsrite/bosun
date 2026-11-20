@@ -6,7 +6,5 @@ export const NAV: { key: Tab; label: string; short?: string }[] = [
   { key: "projects", label: "项目" },
   { key: "tasks", label: "运行任务", short: "任务" },
   { key: "claude", label: "Claude 管理", short: "Claude" },
-  { key: "stats", label: "统计图表", short: "统计" },
-  { key: "delivery", label: "交付监控", short: "交付" },
   { key: "settings", label: "设置" },
 ];

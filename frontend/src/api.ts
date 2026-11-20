@@ -329,8 +329,31 @@ function write<T>(method: string, url: string, body?: unknown): Promise<T> {
   return req;
 }
 
+const SHOW_HIDDEN_PROJECTS_KEY = "bosun.showHiddenProjects";
+
+// 兼容旧链接；没有 URL 参数时使用当前浏览器 / PWA 保存的偏好。
+export function showHiddenProjects(): boolean {
+  const override = new URLSearchParams(window.location.search).get("show_hidden");
+  if (override !== null) return override === "1";
+  return localStorage.getItem(SHOW_HIDDEN_PROJECTS_KEY) === "1";
+}
+
+export function setShowHiddenProjects(enabled: boolean): void {
+  localStorage.setItem(SHOW_HIDDEN_PROJECTS_KEY, enabled ? "1" : "0");
+  const url = new URL(window.location.href);
+  url.searchParams.delete("show_hidden");
+  window.history.replaceState(window.history.state, "", url);
+}
+
+function visibilityUrl(path: string): string {
+  if (!showHiddenProjects()) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}show_hidden=1`;
+}
+
 export const api = {
-  projects: () => fetch("/api/projects").then((r) => j<Project[]>(r)),
+  projects: () => fetch(visibilityUrl("/api/projects")).then((r) => j<Project[]>(r)),
+  setProjectHidden: (id: number, hidden: boolean) =>
+    write<{ ok: boolean; hidden: boolean }>("PUT", `/api/projects/${id}/visibility`, { hidden }),
   addProject: (path: string, name?: string) =>
     write<{ id: number }>("POST", "/api/projects", { path, name }),
   scan: (root: string) =>
@@ -348,8 +371,12 @@ export const api = {
     ),
 
   tasks: (projectId?: number) =>
-    fetch(projectId == null ? "/api/tasks" : `/api/tasks?project_id=${projectId}`).then((r) => j<Task[]>(r)),
+    fetch(visibilityUrl(projectId == null ? "/api/tasks" : `/api/tasks?project_id=${projectId}`)).then((r) => j<Task[]>(r)),
   getTask: (id: number) => fetch(`/api/tasks/${id}`).then((r) => j<Task>(r)),
+  taskFamily: (id: number) =>
+    fetch(`/api/tasks/${id}/family`).then((r) =>
+      j<{ parent: Task | null; subtasks: Task[]; orchestration_run_id?: number | null }>(r),
+    ),
   /** 终端里双击到的文件。后端按任务工作目录校验后代读，所以手机远程访问也能预览。 */
   taskFile: async (id: number, path: string): Promise<TaskFilePayload> => {
     const res = await fetch(`/api/tasks/${id}/file?path=${encodeURIComponent(path)}`);
@@ -360,6 +387,17 @@ export const api = {
     };
   },
   runTrace: (id: number) => fetch(`/api/orchestration-runs/${id}/trace`).then(r => j<import("./types").RunTrace>(r)),
+  signoffRun: (id: number, body: { decision: "approved" | "rejected_impl" | "rejected_spec"; signer?: string; comment?: string }) =>
+    write<import("./types").WorkflowSignoff>("POST", `/api/orchestration-runs/${id}/signoff`, body),
+  workflowPolicy: {
+    get: (projectId: number) => fetch(`/api/projects/${projectId}/workflow-policy`).then(r => j<import("./types").WorkflowPolicy>(r)),
+    update: (projectId: number, body: Partial<{ trust_level: number; diff_integrity_gate: boolean; require_product_signoff: boolean; auto_merge_globs: string[] }>) =>
+      write<import("./types").WorkflowPolicy>("PUT", `/api/projects/${projectId}/workflow-policy`, body),
+  },
+  receiptFiles: (runId: number, receipt: number) =>
+    fetch(`/api/orchestration-runs/${runId}/receipts/${receipt}/files`).then(r => j<{ receipt: number; files: import("./types").ReceiptFileItem[] }>(r)),
+  receiptFileUrl: (runId: number, receipt: number, name: string) =>
+    `/api/orchestration-runs/${runId}/receipts/${receipt}/file/${name.split("/").map(encodeURIComponent).join("/")}`,
   deliveryArchive: async (runId: number, receipt: number) => {
     const res = await fetch(`/api/orchestration-runs/${runId}/receipts/${receipt}/archive`);
     if (!res.ok) throw new Error(await detail(res));
@@ -454,11 +492,11 @@ export const api = {
     remove: (id: number) => write<{ ok: boolean }>("DELETE", `/api/orchestrations/${id}`),
   },
   orchestrationRuns: {
-    list: (projectId?: number) => fetch(
+    list: (projectId?: number) => fetch(visibilityUrl(
       projectId == null
         ? "/api/orchestration-runs"
         : `/api/orchestration-runs?project_id=${projectId}`,
-    ).then((r) => j<OrchestrationRun[]>(r)),
+    )).then((r) => j<OrchestrationRun[]>(r)),
     create: (body: {
       orchestration_id: number;
       project_id: number;

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>OMP → CPA 延迟观测</title>
+  <style>
+    :root { color-scheme: light; --page:#f5f3ee; --surface:#fffefa; --ink:#222a28; --muted:#606862; --line:#d9ddd5; --soft:#eceee7; --teal:#176658; --teal-bg:#e3f0e9; --amber:#825600; --amber-bg:#fff0cb; --red:#a2362d; --red-bg:#fce8e3; }
+    :root[data-theme="dark"] { color-scheme:dark; --page:#1b201e; --surface:#232a26; --ink:#edf0e8; --muted:#b3bdb4; --line:#424d45; --soft:#303931; --teal:#8bd1b7; --teal-bg:#263e33; --amber:#edc47a; --amber-bg:#403621; --red:#ffafa0; --red-bg:#472e2a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--page); color:var(--ink); font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-variant-numeric:tabular-nums; }
+    main { max-width:1760px; margin:auto; padding:32px; }
+    h1,h2,p { margin:0; }
+    h1 { font-size:28px; letter-spacing:-.6px; line-height:1.35; font-weight:650; }
+    h2 { font-size:17px; font-weight:650; }
+    header,.section-heading,.controls,.meta { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+    header { justify-content:space-between; margin-bottom:24px; }
+    .subtitle { margin-top:8px; color:var(--muted); }
+    button,input { font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:4px; min-height:44px; padding:8px 16px; }
+    button { cursor:pointer; font-weight:600; }
+    button:hover { background:var(--soft); }
+    button:active { transform:translateY(1px); }
+    button:disabled { cursor:wait; opacity:.6; }
+    :focus-visible { outline:3px solid var(--teal); outline-offset:3px; }
+    input { width:220px; }
+    .meta { color:var(--muted); gap:8px 24px; margin-bottom:16px; }
+    .badge { display:inline-block; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:600; background:var(--soft); color:var(--muted); white-space:nowrap; }
+    .good { color:var(--teal); background:var(--teal-bg); }
+    .warn { color:var(--amber); background:var(--amber-bg); }
+    .bad { color:var(--red); background:var(--red-bg); }
+    .notice { padding:16px; border:1px solid var(--line); border-radius:4px; margin-bottom:24px; }
+    .notice[hidden] { display:none; }
+    section { margin-top:24px; }
+    .section-heading { justify-content:space-between; margin-bottom:16px; }
+    .hint,.secondary { font-size:12px; color:var(--muted); }
+    .secondary { display:block; margin-top:4px; }
+    .sources { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); border:1px solid var(--line); background:var(--surface); border-radius:4px; }
+    .source { padding:16px 24px; min-width:0; }
+    .source-title { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+    .source p { color:var(--muted); overflow-wrap:anywhere; }
+    .source .error { color:var(--red); }
+    .filter { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; }
+    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); background:var(--surface); border-radius:4px; margin:16px 0 24px; }
+    .metric { padding:16px 24px; }
+    .metric + .metric { border-left:1px solid var(--line); }
+    .metric dt { color:var(--muted); font-size:12px; }
+    .metric dd { margin:8px 0 0; font-size:28px; font-weight:600; line-height:1.25; }
+    .metric small { font-size:12px; font-weight:400; }
+    .table-wrap { overflow:auto; max-height:65vh; border:1px solid var(--line); border-radius:4px; background:var(--surface); }
+    table { width:100%; border-collapse:collapse; text-align:left; white-space:nowrap; }
+    caption { text-align:left; padding:16px; color:var(--muted); font-size:12px; white-space:normal; border-bottom:1px solid var(--line); }
+    th { position:sticky; top:0; z-index:1; font-size:12px; font-weight:600; color:var(--muted); background:var(--soft); }
+    th,td { padding:12px 16px; vertical-align:top; border-bottom:1px solid var(--line); }
+    tbody tr:last-child td { border-bottom:0; }
+    tbody tr:hover { background:var(--page); }
+    .number { text-align:right; }
+    .diagnosis { min-width:240px; max-width:400px; white-space:normal; overflow-wrap:anywhere; }
+    .model { min-width:190px; max-width:240px; white-space:normal; overflow-wrap:anywhere; }
+    .empty { color:var(--muted); padding:32px 16px; text-align:center; white-space:normal; }
+    .pending-list,.events { margin:0; padding:0; list-style:none; }
+    .pending-list li,.events li { padding:12px 16px; background:var(--surface); border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+    .pending-list li:first-child,.events li:first-child { border-top:1px solid var(--line); }
+    .pending-title { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; }
+    .events { max-height:280px; overflow:auto; }
+    footer { margin-top:32px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+    footer p + p { margin-top:8px; }
+    #limitations { margin:8px 0 0; padding-left:20px; }
+    @media (max-width:800px) { main { padding:24px 16px; } h1 { font-size:24px; } .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .metric { padding:16px; } .metric:nth-child(3) { border-left:0; } .metric:nth-child(n+3) { border-top:1px solid var(--line); } .source { padding:16px; } .section-heading { align-items:flex-start; } }
+    @media (max-width:420px) { .controls { width:100%; gap:8px; } .controls button { flex:1; } .filter { width:100%; } input { flex:1; min-width:120px; width:100%; } .metric dd { font-size:24px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>OMP → CPA 延迟观测</h1><p class="subtitle">只读运行报告 · 分开观察会话耗时与网关耗时，不把等待当作网络故障。</p></div>
+    <div class="controls"><button id="refresh" type="button">立即刷新</button><button id="theme" type="button" aria-pressed="false">深色模式</button></div>
+  </header>
+  <div class="meta"><span id="freshness" class="badge">正在加载</span><span id="updated">采集时间：未知</span><span id="polling">每 10 秒刷新</span><span id="timezone"></span></div>
+  <div id="notice" class="notice" role="status" aria-live="polite">正在读取监控快照…</div>
+  <section aria-labelledby="source-heading">
+    <div class="section-heading"><h2 id="source-heading">采集源健康</h2><span class="hint">源读取成功不代表上游模型请求成功</span></div>
+    <div id="sources" class="sources"><p class="source">等待采集源状态…</p></div>
+  </section>
+  <section aria-labelledby="calls-heading">
+    <div class="section-heading"><h2 id="calls-heading">最近调用</h2><div class="filter"><label for="task-filter">任务筛选</label><input id="task-filter" type="search" list="task-options" placeholder="全部任务，或输入任务 ID" autocomplete="off"><datalist id="task-options"><option value="1585"></option></datalist></div></div>
+    <dl class="metrics">
+      <div class="metric"><dt>当前筛选 · 已观测调用</dt><dd id="metric-calls">未知</dd></div>
+      <div class="metric"><dt>OMP 总耗时中位数</dt><dd id="metric-median">未知</dd></div>
+      <div class="metric"><dt>已关联 CPA / 已观测调用</dt><dd id="metric-matched">未知</dd></div>
+      <div class="metric"><dt>待续状态任务 · 仅推断</dt><dd id="metric-pending">未知</dd></div>
+    </dl>
+    <div class="table-wrap" role="region" aria-label="最近调用耗时表，可横向滚动" tabindex="0">
+      <table>
+        <caption>按调用时间倒序。未知不等于 0；CPA 未关联时不补零。缓存比例为缓存 token / 输入总 token（含缓存）；输出平均速率估算 = 输出 token /（总耗时 − 首 token 等待），已匹配用 CPA，否则用 OMP。首 token 未知或剩余时长非正时不估算；此值不是实际解码速率。</caption>
+        <thead><tr><th scope="col">时间</th><th scope="col">任务</th><th scope="col">模型</th><th scope="col" class="number">输出 token</th><th scope="col" class="number">缓存 / 输入 token</th><th scope="col" class="number">OMP 总耗时</th><th scope="col" class="number">CPA 总耗时</th><th scope="col" class="number">首 token<br>OMP / CPA</th><th scope="col" class="number">输出平均速率<br>估算 · token/s</th><th scope="col" class="number">重试 / 耗时</th><th scope="col">关联</th><th scope="col">诊断 / 证据边界</th></tr></thead>
+        <tbody id="calls"><tr><td class="empty" colspan="12">正在加载调用记录…</td></tr></tbody>
+      </table>
+    </div>
+    <p id="call-count" class="hint" style="margin-top:8px">等待数据。中位数仅计算具有有效 OMP 耗时的调用。</p>
+  </section>
+  <section aria-labelledby="pending-heading">
+    <div class="section-heading"><h2 id="pending-heading">任务待续状态</h2><span class="badge warn">最后会话事件推断 · 非实时流证据</span></div>
+    <p class="hint" style="margin-bottom:16px">仅描述采集快照中的最后事件；不能证明请求仍在流式传输、连接中断或网络故障。已等待时长截至采集时刻。</p>
+    <ul id="pending" class="pending-list"><li class="hint">等待任务状态…</li></ul>
+  </section>
+  <section aria-labelledby="events-heading">
+    <div class="section-heading"><h2 id="events-heading">网关日志事件</h2><span class="hint">全局来源 · 不受任务筛选影响，不默认归因到某次调用</span></div>
+    <ul id="events" class="events"><li class="hint">等待网关日志…</li></ul>
+  </section>
+  <footer>
+    <p>只读观测：本页仅获取监控快照，不修改 OMP / CPA 配置，不发起模型请求；不在浏览器持久化调用数据。深浅色偏好仅保存在当前页面。</p>
+    <p>尚无上游逐段流间隔遥测，因此不能直接确定流停顿位置或网络根因。首 token、重试及关联结果仅在已有观测支持时展示；未知项保留为未知。</p>
+    <ul id="limitations"></ul>
+  </footer>
+</main>
+<script>
+'use strict';
+// Restrained operational report: 8px spacing, warm neutral surfaces, semantic status colors.
+// All API values are text nodes; the last successful snapshot stays in memory on failure.
+const $ = id => document.getElementById(id);
+const finite = value => typeof value === 'number' && Number.isFinite(value);
+const knownNumber = value => finite(value) && value >= 0;
+const scalar = value => typeof value === 'string' || finite(value) ? String(value) : '未知';
+const count = value => knownNumber(value) ? value.toLocaleString('zh-CN', {maximumFractionDigits:0}) : '未知';
+const seconds = value => knownNumber(value) ? value.toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' s' : '未知';
+const number = value => knownNumber(value) ? value.toLocaleString('zh-CN', {maximumFractionDigits:2}) : '未知';
+const stamp = value => {
+  if (!finite(value)) return '未知';
+  const date = new Date(value * 1000);
+  return Number.isNaN(date.getTime()) ? '未知' : date.toLocaleString('zh-CN', {hour12:false});
+};
+const node = (tag, text, className) => {
+  const result = document.createElement(tag);
+  if (text !== undefined) result.textContent = text;
+  if (className) result.className = className;
+  return result;
+};
+let snapshot = null;
+let interval = 10;
+let failure = null;
+let inFlight = false;
+let timer = null;
+let lastReceivedAt = null;
+const staleAfter = () => Math.max(30, interval * 3);
+const old = timestamp => !finite(timestamp) || Date.now() / 1000 - timestamp > staleAfter();
+$('timezone').textContent = '时间显示：' + Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function renderFreshness() {
+  $('updated').textContent = '采集时间：' + stamp(snapshot && snapshot.updated_at);
+  $('polling').textContent = '每 ' + number(interval) + ' 秒刷新';
+  const stale = snapshot && (failure !== null || old(snapshot.updated_at) || old(lastReceivedAt));
+  const health = $('freshness');
+  health.className = 'badge ' + (stale ? 'warn' : snapshot ? 'good' : failure ? 'bad' : '');
+  health.textContent = stale ? '数据陈旧' : snapshot ? '快照已更新' : failure ? '读取失败' : '正在加载';
+  const notice = $('notice');
+  notice.hidden = Boolean(snapshot && !stale);
+  notice.className = 'notice ' + (stale ? 'warn' : failure ? 'bad' : '');
+  if (failure) {
+    notice.textContent = '监控接口读取失败（' + failure + '）。' + (snapshot ? '保留上次成功快照，以下数据可能已过期；将自动重试。' : '尚无成功快照，无法展示调用数据；将自动重试。');
+  } else if (stale) {
+    notice.textContent = '采集时间未知或快照已超过 ' + count(staleAfter()) + ' 秒未更新。以下仍为最后一次成功读取的数据，不代表当前实时状态。';
+  } else if (!snapshot) {
+    notice.textContent = '正在读取监控快照…';
+  }
+}
+
+function renderSources() {
+  const container = $('sources');
+  container.replaceChildren();
+  const sources = snapshot.sources;
+  if (!sources.length) {
+    container.append(node('p', '暂无采集源状态，不能据此判断上游是否正常。', 'source'));
+    return;
+  }
+  for (const source of sources) {
+    const section = node('div', undefined, 'source');
+    const title = node('div', undefined, 'source-title');
+    const stale = old(source.last_success);
+    title.append(node('strong', scalar(source.name)));
+    title.append(node('span', source.ok === false ? '读取失败' : source.ok === true ? (stale ? '成功记录已陈旧' : '读取成功') : '状态未知', 'badge ' + (source.ok === false ? 'bad' : source.ok === true && !stale ? 'good' : 'warn')));
+    section.append(title, node('p', '最近成功：' + stamp(source.last_success)));
+    if (source.error !== null && source.error !== undefined && source.error !== '') section.append(node('p', '错误枚举：' + scalar(source.error), 'error'));
+    container.append(section);
+  }
+}
+
+function chosenTasks() {
+  const filter = $('task-filter').value.trim().replace(/^#/, '');
+  return snapshot.tasks.filter(task => !filter || filter === '全部' || filter.toLowerCase() === 'all' || String(task.id) === filter);
+}
+
+function renderCalls() {
+  const tasks = chosenTasks();
+  const rows = tasks.flatMap(task => (Array.isArray(task.calls) ? task.calls : []).map(call => ({task, call})));
+  rows.sort((a, b) => (finite(b.call.start) ? b.call.start : -Infinity) - (finite(a.call.start) ? a.call.start : -Infinity));
+  const durations = rows.map(row => row.call.duration_s).filter(knownNumber).sort((a, b) => a - b);
+  const middle = Math.floor(durations.length / 2);
+  const median = durations.length ? (durations.length % 2 ? durations[middle] : (durations[middle - 1] + durations[middle]) / 2) : null;
+  $('metric-calls').textContent = count(rows.length);
+  $('metric-median').textContent = seconds(median);
+  $('metric-matched').textContent = count(rows.filter(row => row.call.correlation === 'matched').length) + ' / ' + count(rows.length);
+  $('metric-pending').textContent = count(tasks.filter(task => task.pending != null).length);
+  $('call-count').textContent = '当前筛选：' + count(tasks.length) + ' 个任务 · ' + count(rows.length) + ' 次已观测调用 · 中位数有效样本 ' + count(durations.length) + ' 次。仅反映当前保留的快照范围。';
+  const body = $('calls');
+  const fragment = document.createDocumentFragment();
+  for (const {task, call} of rows) {
+    const tr = node('tr');
+    const cell = (value, className) => { const td = node('td', value, className); tr.append(td); return td; };
+    cell(stamp(call.start));
+    const taskCell = cell('#' + scalar(task.id));
+    taskCell.append(node('span', scalar(task.status), 'secondary'));
+    const modelCell = cell(scalar(call.model), 'model');
+    cell(count(call.output_tokens), 'number');
+    const cache = cell(count(call.cache_tokens) + ' / ' + count(call.input_tokens), 'number');
+    const cacheRatio = knownNumber(call.cache_tokens) && knownNumber(call.input_tokens) && call.input_tokens > 0 ? number(call.cache_tokens / call.input_tokens * 100) + '%' : '未知';
+    cache.append(node('span', '缓存比例 ' + cacheRatio, 'secondary'));
+    cell(seconds(call.duration_s), 'number');
+    const gateway = call.correlation === 'matched' && call.gateway && typeof call.gateway === 'object' ? call.gateway : null;
+    modelCell.append(node('span', '账号 ' + scalar(gateway && gateway.account), 'secondary'));
+    const gatewayCell = cell(seconds(gateway && gateway.duration_s), 'number');
+    if (gateway && gateway.failed === true) gatewayCell.append(node('span', 'CPA 记录失败', 'badge bad'));
+    const firstToken = cell('OMP ' + seconds(call.ttft_s), 'number');
+    firstToken.append(node('span', 'CPA ' + seconds(gateway && gateway.ttft_s), 'secondary'));
+    const rate = cell(number(call.output_rate), 'number');
+    if (knownNumber(call.output_rate)) rate.append(node('span', gateway ? 'CPA 首 token 后估算' : 'OMP 首 token 后估算', 'secondary'));
+    const retry = cell(count(call.retry_count) + ' 次', 'number');
+    retry.append(node('span', seconds(call.retry_seconds), 'secondary'));
+    const match = cell('');
+    const correlations = {matched:['唯一特征匹配','good'], ambiguous:['多候选 · 未确定','warn'], unmatched:['未关联','']};
+    const correlation = correlations[call.correlation] || ['未知',''];
+    match.append(node('span', correlation[0], 'badge ' + correlation[1]));
+    const diagnoses = new Map([['high_ttft', '首 token 等待较长'], ['slow_stream_observed', '观测到输出平均速率较低（非网络根因证明）'], ['gateway_retries_observed', '观测到网关重试']]);
+    const evidence = cell(Array.isArray(call.diagnosis) && call.diagnosis.length ? call.diagnosis.map(value => diagnoses.get(value) || scalar(value)).join('；') : '无额外诊断证据', 'diagnosis');
+    if (knownNumber(call.tool_duration_s)) evidence.append(node('span', '后续工具最长执行 ' + seconds(call.tool_duration_s), 'secondary'));
+    fragment.append(tr);
+  }
+  if (!rows.length) {
+    const row = node('tr');
+    const empty = node('td', tasks.length ? '当前任务尚无已观测调用；这不表示没有在途请求。' : '当前筛选未找到任务。清空任务 ID 可查看全部。', 'empty');
+    empty.colSpan = 12;
+    row.append(empty);
+    fragment.append(row);
+  }
+  body.replaceChildren(fragment);
+  const pending = $('pending');
+  pending.replaceChildren();
+  for (const task of tasks.filter(task => task.pending != null)) {
+    const item = node('li');
+    const title = node('div', undefined, 'pending-title');
+    const pendingKinds = {tool:'等待工具结果', awaiting_model_or_local:'等待模型或本地调度'};
+    title.append(node('strong', '#' + scalar(task.id)), node('span', '推断：' + (pendingKinds[task.pending.kind] || scalar(task.pending.kind)), 'badge warn'), node('span', '已等待 ' + seconds(task.pending.elapsed_s)));
+    item.append(title, node('span', '任务状态：' + scalar(task.status) + ' · 推断起点：' + stamp(task.pending.since) + ' · 最后会话事件：' + stamp(task.last_event_at), 'secondary'));
+    pending.append(item);
+  }
+  if (!pending.childElementCount) pending.append(node('li', '当前筛选没有待续推断记录；不等于已经证实所有上游请求完成。', 'hint'));
+}
+
+function renderSnapshot() {
+  const suggestions = $('task-options');
+  suggestions.replaceChildren();
+  const ids = new Set(['1585', ...snapshot.tasks.map(task => String(task.id))]);
+  for (const id of ids) { const option = node('option'); option.value = id; suggestions.append(option); }
+  renderSources();
+  renderCalls();
+  const events = $('events');
+  events.replaceChildren();
+  for (const event of [...snapshot.gateway_errors].sort((a,b) => (finite(b.at) ? b.at : -Infinity) - (finite(a.at) ? a.at : -Infinity))) {
+    const item = node('li');
+    item.append(node('span', stamp(event.at) + ' · '), node('span', scalar(event.kind), 'badge warn'), node('span', ' · stream_id：' + scalar(event.stream_id)));
+    events.append(item);
+  }
+  if (!events.childElementCount) events.append(node('li', '当前快照没有网关错误事件；不代表所有历史请求均成功。', 'hint'));
+  $('limitations').replaceChildren(...snapshot.limitations.map(value => node('li', scalar(value))));
+  renderFreshness();
+}
+
+function validSnapshot(data) {
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  return record(data) && Array.isArray(data.tasks) && data.tasks.every(task => record(task) && Array.isArray(task.calls) && task.calls.every(record) && (task.pending == null || record(task.pending))) && Array.isArray(data.sources) && data.sources.every(record) && Array.isArray(data.gateway_errors) && data.gateway_errors.every(record) && Array.isArray(data.limitations);
+}
+
+async function refresh() {
+  if (inFlight) return;
+  clearTimeout(timer);
+  inFlight = true;
+  const startedAt = Date.now();
+  $('refresh').disabled = true;
+  $('refresh').textContent = '刷新中…';
+  $('calls').setAttribute('aria-busy', 'true');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch('/api/status', {method:'GET', cache:'no-store', headers:{Accept:'application/json'}, signal:controller.signal});
+    if (!response.ok) throw new Error('HTTP_' + response.status);
+    let data;
+    try { data = await response.json(); } catch (error) { if (error.name === 'AbortError') throw error; throw new Error('INVALID_JSON'); }
+    if (!validSnapshot(data)) throw new Error('INVALID_SNAPSHOT');
+    snapshot = data;
+    if (finite(data.interval_s) && data.interval_s > 0) interval = Math.max(1, data.interval_s);
+    lastReceivedAt = Date.now() / 1000;
+    failure = null;
+    renderSnapshot();
+  } catch (error) {
+    failure = error.name === 'AbortError' ? 'FETCH_TIMEOUT' : /^HTTP_\d+$|^INVALID_JSON$|^INVALID_SNAPSHOT$/.test(error.message) ? error.message : 'FETCH_FAILED';
+    renderFreshness();
+    if (!snapshot) {
+      $('calls').firstElementChild.firstElementChild.textContent = '暂无可用快照。接口恢复后将自动显示数据。';
+      $('sources').replaceChildren(node('p', '采集源健康未知：监控接口尚未成功返回。', 'source'));
+      $('pending').replaceChildren(node('li', '任务状态未知：暂无可用快照。', 'hint'));
+      $('events').replaceChildren(node('li', '网关事件未知：暂无可用快照。', 'hint'));
+    }
+  } finally {
+    clearTimeout(timeout);
+    inFlight = false;
+    $('refresh').disabled = false;
+    $('refresh').textContent = '立即刷新';
+    $('calls').setAttribute('aria-busy', 'false');
+    timer = setTimeout(refresh, Math.max(1000, interval * 1000 - (Date.now() - startedAt)));
+  }
+}
+
+$('refresh').addEventListener('click', refresh);
+$('task-filter').addEventListener('input', () => { if (snapshot) renderCalls(); });
+function setTheme(dark) {
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  $('theme').textContent = dark ? '浅色模式' : '深色模式';
+  $('theme').setAttribute('aria-pressed', String(dark));
+  $('theme').setAttribute('aria-label', dark ? '切换为浅色模式' : '切换为深色模式');
+}
+setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
+$('theme').addEventListener('click', () => setTheme(document.documentElement.dataset.theme !== 'dark'));
+setInterval(() => { renderFreshness(); if (snapshot) renderSources(); }, 5000);
+refresh();
+</script>
+</body>
+</html>

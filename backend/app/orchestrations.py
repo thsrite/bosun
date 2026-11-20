@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from . import acceptance, db, delivery_checks, engine_settings, events, scheduler, specialist
+from . import acceptance, db, delivery_checks, engine_settings, events, scheduler, specialist, workflow_policy
 from .engines import CODING_ENGINES, normalize_engine_id
 
 MIN_STEPS = 2
@@ -342,12 +342,13 @@ def _insert_step(conn, run, snapshot: dict, position: int, now: float) -> int:
     if position == 1:
         input_artifact = run["original_prompt"]
     title = f"{run['title'] or run['original_prompt'][:40]} · {step['name']}"
+    root_task_id = run["root_task_id"] if "root_task_id" in run.keys() else None
     task_cur = conn.execute(
-        "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,created_at) "
-        "VALUES(?,?,?,?,?,?,?,'queued',?)",
+        "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,created_at,parent_task_id,orchestration_run_id) "
+        "VALUES(?,?,?,?,?,?,?,'queued',?,?,?)",
         (
             run["project_id"], step["engine"], prompt, title, run["priority"],
-            run["auto_approve"], "orchestration", now,
+            run["auto_approve"], "orchestration", now, root_task_id, run["id"],
         ),
     )
     task_id = task_cur.lastrowid
@@ -438,6 +439,23 @@ def create_run(
                 ),
             )
             run_id = cur.lastrowid
+            # 为本次编排建立唯一的「编排主任务」，后续各角色步骤均作为其 Bosun 子任务挂在下面
+            root_title = (title or "").strip() or f"{snapshot['name']} · {clean_prompt[:32]}"
+            root_engine = snapshot["steps"][0]["engine"]
+            root_cur = conn.execute(
+                "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,created_at,started_at,orchestration_run_id) "
+                "VALUES(?,?,?,?,?,?,?,'draft',?,?,?)",
+                (
+                    project_id, root_engine, clean_prompt, root_title,
+                    max(1, min(10, int(priority))), int(auto_approve), "orchestration",
+                    now, now if start else None, run_id,
+                ),
+            )
+            root_task_id = root_cur.lastrowid
+            conn.execute(
+                "UPDATE orchestration_run SET root_task_id=? WHERE id=?",
+                (root_task_id, run_id),
+            )
             task_ids = []
             if start:
                 run = conn.execute("SELECT * FROM orchestration_run WHERE id=?", (run_id,)).fetchone()
@@ -549,10 +567,49 @@ def run_trace(run_id: int) -> dict:
                         "a.step_run_id WHERE s.run_id=? ORDER BY s.position,a.attempt", (run_id,))
     checks = db.query("SELECT c.*,s.position,r.outcomes FROM delivery_check c" + join +
                       "c.step_id LEFT JOIN delivery_report r ON r.receipt=c.id WHERE s.run_id=? ORDER BY c.id DESC", (run_id,))
-    return {"run": run, "messages": list_messages(run_id),
-            "decisions": [dict(d, receipts=json.loads(d["receipts"])) for d in decisions],
-            "archives": [dict(a) for a in archives],
-            "checks": [dict(c, items=json.loads(c["items"]), outcomes=json.loads(c["outcomes"] or "null")) for c in checks]}
+    base = {
+        "run": run,
+        "messages": list_messages(run_id),
+        "decisions": [dict(d, receipts=json.loads(d["receipts"])) for d in decisions],
+        "archives": [dict(a) for a in archives],
+        "checks": [dict(c, items=json.loads(c["items"]), outcomes=json.loads(c["outcomes"] or "null")) for c in checks],
+    }
+    policy = workflow_policy.get_project_policy(run["project_id"])
+    signoffs = workflow_policy.list_signoffs(run_id)
+    base["policy"] = policy
+    base["signoffs"] = signoffs
+    base["graph"] = workflow_policy.build_workflow_graph(base, policy, signoffs)
+    return base
+
+
+def record_signoff(run_id: int, decision: str, signer: str = "产品负责人", comment: str = "") -> dict:
+    """记录产品/负责人的验收卡签收或退回意见（纯审计落库，不盲操作底层终端）。"""
+    if decision not in ("approved", "rejected_impl", "rejected_spec"):
+        raise OrchestrationError("签收结论须为 approved、rejected_impl 或 rejected_spec", 400)
+    run = get_run(run_id)
+    clean_signer = (signer or "产品负责人").strip()[:80] or "产品负责人"
+    clean_comment = (comment or "").strip()[:2000]
+    if decision != "approved" and not clean_comment:
+        raise OrchestrationError("退回时请填写具体不符合预期的位置或说明", 400)
+    commit_sha = ""
+    if run.get("acceptance") and run["acceptance"].get("version"):
+        commit_sha = str(run["acceptance"]["version"])
+    now = time.time()
+    signoff_id = db.execute(
+        "INSERT INTO orchestration_signoff(run_id,commit_sha,decision,signer,comment,created_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (run_id, commit_sha, decision, clean_signer, clean_comment, now),
+    )
+    events.emit("orchestration.run", {"run_id": run_id})
+    return {
+        "id": signoff_id,
+        "run_id": run_id,
+        "commit_sha": commit_sha,
+        "decision": decision,
+        "signer": clean_signer,
+        "comment": clean_comment,
+        "created_at": now,
+    }
 
 
 def record_rejection(task_id, requested, reason):
@@ -637,6 +694,16 @@ def acceptance_verdict(task_id: int, artifact: str | None = None) -> dict | None
                     if snapshot.get("specialist_checks"):
                         project = db.query_one("SELECT path FROM project WHERE id=?", (run["project_id"],))
                         specialist.check_scope(project["path"], spec, version, data)
+                        policy = workflow_policy.get_project_policy(run["project_id"])
+                        if policy.get("diff_integrity_gate") and spec.get("baseline"):
+                            allowed_globs = spec.get("allowed_write_globs")
+                            if not isinstance(allowed_globs, list):
+                                allowed_globs = None
+                            integrity = workflow_policy.scan_diff_integrity(
+                                project["path"], spec["baseline"], version, allowed_globs
+                            )
+                            if integrity["checked"] and not integrity["passed"]:
+                                raise ValueError("Diff 完整性护栏未通过：" + integrity["summary"])
                     checks = delivery_checks.results(step, spec, version, snapshot.get("specialist_checks"))
                     missing = [row for row in checks if row["status"] != "通过"]
                     if missing:

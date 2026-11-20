@@ -1,5 +1,6 @@
 export interface Project {
   id: number;
+  hidden: boolean;
   name: string;
   path: string;
   task_total: number;
@@ -70,6 +71,7 @@ export interface Task {
   report_result?: "done" | "failed" | "needs_input" | null;
   // 受控子任务的父任务 id；非空表示这是某个任务派生出来的子任务
   parent_task_id?: number | null;
+  orchestration_run_id?: number | null;
   report_summary?: string | null;
 }
 
@@ -147,6 +149,82 @@ export interface OrchestrationRun {
   steps: OrchestrationStepRun[];
 }
 
+export interface WorkflowPolicy {
+  project_id: number;
+  trust_level: number;
+  diff_integrity_gate: boolean;
+  require_product_signoff: boolean;
+  auto_merge_globs: string[];
+  level_code: string;
+  level_name: string;
+  level_summary: string;
+  updated_at: number | null;
+}
+
+export interface WorkflowSignoff {
+  id: number;
+  run_id: number;
+  commit_sha: string;
+  decision: "approved" | "rejected_impl" | "rejected_spec";
+  signer: string;
+  comment: string;
+  created_at: number;
+}
+
+export interface WorkflowGate {
+  id: string;
+  label: string;
+  status: "passed" | "failed" | "running" | "waiting" | "pending" | "skipped";
+  detail: string;
+}
+
+export interface WorkflowNode {
+  id: string;
+  kind: "system" | "agent" | "human";
+  lane: "intake" | "build" | "deliver";
+  position: number;
+  title: string;
+  subtitle: string;
+  status: string;
+  attempt: number;
+  rework_count: number;
+  duration_sec: number | null;
+  engine: string;
+  model: string;
+  task_id: number | null;
+  summary?: string | null;
+  gates: WorkflowGate[];
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: "handoff" | "rework" | "ask";
+  label: string;
+  count: number;
+  active: boolean;
+  message_ids: number[];
+}
+
+export interface WorkflowGraph {
+  lanes: { id: "intake" | "build" | "deliver"; title: string }[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  policy: WorkflowPolicy;
+  merge_policy: { mode: string; auto_merge: boolean; requires_human: boolean; reason: string };
+  signoffs: WorkflowSignoff[];
+  candidate_version: string;
+  baseline_version: string;
+  summary: { total_gates: number; passed_gates: number; failed_gates: number; rework_total: number };
+}
+
+export interface ReceiptFileItem {
+  name: string;
+  size: number;
+  kind: "image" | "json" | "text";
+}
+
 export interface RunTrace {
   run: OrchestrationRun;
   messages: (OrchestrationMessage & { acknowledged_at: number | null })[];
@@ -154,6 +232,9 @@ export interface RunTrace {
   decisions: { id: number; position: number; attempt: number; created_at: number; requested: string; result: string; reason: string; receipts: number[]; basis: string }[];
   checks: { id: number; position: number; attempt: number; version: string; host: string; command: string; state: string; detail: string;
     items: string[]; outcomes: Record<string, [string, string]> | null }[];
+  policy?: WorkflowPolicy;
+  signoffs?: WorkflowSignoff[];
+  graph?: WorkflowGraph;
 }
 
 export interface SessionHistoryMessage {

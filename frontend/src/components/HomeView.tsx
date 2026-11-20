@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, type HostMetrics } from "../api";
+import { api, showHiddenProjects, type HostMetrics } from "../api";
 import { useEngineVisible } from "../installedEngines";
 import { CHART, PIE_COLORS } from "../theme";
 import type { Project } from "../types";
@@ -136,6 +136,7 @@ export function HomeView({
   onAddProject,
   onProposals,
   onDeleteProject,
+  onToggleProjectHidden,
 }: {
   projects: Project[];
   onOpen: (id: number) => void;
@@ -143,6 +144,7 @@ export function HomeView({
   onAddProject: () => void;
   onProposals: () => void;
   onDeleteProject: (project: Project) => void;
+  onToggleProjectHidden: (project: Project) => void;
 }) {
   const [ov, setOv] = useState<any>(null);
   const [engines, setEngines] = useState<any>({});
@@ -526,6 +528,18 @@ export function HomeView({
               >
                 <div className="flex items-start gap-2">
                   <span className="min-w-0 flex-1 truncate font-semibold text-dh-text">{p.name}</span>
+                  {p.hidden && <span className="text-xs text-amber-400">已隐藏</span>}
+                  {showHiddenProjects() && <button
+                    type="button"
+                    className="shrink-0 rounded-md px-1.5 py-1 text-xs text-dh-muted hover:bg-dh-hover"
+                    title="隐藏后，可在设置中开启“显示隐藏项目”查看并取消隐藏；已有任务继续运行"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleProjectHidden(p);
+                    }}
+                  >
+                    {p.hidden ? "取消隐藏" : "隐藏"}
+                  </button>}
                   {p.running > 0 && (
                     <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-500">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
