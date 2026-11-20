@@ -481,6 +481,47 @@ def _migrate_rate_limited_tasks(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _backfill_orchestration_root_tasks(conn: sqlite3.Connection) -> None:
+    """为旧版创建的编排补建唯一主任务，并把各步骤任务收拢为它的 Bosun 子任务。重复执行安全。"""
+    if not _table_exists(conn, "orchestration_run") or not _table_exists(conn, "orchestration_step_run"):
+        return
+    runs = conn.execute(
+        "SELECT * FROM orchestration_run WHERE root_task_id IS NULL ORDER BY id ASC"
+    ).fetchall()
+    if not runs:
+        return
+    for run in runs:
+        try:
+            snap = json.loads(run["definition_snapshot"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            snap = {}
+        steps = snap.get("steps") or []
+        root_engine = (steps[0].get("engine") if steps and isinstance(steps[0], dict) else None) or "claude"
+        snap_name = snap.get("name") or "任务编排"
+        raw_prompt = (run["original_prompt"] or "").strip()
+        root_title = (run["title"] or "").strip() or f"{snap_name} · {raw_prompt[:32]}"
+        cur = conn.execute(
+            "INSERT INTO task(project_id,engine,prompt,title,priority,auto_approve,kind,status,"
+            "created_at,started_at,ended_at,orchestration_run_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                run["project_id"], root_engine, raw_prompt, root_title,
+                run["priority"], run["auto_approve"], "orchestration", run["status"],
+                run["created_at"], run["started_at"], run["ended_at"], run["id"],
+            ),
+        )
+        root_task_id = cur.lastrowid
+        conn.execute(
+            "UPDATE orchestration_run SET root_task_id=? WHERE id=?",
+            (root_task_id, run["id"]),
+        )
+        conn.execute(
+            "UPDATE task SET parent_task_id=?, orchestration_run_id=? "
+            "WHERE id IN (SELECT task_id FROM orchestration_step_run WHERE run_id=? AND task_id IS NOT NULL)",
+            (root_task_id, run["id"], run["id"]),
+        )
+    conn.commit()
+
+
 def init_db() -> None:
     with _lock:
         conn = get_conn()
@@ -490,6 +531,7 @@ def init_db() -> None:
         _migrate_engine_ids(conn)
         _migrate_rate_limited_tasks(conn)
         _clear_placeholder_prompts(conn)
+        _backfill_orchestration_root_tasks(conn)
         # 默认设置
         cur = conn.execute("SELECT value FROM setting WHERE key='max_concurrent'")
         if cur.fetchone() is None:

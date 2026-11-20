@@ -584,6 +584,106 @@ export function OrchestrationTrace({
 
       {error && <p role="alert" className="text-xs text-amber-500">读取执行记录失败 · {error}</p>}
 
+      {/* 实时 Ticket 拆分与完成进度看板 */}
+      {graph?.tickets && graph.tickets.total > 0 && (
+        <section className="rounded-xl border border-dh-bsoft bg-dh-soft/60 p-4 space-y-3" aria-label="实时任务拆分与完成进度">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-dh-text">实时任务清单（Tickets）</h3>
+              <span className="rounded-md bg-dh-surface px-2 py-0.5 text-[11px] text-dh-muted">
+                {graph.tickets.source === "explicit"
+                  ? "需求拆分"
+                  : graph.tickets.source === "acceptance"
+                    ? "按必验项映射"
+                    : "按执行子任务"}
+              </span>
+              {graph.tickets.running > 0 && (
+                <span className="rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] text-sky-400">
+                  {graph.tickets.running} 进行中
+                </span>
+              )}
+              {graph.tickets.blocked > 0 && (
+                <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-400">
+                  {graph.tickets.blocked} 待处理
+                </span>
+              )}
+              {graph.tickets.failed > 0 && (
+                <span className="rounded-md bg-rose-500/15 px-2 py-0.5 text-[11px] text-rose-400">
+                  {graph.tickets.failed} 失败
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2.5 text-xs">
+              <span className="font-medium text-dh-text">
+                已完成 {graph.tickets.done} / {graph.tickets.total}
+              </span>
+              <span className="font-mono text-dh-accent">{graph.tickets.percent}%</span>
+            </div>
+          </div>
+
+          <div className="h-2 w-full overflow-hidden rounded-full bg-dh-surface">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+              style={{ width: `${graph.tickets.percent}%` }}
+            />
+          </div>
+
+          <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+            {graph.tickets.items.map((tk) => {
+              const dotCls =
+                tk.status === "done"
+                  ? "bg-emerald-400"
+                  : tk.status === "running"
+                    ? "bg-sky-400 animate-pulse"
+                    : tk.status === "failed"
+                      ? "bg-rose-400"
+                      : tk.status === "blocked"
+                        ? "bg-amber-400"
+                        : "bg-slate-500";
+              const stLabel =
+                tk.status === "done"
+                  ? "已完成"
+                  : tk.status === "running"
+                    ? "进行中"
+                    : tk.status === "failed"
+                      ? "失败"
+                      : tk.status === "blocked"
+                        ? "待处理"
+                        : "待开始";
+              return (
+                <div
+                  key={tk.id}
+                  onClick={() => {
+                    if (tk.task_id) void openTerminalSafely(tk.task_id, tk.status);
+                  }}
+                  className={`rounded-xl border border-dh-bsoft bg-dh-surface p-3 space-y-1.5 transition ${
+                    tk.task_id ? "cursor-pointer hover:border-dh-accent" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${dotCls}`} />
+                      <span className="font-mono font-semibold text-dh-text">{tk.id}</span>
+                      {tk.owner && <span className="truncate rounded bg-dh-s2 px-1.5 py-0.5 text-[10px] text-dh-muted">{tk.owner}</span>}
+                    </div>
+                    <span className="shrink-0 text-[11px] text-dh-muted">{stLabel}</span>
+                  </div>
+                  <div className="line-clamp-2 text-[13px] font-medium leading-snug text-dh-text">
+                    {tk.title}
+                  </div>
+                  {(tk.depends_on.length > 0 || tk.detail) && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-dh-muted">
+                      {tk.depends_on.length > 0 && <span>依赖：{tk.depends_on.join("、")}</span>}
+                      {tk.detail && <span className="truncate">{tk.detail}</span>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* 交互式三泳道工作流拓扑画布 */}
       {graph && (
         <WorkflowCanvas
@@ -757,6 +857,32 @@ export function OrchestrationTrace({
           {/* Tab 2: 产物与输入输出（结构化阅读 + Markdown 排版） */}
           {tab === "io" && (
             <div className="space-y-4">
+              {graph?.artifacts && graph.artifacts.artifacts.length > 0 && (
+                <div className="rounded-xl border border-dh-bsoft bg-dh-surface p-4 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-sm font-semibold text-dh-text">共享产物目录（Blackboard · 按引用传递）</h4>
+                    <span className="font-mono text-[11px] text-dh-muted">{graph.artifacts.run_dir}</span>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {graph.artifacts.artifacts.map((art) => (
+                      <div key={`${art.position}-${art.attempt}`} className="rounded-lg border border-dh-bsoft bg-dh-soft/70 p-2.5 text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-dh-text">
+                            第 {art.position} 步 · {art.step_name}（R{art.attempt}）
+                          </span>
+                          <span className="font-mono text-[10px] text-dh-muted">
+                            {Math.max(1, Math.round(art.bytes / 1024))} KB · {art.sha}
+                          </span>
+                        </div>
+                        <p className="truncate text-dh-tsoft">{art.summary}</p>
+                        <div className="truncate font-mono text-[10px] text-dh-muted" title={art.md_path}>
+                          {art.md_path}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedNode.kind === "agent" ? (
                 <>
                   <ArtifactViewer title="交付的输出（Output Artifact）" value={step?.output_artifact} defaultOpen />

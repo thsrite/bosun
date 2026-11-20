@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 from fnmatch import fnmatchcase
+import hashlib
 import json
+from pathlib import Path
 import re
 import subprocess
 import time
 from typing import Any
 
-from . import acceptance, db, specialist
+from . import acceptance, config, db, specialist
 
 TRUST_LEVELS: dict[int, dict[str, str]] = {
     0: {
@@ -278,6 +280,228 @@ def list_signoffs(run_id: int) -> list[dict[str, Any]]:
         (run_id,),
     )
     return [dict(r) for r in rows]
+
+
+def run_workspace_dir(run_id: int) -> Path:
+    """每个编排主任务独占一个共享产物黑板目录（Pass-by-Reference 数据面）。"""
+    path = config.DATA_DIR / "runs" / f"run-{run_id}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def summarize_artifact(artifact_text: str | None, summary: str | None = None, max_chars: int = 160) -> str:
+    clean_summary = (summary or "").strip()
+    if clean_summary:
+        return clean_summary[:max_chars]
+    for raw in (artifact_text or "").splitlines():
+        line = raw.strip().lstrip("#-*>` ").strip()
+        if not line or line.startswith("```"):
+            continue
+        return line[:max_chars]
+    return "已完成本阶段产物提交"
+
+
+def persist_step_artifact(
+    run_id: int,
+    position: int,
+    attempt: int,
+    step_name: str,
+    artifact_text: str,
+    summary: str | None = None,
+) -> dict[str, Any]:
+    """将阶段产物落盘到共享黑板目录，并提取结构化 JSON 与更新 manifest.json。"""
+    base_dir = run_workspace_dir(run_id)
+    md_name = f"step-{position}-r{attempt}.md"
+    md_path = base_dir / md_name
+    raw_bytes = (artifact_text or "").encode("utf-8")
+    md_path.write_bytes(raw_bytes)
+    sha = hashlib.sha256(raw_bytes).hexdigest()[:12]
+
+    json_path_str: str | None = None
+    structured: dict[str, Any] | None = None
+    if "bosun-acceptance" in (artifact_text or ""):
+        try:
+            structured = acceptance.record(artifact_text)
+        except ValueError:
+            structured = None
+    if structured is not None:
+        json_name = f"step-{position}-r{attempt}.json"
+        json_path = base_dir / json_name
+        json_path.write_text(json.dumps(structured, ensure_ascii=False, indent=2), encoding="utf-8")
+        json_path_str = str(json_path)
+
+    entry = {
+        "position": position,
+        "attempt": attempt,
+        "step_name": step_name,
+        "md_path": str(md_path),
+        "json_path": json_path_str,
+        "bytes": len(raw_bytes),
+        "sha": sha,
+        "summary": summarize_artifact(artifact_text, summary),
+        "updated_at": time.time(),
+    }
+
+    manifest_path = base_dir / "manifest.json"
+    manifest: dict[str, Any] = {"run_id": run_id, "run_dir": str(base_dir), "artifacts": []}
+    if manifest_path.exists():
+        try:
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("artifacts"), list):
+                manifest = loaded
+        except (OSError, json.JSONDecodeError):
+            pass
+    artifacts = [
+        a for a in manifest["artifacts"]
+        if not (a.get("position") == position and a.get("attempt") == attempt)
+    ]
+    artifacts.append(entry)
+    artifacts.sort(key=lambda a: (int(a.get("position", 0)), int(a.get("attempt", 0))))
+    manifest["run_dir"] = str(base_dir)
+    manifest["artifacts"] = artifacts
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return entry
+
+
+def list_run_artifacts(run_id: int) -> dict[str, Any]:
+    base_dir = config.DATA_DIR / "runs" / f"run-{run_id}"
+    manifest_path = base_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {"run_dir": str(base_dir), "artifacts": data.get("artifacts") or []}
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {"run_dir": str(base_dir), "artifacts": []}
+
+
+def build_tickets_progress(
+    trace_data: dict[str, Any],
+    spec: dict[str, Any] | None,
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    """实时构建拆分后的 Ticket 清单与完成进度。
+
+    优先级：
+    1. 需求单显式声明的 tickets[]（结合验收表与执行状态实时更新）
+    2. 验收表中的业务必验项 rows[]
+    3. 编排拆出的各角色子任务步骤
+    """
+    run = trace_data["run"]
+    steps = run.get("steps") or []
+    planned_steps = plan.get("steps") or steps
+    actual_by_pos = {int(s["position"]): s for s in steps}
+    acceptance_rows = (run.get("acceptance") or {}).get("rows") or []
+    row_by_id = {str(r.get("id")): r for r in acceptance_rows}
+
+    def _map_row_status(st: str | None) -> str:
+        if st == "通过":
+            return "done"
+        if st == "失败":
+            return "failed"
+        return "running" if run.get("status") == "running" else "pending"
+
+    items: list[dict[str, Any]] = []
+    source = "steps"
+
+    explicit_tickets = spec.get("tickets") if isinstance(spec, dict) and isinstance(spec.get("tickets"), list) else None
+    if explicit_tickets:
+        source = "explicit"
+        for idx, raw in enumerate(explicit_tickets, 1):
+            if not isinstance(raw, dict):
+                continue
+            tid = str(raw.get("id") or f"T{idx}")
+            title = str(raw.get("title") or raw.get("name") or tid)
+            owner = str(raw.get("owner") or "开发 AI")
+            depends_on = [str(d) for d in (raw.get("depends_on") or []) if str(d).strip()]
+            criteria_ids = [str(c) for c in (raw.get("criteria_ids") or []) if str(c).strip()]
+
+            # 根据关联必验项实时推导状态
+            derived = str(raw.get("status") or "").strip().lower()
+            if derived not in ("pending", "running", "blocked", "done", "failed"):
+                if criteria_ids and row_by_id:
+                    statuses = [_map_row_status(row_by_id.get(cid, {}).get("status")) for cid in criteria_ids]
+                    if any(s == "failed" for s in statuses):
+                        derived = "failed"
+                    elif all(s == "done" for s in statuses):
+                        derived = "done"
+                    elif run.get("status") == "running":
+                        derived = "running"
+                    else:
+                        derived = "pending"
+                elif run.get("status") == "done":
+                    derived = "done"
+                elif run.get("status") == "running":
+                    derived = "running"
+                else:
+                    derived = "pending"
+
+            items.append({
+                "id": tid,
+                "title": title,
+                "owner": owner,
+                "status": derived,
+                "depends_on": depends_on,
+                "criteria_ids": criteria_ids,
+                "task_id": None,
+                "detail": str(raw.get("detail") or raw.get("scope") or ""),
+            })
+    elif acceptance_rows:
+        source = "acceptance"
+        for idx, row in enumerate(acceptance_rows, 1):
+            rid = str(row.get("id") or f"A{idx}")
+            st = _map_row_status(row.get("status"))
+            items.append({
+                "id": rid,
+                "title": str(row.get("expected") or row.get("input") or rid),
+                "owner": "验收项",
+                "status": st,
+                "depends_on": [],
+                "criteria_ids": [rid],
+                "task_id": None,
+                "detail": str(row.get("actual") or row.get("input") or ""),
+            })
+    else:
+        source = "steps"
+        for st in planned_steps:
+            pos = int(st["position"])
+            actual = actual_by_pos.get(pos)
+            raw_status = actual["status"] if actual else "pending"
+            mapped = (
+                "done" if raw_status == "done"
+                else "failed" if raw_status in ("failed", "cancelled", "interrupted")
+                else "blocked" if raw_status in ("waiting_input", "offline")
+                else "running" if raw_status in ("running", "queued")
+                else "pending"
+            )
+            items.append({
+                "id": f"S{pos}",
+                "title": str(st.get("name") or f"步骤 {pos}"),
+                "owner": str(actual["engine"] if actual else st.get("engine", "")),
+                "status": mapped,
+                "depends_on": [f"S{pos - 1}"] if pos > 1 else [],
+                "criteria_ids": [],
+                "task_id": actual["task_id"] if actual else None,
+                "detail": str((actual or {}).get("summary") or ""),
+            })
+
+    total = len(items)
+    done = sum(1 for it in items if it["status"] == "done")
+    running = sum(1 for it in items if it["status"] == "running")
+    failed = sum(1 for it in items if it["status"] == "failed")
+    blocked = sum(1 for it in items if it["status"] == "blocked")
+    percent = round(done * 100 / total) if total > 0 else 0
+    return {
+        "source": source,
+        "total": total,
+        "done": done,
+        "running": running,
+        "failed": failed,
+        "blocked": blocked,
+        "percent": percent,
+        "items": items,
+    }
 
 
 def _extract_spec_and_version(steps: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str]:
@@ -672,6 +896,8 @@ def build_workflow_graph(
         "signoffs": signoffs,
         "candidate_version": candidate_version,
         "baseline_version": (spec or {}).get("baseline", ""),
+        "tickets": build_tickets_progress(trace_data, spec, plan),
+        "artifacts": list_run_artifacts(int(run["id"])),
         "summary": {
             "total_gates": len(all_gates),
             "passed_gates": passed_gates,

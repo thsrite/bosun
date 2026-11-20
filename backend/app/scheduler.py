@@ -1142,9 +1142,19 @@ def _reconcile() -> None:
                 payload["waiting_since"] = row["waiting_since"] if row else None
             events.emit("task.status", payload)
 
+    # 编排主任务是容器任务（无独立 PTY 进程），其状态由 orchestration_run 驱动，不参与进程存活对账；
+    # 若曾被旧进程误标为 interrupted，按 orchestration_run 实时状态自动纠偏。
+    db.execute(
+        "UPDATE task SET status=(SELECT status FROM orchestration_run WHERE id=task.orchestration_run_id), "
+        "ended_at=(SELECT ended_at FROM orchestration_run WHERE id=task.orchestration_run_id) "
+        "WHERE kind='orchestration' AND parent_task_id IS NULL AND orchestration_run_id IS NOT NULL "
+        "AND deleted=0 AND status != (SELECT status FROM orchestration_run WHERE id=task.orchestration_run_id)"
+    )
+
     grace = now - 20
     rows = db.query(
         "SELECT id, log_path FROM task WHERE status IN ('running','waiting_input') AND deleted=0 "
+        "AND NOT (kind='orchestration' AND parent_task_id IS NULL AND orchestration_run_id IS NOT NULL) "
         "AND (started_at IS NULL OR started_at < ?)",
         (grace,),
     )

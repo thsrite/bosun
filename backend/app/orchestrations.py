@@ -280,11 +280,27 @@ def _render_prompt(run, snapshot: dict, step: dict, previous: list) -> tuple[str
     等 Bosun 投递消息。产物不再只在开场传递（交棒和返工意见都靠消息投递进活会话），
     但开场仍带上已有产物，避免角色掉线重拉后丢失上下文。
     """
+    run_dir = workflow_policy.run_workspace_dir(run["id"])
     if previous:
-        prior = "\n\n".join(
-            f"### 第 {item['position']} 位 · {item['name']}\n{item['output_artifact'] or '（无产物）'}"
-            for item in previous
-        )
+        parts = []
+        for item in previous:
+            raw_out = item["output_artifact"] or ""
+            if len(raw_out) > 600:
+                meta = workflow_policy.persist_step_artifact(
+                    run["id"],
+                    int(item["position"]),
+                    int(item["attempt"]) if "attempt" in item.keys() else 1,
+                    item["name"],
+                    raw_out,
+                )
+                ref = f"原文文件：{meta['md_path']}" + (f"；结构化协议：{meta['json_path']}" if meta.get("json_path") else "")
+                parts.append(
+                    f"### 第 {item['position']} 位 · {item['name']}（微型信封 · {meta['bytes']} 字节）\n"
+                    f"- 摘要：{meta['summary']}\n- {ref}\n（请使用读文件工具按需查看完整内容）"
+                )
+            else:
+                parts.append(f"### 第 {item['position']} 位 · {item['name']}\n{raw_out or '（无产物）'}")
+        prior = "\n\n".join(parts)
     else:
         prior = "（无）"
     active = run["current_position"] == step["position"]
@@ -299,6 +315,7 @@ def _render_prompt(run, snapshot: dict, step: dict, previous: list) -> tuple[str
         )
     prompt = f"""【Bosun 编排控制信息】
 编排：{snapshot['name']}
+共享产物目录：{run_dir}
 班组成员：
 {_roster(snapshot)}
 你的位置：第 {step['position']} 位 · {step['name']}
@@ -642,6 +659,12 @@ def save_task_artifact(task_id: int, artifact: str) -> dict:
     )
     if changed == 0:
         raise OrchestrationError("当前编排步骤已结束，不能再提交产物", 409)
+    try:
+        workflow_policy.persist_step_artifact(
+            step["run_id"], int(step["position"]), int(step["attempt"]), step["name"], artifact
+        )
+    except OSError:
+        pass
     events.emit("orchestration.run", {"run_id": step["run_id"]})
     return {"ok": True, "bytes": size}
 
@@ -817,9 +840,26 @@ def _set_baton(conn, run_id: int, position: int, now: float) -> None:
 
 def _handoff_body(step, snapshot: dict, output: str | None) -> str:
     total = len(snapshot["steps"])
+    text = output or ""
+    if len(text) > 600:
+        try:
+            meta = workflow_policy.persist_step_artifact(
+                int(step["run_id"]), int(step["position"]), int(step["attempt"]), step["name"], text, step["summary"]
+            )
+            refs = [f"- 原文产物：{meta['md_path']}"]
+            if meta.get("json_path"):
+                refs.append(f"- 结构化协议：{meta['json_path']}")
+            return (
+                f"【Bosun 交棒 · 微型信封】第 {step['position']}/{total} 位 · {step['name']} 已完成（{meta['bytes']} 字节）。\n"
+                f"摘要：{meta['summary']}\n"
+                + "\n".join(refs) + "\n"
+                "请使用读文件工具按需读取上述产物并开始你这一环的工作；完成后提交阶段产物并回报 done。"
+            )
+        except OSError:
+            pass
     return (
         f"【Bosun 交棒】第 {step['position']}/{total} 位 · {step['name']} 已完成，接力棒交给你。\n"
-        f"上一位的阶段产物：\n---\n{(output or '（无产物）')}\n---\n"
+        f"上一位的阶段产物：\n---\n{(text or '（无产物）')}\n---\n"
         f"请开始你这一环的工作；完成后提交阶段产物并回报 done。"
     )
 

@@ -6,11 +6,16 @@ import json
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 import zipfile
 from unittest.mock import patch
+
+ROOT = str(Path(__file__).resolve().parents[2])
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from fastapi.testclient import TestClient
 
@@ -21,7 +26,10 @@ class WhiteboxWorkflowTest(unittest.TestCase):
         self.repo_dir = Path(self.tmp.name) / "repo"
         self.repo_dir.mkdir(parents=True, exist_ok=True)
 
-        from backend.app import db, main
+        from backend.app import config, db, main
+        self._old_data_dir = config.DATA_DIR
+        config.DATA_DIR = Path(self.tmp.name) / "data"
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
         self._old_conn = db._conn
         self.conn = sqlite3.connect(":memory:", check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -37,6 +45,8 @@ class WhiteboxWorkflowTest(unittest.TestCase):
         )
 
     def tearDown(self):
+        from backend.app import config
+        config.DATA_DIR = self._old_data_dir
         self.conn.close()
         self.db._conn = self._old_conn
         self.tmp.cleanup()
@@ -175,7 +185,7 @@ class WhiteboxWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(rej.status_code, 200)
 
-        # 读取 trace，检查 graph 结构
+        # 读取 trace，检查 graph 结构、tickets 进度与 artifacts 索引
         trace_res = self.client.get(f"/api/orchestration-runs/{run['id']}/trace")
         self.assertEqual(trace_res.status_code, 200)
         trace = trace_res.json()
@@ -185,6 +195,17 @@ class WhiteboxWorkflowTest(unittest.TestCase):
         edge_ids = {e["id"] for e in graph["edges"]}
         self.assertIn("e:rework:3->2", edge_ids)
         self.assertIn("e:signoff:rejected_impl", edge_ids)
+        self.assertIn("tickets", graph)
+        self.assertEqual(graph["tickets"]["total"], 4)
+        self.assertIn("artifacts", graph)
+
+        # 验证超长阶段产物走「共享黑板落盘 + 微型信封交棒」
+        long_artifact = "# 需求单\n" + ("详细背景说明 " * 200)
+        step1 = self.db.query_one("SELECT * FROM orchestration_step_run WHERE run_id=? AND position=1", (run["id"],))
+        handoff = orchestrations._handoff_body(step1, json.loads(run["definition_snapshot"]), long_artifact)
+        self.assertIn("微型信封", handoff)
+        self.assertIn("step-1-r1.md", handoff)
+        self.assertLess(len(handoff), 500)
 
         # 证据文件列表与读取
         files_res = self.client.get(f"/api/orchestration-runs/{run['id']}/receipts/{receipt_id}/files")

@@ -207,6 +207,40 @@ export interface WorkflowEdge {
   message_ids: number[];
 }
 
+export interface WorkflowTicket {
+  id: string;
+  title: string;
+  owner: string;
+  status: "pending" | "running" | "blocked" | "done" | "failed";
+  depends_on: string[];
+  criteria_ids: string[];
+  task_id: number | null;
+  detail: string;
+}
+
+export interface WorkflowTicketsProgress {
+  source: "explicit" | "acceptance" | "steps";
+  total: number;
+  done: number;
+  running: number;
+  failed: number;
+  blocked: number;
+  percent: number;
+  items: WorkflowTicket[];
+}
+
+export interface WorkflowArtifactEntry {
+  position: number;
+  attempt: number;
+  step_name: string;
+  md_path: string;
+  json_path: string | null;
+  bytes: number;
+  sha: string;
+  summary: string;
+  updated_at: number;
+}
+
 export interface WorkflowGraph {
   lanes: { id: "intake" | "build" | "deliver"; title: string }[];
   nodes: WorkflowNode[];
@@ -216,6 +250,8 @@ export interface WorkflowGraph {
   signoffs: WorkflowSignoff[];
   candidate_version: string;
   baseline_version: string;
+  tickets?: WorkflowTicketsProgress;
+  artifacts?: { run_dir: string; artifacts: WorkflowArtifactEntry[] };
   summary: { total_gates: number; passed_gates: number; failed_gates: number; rework_total: number };
 }
 
